@@ -122,7 +122,7 @@ def generate_terminal_url_anchor(url, url_text="Link"):
 @click.command()
 @click.option("--organization", "-o", help="One or multiple organizations to report on")
 @click.option("--repo-filter", "-r", help="Filter for specific repp(s)")
-@click.version_option(version="0.0.1")
+@click.version_option(package_name="breakfast")
 def breakfast(organization, repo_filter):
     if SECRET_GITHUB_TOKEN == None:
         click.echo(click.style("GITHUB_TOKEN not set in environment - exiting...", fg="red", bold=True))

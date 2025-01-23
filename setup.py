@@ -8,7 +8,7 @@ with open("requirements.txt") as f:
 
 setup(
     name="breakfast",
-    version="0.0.1",
+    version="0.1.0",
     description="A tool to help you start your day",
     py_modules=["breakfast"],
     entry_points={

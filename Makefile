@@ -10,6 +10,7 @@ activate: .venv
 	. .venv/bin/activate
 
 build: activate
+	git mkver patch
 	shiv -c breakfast -o breakfast .
 
 breakfast: build

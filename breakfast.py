@@ -2,6 +2,7 @@
 
 import os
 import random
+import sys
 
 import click
 import requests
@@ -118,14 +119,14 @@ def click_colour_grade_number(num):
 def generate_terminal_url_anchor(url, url_text="Link"):
     return f"\033]8;;{url}\033\\{url_text}\033]8;;\033\\"
 
-
 @click.command()
 @click.option("--organization", "-o", help="One or multiple organizations to report on")
 @click.option("--repo-filter", "-r", help="Filter for specific repp(s)")
+@click.version_option(package_name="breakfast")
 def breakfast(organization, repo_filter):
     if SECRET_GITHUB_TOKEN == None:
         click.echo(click.style("GITHUB_TOKEN not set in environment - exiting...", fg="red", bold=True))
-
+        sys.exit(1)
     # grab all the pull requests we are interested in
     prs = get_github_prs(organization, repo_filter)
 
@@ -134,6 +135,14 @@ def breakfast(organization, repo_filter):
     for pr in prs:
         url_parts = pr.split("/")
         pr_detail = make_github_api_request(f"/repos/{url_parts[3]}/{url_parts[4]}/pulls/{url_parts[6]}")
+
+        # For compat with python versions < 3.12 - f-strings get more powerful after this
+        # until then, we'll preformat some of the strings in advance
+        mergable = "✅" if pr_detail["mergeable"] else "❌"
+        mergable_state = pr_detail["mergeable_state"]
+        adds = click.style("+"+str(pr_detail["additions"]), fg="green", bold=True)
+        subs = click.style("-"+str(pr_detail['deletions']), fg="red", bold=True)
+
         pr_data.append({
                     "Repo": url_parts[4],
                     "PR Title": pr_detail["title"],
@@ -141,9 +150,9 @@ def breakfast(organization, repo_filter):
                     "State": pr_detail["state"],
                     "Files": click_colour_grade_number(pr_detail["changed_files"]),
                     "Commits": click_colour_grade_number(pr_detail["commits"]),
-                    "+/-": f"{click.style(f"+{pr_detail["additions"]}", fg="green", bold=True)}/{click.style(f"-{pr_detail['deletions']}", fg="red", bold=True)}",
+                    "+/-": f"{adds}/{subs}",
                     "Comments": click_colour_grade_number(pr_detail["review_comments"]),
-                    "Mergeable?": f"{"✅" if pr_detail["mergeable"] else "❌"} ({pr_detail["mergeable_state"]})",
+                    "Mergeable?": f"{mergable} ({mergable_state})",
                     "Link": generate_terminal_url_anchor(pr_detail["html_url"],f"PR-{pr_detail['number']}")
                 })
         click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False)

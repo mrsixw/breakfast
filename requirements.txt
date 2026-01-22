@@ -1,5 +1,0 @@
-click
-tabulate
-aiohttp
-requests
-shiv

@@ -9,8 +9,8 @@ if git rev-parse -q --verify "refs/tags/v${version}"; then
   git mkver patch >/dev/null
   version=$(python utils/read_version.py)
   git add pyproject.toml
-  git commit -m "chore: bump version to ${version}"
-  git push
+  git commit -m "chore: bump version to ${version}" >/dev/null
+  git push >/dev/null
 fi
 
 echo "${version}"

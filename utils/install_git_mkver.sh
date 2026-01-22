@@ -2,24 +2,15 @@
 set -euo pipefail
 
 api_url="https://api.github.com/repos/idc101/git-mkver/releases/latest"
-auth_token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
 
-asset_url=$(AUTH_TOKEN="${auth_token}" python - <<'PY'
+asset_url=$(python - <<'PY'
 import json
 import sys
-import os
-from urllib.request import Request, urlopen
+from urllib.request import urlopen
 
 api_url = "https://api.github.com/repos/idc101/git-mkver/releases/latest"
-auth_token = os.getenv("AUTH_TOKEN", "")
 
-request = Request(api_url)
-if auth_token:
-    request.add_header("Authorization", f"Bearer {auth_token}")
-    request.add_header("X-GitHub-Api-Version", "2022-11-28")
-    request.add_header("Accept", "application/vnd.github+json")
-
-with urlopen(request) as response:
+with urlopen(api_url) as response:
     data = json.load(response)
 
 assets = data.get("assets", [])

@@ -152,9 +152,7 @@ def normalize_ignore_authors(ignore_authors):
     if not ignore_authors:
         return set()
     return {
-        author.strip().lower()
-        for author in ignore_authors
-        if author and author.strip()
+        author.strip().lower() for author in ignore_authors if author and author.strip()
     }
 
 

@@ -26,3 +26,4 @@
 ## Code Quality
 - Use `ruff` (lint + import sorting) and `black` (formatting).
 - Prefer running checks via CI and pre-commit hooks where possible.
+- Before committing and pushing changes, run tests, `ruff`, and `black` locally.

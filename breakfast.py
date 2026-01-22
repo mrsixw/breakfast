@@ -95,7 +95,7 @@ def make_paginated_github_graphql_request():
     pass
 
 
-def get_github_prs(organization, repo_filter):
+def get_github_prs(organization, repo_filter, ignore_author=None):
     base_query = """
     query($organization: String!, $cursor: String){
       organization(login: $organization){
@@ -104,13 +104,16 @@ def get_github_prs(organization, repo_filter):
             name
             pullRequests(first:100,states: [OPEN]){
                 nodes{
-                    url                 
+                    url
+                    author {
+                        login
+                    }
                  }
             }
           }
           pageInfo {
             endCursor
-            hasNextPage            
+            hasNextPage
           }
         }
       }
@@ -131,11 +134,16 @@ def get_github_prs(organization, repo_filter):
         click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False)
     click.echo("...Done")
 
+    ignore_author_normalized = ignore_author.lower() if ignore_author else None
     prs = []
     for response in gql_responses:
         for repo in response["data"]["organization"]["repositories"]["nodes"]:
             if repo_filter in repo["name"]:
                 for pr in repo["pullRequests"]["nodes"]:
+                    if ignore_author_normalized:
+                        author_login = (pr.get("author") or {}).get("login", "")
+                        if author_login.lower() == ignore_author_normalized:
+                            continue
                     prs.append(pr["url"])
     return prs
 
@@ -159,14 +167,21 @@ def generate_terminal_url_anchor(url, url_text="Link"):
 @click.command()
 @click.option("--organization", "-o", help="One or multiple organizations to report on")
 @click.option("--repo-filter", "-r", help="Filter for specific repp(s)")
+@click.option(
+    "--ignore-author",
+    help=(
+        "Ignore PRs raised by a specific author (case-insensitive), "
+        "e.g. dependabot[bot]"
+    ),
+)
 @click.version_option(package_name="breakfast")
-def breakfast(organization, repo_filter):
+def breakfast(organization, repo_filter, ignore_author):
     if SECRET_GITHUB_TOKEN is None:
         message = "GITHUB_TOKEN not set in environment - exiting..."
         click.echo(click.style(message, fg="red", bold=True))
         sys.exit(1)
     # grab all the pull requests we are interested in
-    prs = get_github_prs(organization, repo_filter)
+    prs = get_github_prs(organization, repo_filter, ignore_author=ignore_author)
 
     pr_data = []
     click.echo(f"Processing {repo_filter} PRs...", nl=False)

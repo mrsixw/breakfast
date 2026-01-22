@@ -9,7 +9,7 @@ activate: .venv
 	. .venv/bin/activate
 
 build: activate
-	shiv -c breakfast -o breakfast .
+	uv run shiv -c breakfast -o breakfast .
 
 version-bump:
 	git mkver patch

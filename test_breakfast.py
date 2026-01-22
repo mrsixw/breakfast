@@ -185,6 +185,7 @@ def test_cli_outputs_table(monkeypatch):
 
     def fake_api_request(_path):
         return {
+            "base": {"repo": {"name": "repo"}},
             "mergeable": True,
             "mergeable_state": "clean",
             "additions": 5,

@@ -1,6 +1,6 @@
 import click
-import pytest
 from click.testing import CliRunner
+import pytest
 
 import breakfast
 
@@ -62,13 +62,23 @@ def test_get_github_prs_filters_and_paginates(monkeypatch):
                             {
                                 "name": "app-one",
                                 "pullRequests": {
-                                    "nodes": [{"url": "https://example.com/app-one/1"}]
+                                    "nodes": [
+                                        {
+                                            "url": "https://example.com/app-one/1",
+                                            "author": {"login": "alice"},
+                                        }
+                                    ]
                                 },
                             },
                             {
                                 "name": "other",
                                 "pullRequests": {
-                                    "nodes": [{"url": "https://example.com/other/2"}]
+                                    "nodes": [
+                                        {
+                                            "url": "https://example.com/other/2",
+                                            "author": {"login": "bob"},
+                                        }
+                                    ]
                                 },
                             },
                         ],
@@ -85,7 +95,12 @@ def test_get_github_prs_filters_and_paginates(monkeypatch):
                             {
                                 "name": "app-two",
                                 "pullRequests": {
-                                    "nodes": [{"url": "https://example.com/app-two/3"}]
+                                    "nodes": [
+                                        {
+                                            "url": "https://example.com/app-two/3",
+                                            "author": {"login": "carol"},
+                                        }
+                                    ]
                                 },
                             }
                         ],
@@ -111,6 +126,46 @@ def test_get_github_prs_filters_and_paginates(monkeypatch):
     ]
 
 
+def test_get_github_prs_ignore_author(monkeypatch):
+    response = {
+        "data": {
+            "organization": {
+                "repositories": {
+                    "nodes": [
+                        {
+                            "name": "app-one",
+                            "pullRequests": {
+                                "nodes": [
+                                    {
+                                        "url": "https://example.com/app-one/1",
+                                        "author": {"login": "dependabot[bot]"},
+                                    },
+                                    {
+                                        "url": "https://example.com/app-one/2",
+                                        "author": {"login": "alice"},
+                                    },
+                                ]
+                            },
+                        }
+                    ],
+                    "pageInfo": {"endCursor": "cursor-1", "hasNextPage": False},
+                }
+            }
+        }
+    }
+
+    monkeypatch.setattr(
+        breakfast,
+        "make_github_graphql_request",
+        lambda _query, _variables: response,
+    )
+    monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
+
+    prs = breakfast.get_github_prs("org", "app", ignore_author="Dependabot[Bot]")
+
+    assert prs == ["https://example.com/app-one/2"]
+
+
 def test_cli_exits_when_token_missing(monkeypatch):
     monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", None)
     runner = CliRunner()
@@ -125,7 +180,7 @@ def test_cli_outputs_table(monkeypatch):
     monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
 
-    def fake_get_prs(_org, _repo_filter):
+    def fake_get_prs(_org, _repo_filter, ignore_author=None):
         return ["https://github.com/org/repo/pull/1"]
 
     def fake_api_request(_path):

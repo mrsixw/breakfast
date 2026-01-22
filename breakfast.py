@@ -103,7 +103,7 @@ def make_paginated_github_graphql_request():
     pass
 
 
-def get_github_prs(organization, repo_filter, ignore_author=None):
+def get_github_prs(organization, repo_filter):
     base_query = """
     query($organization: String!, $cursor: String){
       organization(login: $organization){
@@ -113,9 +113,6 @@ def get_github_prs(organization, repo_filter, ignore_author=None):
             pullRequests(first:100,states: [OPEN]){
                 nodes{
                     url
-                    author {
-                        login
-                    }
                  }
             }
           }
@@ -142,18 +139,37 @@ def get_github_prs(organization, repo_filter, ignore_author=None):
         click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False)
     click.echo("...Done")
 
-    ignore_author_normalized = ignore_author.lower() if ignore_author else None
     prs = []
     for response in gql_responses:
         for repo in response["data"]["organization"]["repositories"]["nodes"]:
             if repo_filter in repo["name"]:
                 for pr in repo["pullRequests"]["nodes"]:
-                    if ignore_author_normalized:
-                        author_login = (pr.get("author") or {}).get("login", "")
-                        if author_login.lower() == ignore_author_normalized:
-                            continue
                     prs.append(pr["url"])
     return prs
+
+
+def normalize_ignore_authors(ignore_authors):
+    if not ignore_authors:
+        return set()
+    return {
+        author.strip().lower()
+        for author in ignore_authors
+        if author and author.strip()
+    }
+
+
+def filter_pr_details(pr_details, ignore_authors):
+    ignore_set = normalize_ignore_authors(ignore_authors)
+    if not ignore_set:
+        return pr_details
+
+    filtered = []
+    for pr_detail in pr_details:
+        author_login = pr_detail.get("user", {}).get("login", "")
+        if author_login.lower() in ignore_set:
+            continue
+        filtered.append(pr_detail)
+    return filtered
 
 
 def click_colour_grade_number(num):
@@ -177,9 +193,10 @@ def generate_terminal_url_anchor(url, url_text="Link"):
 @click.option("--repo-filter", "-r", help="Filter for specific repp(s)")
 @click.option(
     "--ignore-author",
+    multiple=True,
     help=(
-        "Ignore PRs raised by a specific author (case-insensitive), "
-        "e.g. dependabot[bot]"
+        "Ignore PRs raised by one or more authors (case-insensitive). "
+        "Repeat for multiple authors, e.g. --ignore-author dependabot[bot]."
     ),
 )
 @click.version_option(package_name="breakfast")
@@ -189,7 +206,7 @@ def breakfast(organization, repo_filter, ignore_author):
         click.echo(click.style(message, fg="red", bold=True))
         sys.exit(1)
     # grab all the pull requests we are interested in
-    prs = get_github_prs(organization, repo_filter, ignore_author=ignore_author)
+    prs = get_github_prs(organization, repo_filter)
 
     pr_data = []
     click.echo(f"Processing {repo_filter} PRs...", nl=False)
@@ -198,6 +215,7 @@ def breakfast(organization, repo_filter, ignore_author):
         max_workers = min(8, len(prs))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             pr_details = list(executor.map(_fetch_pr_detail, prs))
+    pr_details = filter_pr_details(pr_details, ignore_author)
     for pr_detail in pr_details:
 
         # For compat with python versions < 3.12, f-strings get more powerful.

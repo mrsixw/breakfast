@@ -2,6 +2,7 @@
 
 ## Work Items
 - This project uses GitHub issues (not Jira). Reference the GitHub issue number in branch names and PR titles.
+- Branch names should include the issue number and a short description (e.g., `issue-26_filter_pr_authors`).
 
 ## Commit Messages
 - Use Conventional Commits (e.g., `feat: ...`, `fix: ...`, `chore: ...`, `docs: ...`, `refactor: ...`, `test: ...`, `ci: ...`).

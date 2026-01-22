@@ -65,7 +65,6 @@ def test_get_github_prs_filters_and_paginates(monkeypatch):
                                     "nodes": [
                                         {
                                             "url": "https://example.com/app-one/1",
-                                            "author": {"login": "alice"},
                                         }
                                     ]
                                 },
@@ -76,7 +75,6 @@ def test_get_github_prs_filters_and_paginates(monkeypatch):
                                     "nodes": [
                                         {
                                             "url": "https://example.com/other/2",
-                                            "author": {"login": "bob"},
                                         }
                                     ]
                                 },
@@ -98,7 +96,6 @@ def test_get_github_prs_filters_and_paginates(monkeypatch):
                                     "nodes": [
                                         {
                                             "url": "https://example.com/app-two/3",
-                                            "author": {"login": "carol"},
                                         }
                                     ]
                                 },
@@ -126,44 +123,19 @@ def test_get_github_prs_filters_and_paginates(monkeypatch):
     ]
 
 
-def test_get_github_prs_ignore_author(monkeypatch):
-    response = {
-        "data": {
-            "organization": {
-                "repositories": {
-                    "nodes": [
-                        {
-                            "name": "app-one",
-                            "pullRequests": {
-                                "nodes": [
-                                    {
-                                        "url": "https://example.com/app-one/1",
-                                        "author": {"login": "dependabot[bot]"},
-                                    },
-                                    {
-                                        "url": "https://example.com/app-one/2",
-                                        "author": {"login": "alice"},
-                                    },
-                                ]
-                            },
-                        }
-                    ],
-                    "pageInfo": {"endCursor": "cursor-1", "hasNextPage": False},
-                }
-            }
-        }
-    }
+def test_filter_pr_details_ignores_authors():
+    pr_details = [
+        {"user": {"login": "dependabot[bot]"}},
+        {"user": {"login": "alice"}},
+        {"user": {"login": "bob"}},
+    ]
 
-    monkeypatch.setattr(
-        breakfast,
-        "make_github_graphql_request",
-        lambda _query, _variables: response,
+    filtered = breakfast.filter_pr_details(
+        pr_details,
+        ignore_authors=["Dependabot[Bot]", "bob"],
     )
-    monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
 
-    prs = breakfast.get_github_prs("org", "app", ignore_author="Dependabot[Bot]")
-
-    assert prs == ["https://example.com/app-one/2"]
+    assert filtered == [{"user": {"login": "alice"}}]
 
 
 def test_cli_exits_when_token_missing(monkeypatch):
@@ -180,7 +152,7 @@ def test_cli_outputs_table(monkeypatch):
     monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
 
-    def fake_get_prs(_org, _repo_filter, ignore_author=None):
+    def fake_get_prs(_org, _repo_filter):
         return ["https://github.com/org/repo/pull/1"]
 
     def fake_api_request(_path):

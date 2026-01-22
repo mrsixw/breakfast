@@ -6,6 +6,7 @@
 
 ## Pull Requests
 - Include the issue number in PR titles (e.g., `#7: Split test deps and migrate to uv`).
+- Ensure CI is green before requesting review or merging PRs.
 
 ## mkver Usage
 - `git mkver patch` mutates the version file; avoid running it as part of routine local builds on feature branches.

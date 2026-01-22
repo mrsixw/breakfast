@@ -138,6 +138,14 @@ def test_filter_pr_details_ignores_authors():
     assert filtered == [{"user": {"login": "alice"}}]
 
 
+def test_normalize_ignore_authors_multiple():
+    ignore_authors = [" Dependabot[Bot] ", "", "ALICE", "alice", None, "bob"]
+
+    result = breakfast.normalize_ignore_authors(ignore_authors)
+
+    assert result == {"dependabot[bot]", "alice", "bob"}
+
+
 def test_cli_exits_when_token_missing(monkeypatch):
     monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", None)
     runner = CliRunner()

@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+permissions: read-all
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Run tests
+        run: make test
+
+  release:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Install git-mkver
+        run: |
+          uv tool install git-mkver
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Fetch tags
+        run: git fetch --tags
+
+      - name: Read version
+        id: version
+        run: echo "version=$(python utils/read_version.py)" >> "$GITHUB_OUTPUT"
+
+      - name: Bump version if tag exists
+        id: bump
+        run: |
+          version="$(utils/bump_version_if_tag_exists.sh "${{ steps.version.outputs.version }}")"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Build binary
+        run: make release
+
+      - name: Create release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: utils/create_release.sh "${{ steps.bump.outputs.version }}"

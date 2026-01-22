@@ -6,6 +6,7 @@
 
 ## Pull Requests
 - Include the issue number in PR titles (e.g., `#7: Split test deps and migrate to uv`).
+- Ensure CI is green before requesting review or merging PRs.
 
 ## mkver Usage
 - `git mkver patch` mutates the version file; avoid running it as part of routine local builds on feature branches.
@@ -16,6 +17,7 @@
 - CI should run tests on pull requests and pushes.
 - On merges to `main`, create a release and tag; ensure the version is bumped before release.
 - Add a sanity check: if a tag already exists for the current version, run `git mkver patch` to bump it before releasing.
+- Prefer using Makefile targets for CI steps (add targets as needed to keep local/CI workflows consistent).
 
 ## Code Quality
 - Use `ruff` (lint + import sorting) and `black` (formatting).

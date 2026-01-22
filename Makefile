@@ -2,9 +2,8 @@
 SHELL = /bin/bash
 
 .venv:
-	python3 -m venv .venv
-	. .venv/bin/activate
-	pip install -r requirements.txt
+	uv venv .venv
+	uv sync --extra dev
 
 activate: .venv
 	. .venv/bin/activate

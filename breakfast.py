@@ -169,7 +169,10 @@ def generate_terminal_url_anchor(url, url_text="Link"):
 @click.option("--repo-filter", "-r", help="Filter for specific repp(s)")
 @click.option(
     "--ignore-author",
-    help="Ignore PRs raised by a specific author (case-insensitive), e.g. dependabot[bot]",
+    help=(
+        "Ignore PRs raised by a specific author (case-insensitive), "
+        "e.g. dependabot[bot]"
+    ),
 )
 @click.version_option(package_name="breakfast")
 def breakfast(organization, repo_filter, ignore_author):

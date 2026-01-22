@@ -1,5 +1,8 @@
 # Agent Instructions
 
+## Work Items
+- This project uses GitHub issues (not Jira). Reference the GitHub issue number in branch names and PR titles.
+
 ## Commit Messages
 - Use Conventional Commits (e.g., `feat: ...`, `fix: ...`, `chore: ...`, `docs: ...`, `refactor: ...`, `test: ...`, `ci: ...`).
 - Keep the summary short and imperative.

@@ -26,9 +26,28 @@ jobs:
       - name: Run tests
         run: make test
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Run lint
+        run: make lint
+
   build:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, lint]
     steps:
       - name: Checkout
         uses: actions/checkout@v4

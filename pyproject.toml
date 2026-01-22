@@ -25,14 +25,31 @@ test = [
   "pytest",
   "requests-mock",
 ]
+lint = [
+  "black",
+  "ruff",
+]
 build = [
   "shiv",
 ]
 dev = [
+  "black",
   "pytest",
   "requests-mock",
+  "ruff",
   "shiv",
 ]
 
 [tool.setuptools]
 py-modules = ["breakfast"]
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

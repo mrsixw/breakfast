@@ -49,9 +49,7 @@ jobs:
           version: "latest"
 
       - name: Install git-mkver
-        run: |
-          uv tool install git-mkver
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        run: utils/install_git_mkver.sh
 
       - name: Fetch tags
         run: git fetch --tags

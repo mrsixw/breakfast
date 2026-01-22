@@ -24,3 +24,13 @@ smoketest: breakfast
 test: .venv
 	uv sync --extra test
 	uv run pytest -v
+
+lint: .venv
+	uv sync --extra lint
+	uv run ruff check .
+	uv run black --check .
+
+format: .venv
+	uv sync --extra lint
+	uv run ruff check --fix .
+	uv run black .

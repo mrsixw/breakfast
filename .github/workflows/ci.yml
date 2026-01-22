@@ -65,6 +65,9 @@ jobs:
       - name: Build binary
         run: make build
 
+      - name: Verify binary version
+        run: utils/check_binary_version.sh
+
   release:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest

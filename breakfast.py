@@ -3,6 +3,7 @@
 import os
 import random
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 import click
 import requests
@@ -60,6 +61,13 @@ def make_github_api_request(query_string):
     req = requests.get(url, headers=headers)
     req.raise_for_status()
     return req.json()
+
+
+def _fetch_pr_detail(pr_url):
+    url_parts = pr_url.split("/")
+    return make_github_api_request(
+        f"/repos/{url_parts[3]}/{url_parts[4]}/pulls/{url_parts[6]}"
+    )
 
 
 def make_paginated_github_api_requst(query_string, rate=100):
@@ -185,11 +193,12 @@ def breakfast(organization, repo_filter, ignore_author):
 
     pr_data = []
     click.echo(f"Processing {repo_filter} PRs...", nl=False)
-    for pr in prs:
-        url_parts = pr.split("/")
-        pr_detail = make_github_api_request(
-            f"/repos/{url_parts[3]}/{url_parts[4]}/pulls/{url_parts[6]}"
-        )
+    pr_details = []
+    if prs:
+        max_workers = min(8, len(prs))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            pr_details = list(executor.map(_fetch_pr_detail, prs))
+    for pr_detail in pr_details:
 
         # For compat with python versions < 3.12, f-strings get more powerful.
         # Until then, we'll preformat some of the strings in advance.
@@ -200,7 +209,7 @@ def breakfast(organization, repo_filter, ignore_author):
 
         pr_data.append(
             {
-                "Repo": url_parts[4],
+                "Repo": pr_detail["base"]["repo"]["name"],
                 "PR Title": pr_detail["title"],
                 "Author": pr_detail["user"]["login"],
                 "State": pr_detail["state"],

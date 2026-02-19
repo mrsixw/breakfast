@@ -157,15 +157,40 @@ def normalize_ignore_authors(ignore_authors):
     }
 
 
-def filter_pr_details(pr_details, ignore_authors):
+def get_authenticated_user_login():
+    user = make_github_api_request("/user")
+    login = user.get("login")
+    if not login:
+        raise ValueError("Unable to determine authenticated GitHub user login.")
+    return login
+
+
+def filter_pr_details(
+    pr_details,
+    ignore_authors,
+    mine_only=False,
+    current_user_login=None,
+):
     ignore_set = normalize_ignore_authors(ignore_authors)
-    if not ignore_set:
+    current_user_login_normalized = (
+        current_user_login.lower()
+        if mine_only and current_user_login and current_user_login.strip()
+        else None
+    )
+
+    if not ignore_set and not current_user_login_normalized:
         return pr_details
 
     filtered = []
     for pr_detail in pr_details:
         author_login = pr_detail.get("user", {}).get("login", "")
-        if author_login.lower() in ignore_set:
+        author_login_normalized = author_login.lower()
+        if author_login_normalized in ignore_set:
+            continue
+        if (
+            current_user_login_normalized
+            and author_login_normalized != current_user_login_normalized
+        ):
             continue
         filtered.append(pr_detail)
     return filtered
@@ -217,17 +242,27 @@ def generate_terminal_url_anchor(url, url_text="Link"):
     ),
 )
 @click.option(
+    "--mine-only",
+    is_flag=True,
+    default=False,
+    help="Only include PRs authored by the currently authenticated GitHub user.",
+)
+@click.option(
     "--age",
     is_flag=True,
     default=False,
     help="Include an age column showing PR age in days.",
 )
 @click.version_option(package_name="breakfast")
-def breakfast(organization, repo_filter, ignore_author, age):
+def breakfast(organization, repo_filter, ignore_author, mine_only, age):
     if SECRET_GITHUB_TOKEN is None:
         message = "GITHUB_TOKEN not set in environment - exiting..."
         click.echo(click.style(message, fg="red", bold=True))
         sys.exit(1)
+    current_user_login = None
+    if mine_only:
+        current_user_login = get_authenticated_user_login()
+
     # grab all the pull requests we are interested in
     prs = get_github_prs(organization, repo_filter)
 
@@ -238,7 +273,12 @@ def breakfast(organization, repo_filter, ignore_author, age):
         max_workers = min(8, len(prs))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             pr_details = list(executor.map(_fetch_pr_detail, prs))
-    pr_details = filter_pr_details(pr_details, ignore_author)
+    pr_details = filter_pr_details(
+        pr_details,
+        ignore_author,
+        mine_only=mine_only,
+        current_user_login=current_user_login,
+    )
     for pr_detail in pr_details:
 
         # For compat with python versions < 3.12, f-strings get more powerful.

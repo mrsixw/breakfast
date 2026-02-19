@@ -4,6 +4,7 @@ import os
 import random
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 
 import click
 import requests
@@ -182,6 +183,24 @@ def click_colour_grade_number(num):
     return click.style(str(num), fg=colour, bold=True)
 
 
+def get_pr_age_days(pr_detail, now=None):
+    created_at = pr_detail.get("created_at")
+    if not created_at:
+        return 0
+
+    try:
+        created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+
+    if created_dt.tzinfo is None:
+        created_dt = created_dt.replace(tzinfo=timezone.utc)
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    return max((now - created_dt).days, 0)
+
+
 def generate_terminal_url_anchor(url, url_text="Link"):
     return f"\033]8;;{url}\033\\{url_text}\033]8;;\033\\"
 
@@ -197,8 +216,14 @@ def generate_terminal_url_anchor(url, url_text="Link"):
         "Repeat for multiple authors, e.g. --ignore-author dependabot[bot]."
     ),
 )
+@click.option(
+    "--age",
+    is_flag=True,
+    default=False,
+    help="Include an age column showing PR age in days.",
+)
 @click.version_option(package_name="breakfast")
-def breakfast(organization, repo_filter, ignore_author):
+def breakfast(organization, repo_filter, ignore_author, age):
     if SECRET_GITHUB_TOKEN is None:
         message = "GITHUB_TOKEN not set in environment - exiting..."
         click.echo(click.style(message, fg="red", bold=True))
@@ -223,23 +248,24 @@ def breakfast(organization, repo_filter, ignore_author):
         adds = click.style("+" + str(pr_detail["additions"]), fg="green", bold=True)
         subs = click.style("-" + str(pr_detail["deletions"]), fg="red", bold=True)
 
-        pr_data.append(
-            {
-                "Repo": pr_detail["base"]["repo"]["name"],
-                "PR Title": pr_detail["title"],
-                "Author": pr_detail["user"]["login"],
-                "State": pr_detail["state"],
-                "Files": click_colour_grade_number(pr_detail["changed_files"]),
-                "Commits": click_colour_grade_number(pr_detail["commits"]),
-                "+/-": f"{adds}/{subs}",
-                "Comments": click_colour_grade_number(pr_detail["review_comments"]),
-                "Mergeable?": f"{mergable} ({mergable_state})",
-                "Link": generate_terminal_url_anchor(
-                    pr_detail["html_url"],
-                    f"PR-{pr_detail['number']}",
-                ),
-            }
+        row = {
+            "Repo": pr_detail["base"]["repo"]["name"],
+            "PR Title": pr_detail["title"],
+            "Author": pr_detail["user"]["login"],
+            "State": pr_detail["state"],
+            "Files": click_colour_grade_number(pr_detail["changed_files"]),
+            "Commits": click_colour_grade_number(pr_detail["commits"]),
+            "+/-": f"{adds}/{subs}",
+            "Comments": click_colour_grade_number(pr_detail["review_comments"]),
+        }
+        if age:
+            row["Age"] = click_colour_grade_number(get_pr_age_days(pr_detail))
+        row["Mergeable?"] = f"{mergable} ({mergable_state})"
+        row["Link"] = generate_terminal_url_anchor(
+            pr_detail["html_url"],
+            f"PR-{pr_detail['number']}",
         )
+        pr_data.append(row)
         click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False)
     click.echo("...Done")
     click.echo(

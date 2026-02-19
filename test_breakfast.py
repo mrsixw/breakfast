@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import click
 import pytest
 from click.testing import CliRunner
@@ -24,6 +26,20 @@ def test_generate_terminal_url_anchor():
     text = "Link"
     expected = f"\033]8;;{url}\033\\{text}\033]8;;\033\\"
     assert breakfast.generate_terminal_url_anchor(url, text) == expected
+
+
+def test_get_pr_age_days():
+    pr_detail = {"created_at": "2026-01-10T00:00:00Z"}
+    now = datetime(2026, 1, 15, tzinfo=timezone.utc)
+
+    assert breakfast.get_pr_age_days(pr_detail, now=now) == 5
+
+
+def test_get_pr_age_days_invalid_or_missing():
+    now = datetime(2026, 1, 15, tzinfo=timezone.utc)
+
+    assert breakfast.get_pr_age_days({}, now=now) == 0
+    assert breakfast.get_pr_age_days({"created_at": "bad-date"}, now=now) == 0
 
 
 def test_make_github_api_request_builds_headers_and_url(monkeypatch):
@@ -176,6 +192,7 @@ def test_cli_outputs_table(monkeypatch):
             "changed_files": 1,
             "commits": 1,
             "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
             "html_url": "https://github.com/org/repo/pull/1",
             "number": 1,
         }
@@ -189,3 +206,40 @@ def test_cli_outputs_table(monkeypatch):
     assert result.exit_code == 0
     assert "PR-1" in result.output
     assert "repo" in result.output
+
+
+def test_cli_outputs_age_column_when_enabled(monkeypatch):
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
+
+    def fake_get_prs(_org, _repo_filter):
+        return ["https://github.com/org/repo/pull/1"]
+
+    def fake_api_request(_path):
+        return {
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": "Test PR",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": "https://github.com/org/repo/pull/1",
+            "number": 1,
+        }
+
+    monkeypatch.setattr(breakfast, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(breakfast, "make_github_api_request", fake_api_request)
+    monkeypatch.setattr(breakfast, "get_pr_age_days", lambda _pr_detail: 7)
+
+    runner = CliRunner()
+    result = runner.invoke(breakfast.breakfast, ["-o", "org", "-r", "repo", "--age"])
+
+    assert result.exit_code == 0
+    assert "Age" in result.output
+    assert "7" in result.output

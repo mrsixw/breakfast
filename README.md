@@ -1,4 +1,6 @@
 # breakfast
+[![CI](https://github.com/mrsixw/breakfast/actions/workflows/ci.yml/badge.svg)](https://github.com/mrsixw/breakfast/actions/workflows/ci.yml)
+
 Simple tool for pulling PRs you might be interested in.
 
 ## Usage

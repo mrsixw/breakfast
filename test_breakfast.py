@@ -154,12 +154,48 @@ def test_filter_pr_details_ignores_authors():
     assert filtered == [{"user": {"login": "alice"}}]
 
 
+def test_filter_pr_details_mine_only():
+    pr_details = [
+        {"user": {"login": "alice"}},
+        {"user": {"login": "bob"}},
+    ]
+
+    filtered = breakfast.filter_pr_details(
+        pr_details,
+        ignore_authors=[],
+        mine_only=True,
+        current_user_login="alice",
+    )
+
+    assert filtered == [{"user": {"login": "alice"}}]
+
+
 def test_normalize_ignore_authors_multiple():
     ignore_authors = [" Dependabot[Bot] ", "", "ALICE", "alice", None, "bob"]
 
     result = breakfast.normalize_ignore_authors(ignore_authors)
 
     assert result == {"dependabot[bot]", "alice", "bob"}
+
+
+def test_get_authenticated_user_login(monkeypatch):
+    monkeypatch.setattr(
+        breakfast,
+        "make_github_api_request",
+        lambda _path: {"login": "alice"},
+    )
+
+    assert breakfast.get_authenticated_user_login() == "alice"
+
+
+def test_get_authenticated_user_login_missing_login(monkeypatch):
+    monkeypatch.setattr(breakfast, "make_github_api_request", lambda _path: {})
+
+    with pytest.raises(
+        ValueError,
+        match="Unable to determine authenticated GitHub user",
+    ):
+        breakfast.get_authenticated_user_login()
 
 
 def test_cli_exits_when_token_missing(monkeypatch):
@@ -243,3 +279,49 @@ def test_cli_outputs_age_column_when_enabled(monkeypatch):
     assert result.exit_code == 0
     assert "Age" in result.output
     assert "7" in result.output
+
+
+def test_cli_mine_only_filters_to_authenticated_user(monkeypatch):
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
+
+    def fake_get_prs(_org, _repo_filter):
+        return [
+            "https://github.com/org/repo/pull/1",
+            "https://github.com/org/repo/pull/2",
+        ]
+
+    def fake_api_request(path):
+        number = 1 if path.endswith("/1") else 2
+        author = "alice" if number == 1 else "bob"
+        title = "Alice PR" if number == 1 else "Bob PR"
+        return {
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": title,
+            "user": {"login": author},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": f"https://github.com/org/repo/pull/{number}",
+            "number": number,
+        }
+
+    monkeypatch.setattr(breakfast, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(breakfast, "make_github_api_request", fake_api_request)
+    monkeypatch.setattr(breakfast, "get_authenticated_user_login", lambda: "alice")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        breakfast.breakfast,
+        ["-o", "org", "-r", "repo", "--mine-only"],
+    )
+
+    assert result.exit_code == 0
+    assert "Alice PR" in result.output
+    assert "Bob PR" not in result.output

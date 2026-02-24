@@ -291,26 +291,28 @@ def breakfast(organization, repo_filter, ignore_author, mine_only, age, json_out
     if json_output:
         json_data = []
         for pr_detail in pr_details:
-            json_data.append({
-                "repo": pr_detail["base"]["repo"]["name"],
-                "pr_number": pr_detail["number"],
-                "title": pr_detail["title"],
-                "author": pr_detail["user"]["login"],
-                "url": pr_detail["html_url"],
-                "state": pr_detail["state"],
-                "draft": pr_detail.get("draft", False),
-                "created_at": pr_detail.get("created_at"),
-                "updated_at": pr_detail.get("updated_at"),
-                "additions": pr_detail.get("additions"),
-                "deletions": pr_detail.get("deletions"),
-                "changed_files": pr_detail.get("changed_files"),
-                "commits": pr_detail.get("commits"),
-                "review_comments": pr_detail.get("review_comments"),
-                "labels": [lb["name"] for lb in pr_detail.get("labels", [])],
-                "requested_reviewers": [
-                    r["login"] for r in pr_detail.get("requested_reviewers", [])
-                ],
-            })
+            json_data.append(
+                {
+                    "repo": pr_detail["base"]["repo"]["name"],
+                    "pr_number": pr_detail["number"],
+                    "title": pr_detail["title"],
+                    "author": pr_detail["user"]["login"],
+                    "url": pr_detail["html_url"],
+                    "state": pr_detail["state"],
+                    "draft": pr_detail.get("draft", False),
+                    "created_at": pr_detail.get("created_at"),
+                    "updated_at": pr_detail.get("updated_at"),
+                    "additions": pr_detail.get("additions"),
+                    "deletions": pr_detail.get("deletions"),
+                    "changed_files": pr_detail.get("changed_files"),
+                    "commits": pr_detail.get("commits"),
+                    "review_comments": pr_detail.get("review_comments"),
+                    "labels": [lb["name"] for lb in pr_detail.get("labels", [])],
+                    "requested_reviewers": [
+                        r["login"] for r in pr_detail.get("requested_reviewers", [])
+                    ],
+                }
+            )
             click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
         click.echo("...Done", err=True)
         click.echo(json.dumps(json_data, indent=2))

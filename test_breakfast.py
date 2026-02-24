@@ -318,7 +318,7 @@ def test_cli_outputs_json(monkeypatch):
     result = runner.invoke(breakfast.breakfast, ["-o", "org", "-r", "repo", "--json"])
 
     assert result.exit_code == 0
-    data = json.loads(result.output[result.output.index("["):])
+    data = json.loads(result.output[result.output.index("[") :])
     assert len(data) == 1
     pr = data[0]
     assert pr["repo"] == "repo"
@@ -343,7 +343,7 @@ def test_cli_json_output_is_valid_json_when_empty(monkeypatch):
     result = runner.invoke(breakfast.breakfast, ["-o", "org", "-r", "repo", "--json"])
 
     assert result.exit_code == 0
-    assert json.loads(result.output[result.output.index("["):]) == []
+    assert json.loads(result.output[result.output.index("[") :]) == []
 
 
 def test_cli_mine_only_filters_to_authenticated_user(monkeypatch):

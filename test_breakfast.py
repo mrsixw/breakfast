@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 
 import click
@@ -279,6 +280,70 @@ def test_cli_outputs_age_column_when_enabled(monkeypatch):
     assert result.exit_code == 0
     assert "Age" in result.output
     assert "7" in result.output
+
+
+def test_cli_outputs_json(monkeypatch):
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
+
+    def fake_get_prs(_org, _repo_filter):
+        return ["https://github.com/org/repo/pull/1"]
+
+    def fake_api_request(_path):
+        return {
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": "Test PR",
+            "user": {"login": "alice"},
+            "state": "open",
+            "draft": False,
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "updated_at": "2026-01-11T00:00:00Z",
+            "html_url": "https://github.com/org/repo/pull/1",
+            "number": 1,
+            "labels": [{"name": "bug"}],
+            "requested_reviewers": [{"login": "bob"}],
+        }
+
+    monkeypatch.setattr(breakfast, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(breakfast, "make_github_api_request", fake_api_request)
+
+    runner = CliRunner()
+    result = runner.invoke(breakfast.breakfast, ["-o", "org", "-r", "repo", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.output[result.output.index("["):])
+    assert len(data) == 1
+    pr = data[0]
+    assert pr["repo"] == "repo"
+    assert pr["pr_number"] == 1
+    assert pr["title"] == "Test PR"
+    assert pr["author"] == "alice"
+    assert pr["url"] == "https://github.com/org/repo/pull/1"
+    assert pr["state"] == "open"
+    assert pr["draft"] is False
+    assert pr["created_at"] == "2026-01-10T00:00:00Z"
+    assert pr["updated_at"] == "2026-01-11T00:00:00Z"
+    assert pr["labels"] == ["bug"]
+    assert pr["requested_reviewers"] == ["bob"]
+
+
+def test_cli_json_output_is_valid_json_when_empty(monkeypatch):
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(breakfast, "get_github_prs", lambda _org, _repo: [])
+
+    runner = CliRunner()
+    result = runner.invoke(breakfast.breakfast, ["-o", "org", "-r", "repo", "--json"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.output[result.output.index("["):]) == []
 
 
 def test_cli_mine_only_filters_to_authenticated_user(monkeypatch):

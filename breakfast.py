@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import json
 import os
 import random
 import sys
@@ -253,8 +254,15 @@ def generate_terminal_url_anchor(url, url_text="Link"):
     default=False,
     help="Include an age column showing PR age in days.",
 )
+@click.option(
+    "--json",
+    "json_output",
+    is_flag=True,
+    default=False,
+    help="Output results as JSON instead of a table. Progress messages go to stderr.",
+)
 @click.version_option(package_name="breakfast")
-def breakfast(organization, repo_filter, ignore_author, mine_only, age):
+def breakfast(organization, repo_filter, ignore_author, mine_only, age, json_output):
     if SECRET_GITHUB_TOKEN is None:
         message = "GITHUB_TOKEN not set in environment - exiting..."
         click.echo(click.style(message, fg="red", bold=True))
@@ -267,7 +275,7 @@ def breakfast(organization, repo_filter, ignore_author, mine_only, age):
     prs = get_github_prs(organization, repo_filter)
 
     pr_data = []
-    click.echo(f"Processing {repo_filter} PRs...", nl=False)
+    click.echo(f"Processing {repo_filter} PRs...", nl=False, err=json_output)
     pr_details = []
     if prs:
         max_workers = min(8, len(prs))
@@ -279,6 +287,35 @@ def breakfast(organization, repo_filter, ignore_author, mine_only, age):
         mine_only=mine_only,
         current_user_login=current_user_login,
     )
+
+    if json_output:
+        json_data = []
+        for pr_detail in pr_details:
+            json_data.append({
+                "repo": pr_detail["base"]["repo"]["name"],
+                "pr_number": pr_detail["number"],
+                "title": pr_detail["title"],
+                "author": pr_detail["user"]["login"],
+                "url": pr_detail["html_url"],
+                "state": pr_detail["state"],
+                "draft": pr_detail.get("draft", False),
+                "created_at": pr_detail.get("created_at"),
+                "updated_at": pr_detail.get("updated_at"),
+                "additions": pr_detail.get("additions"),
+                "deletions": pr_detail.get("deletions"),
+                "changed_files": pr_detail.get("changed_files"),
+                "commits": pr_detail.get("commits"),
+                "review_comments": pr_detail.get("review_comments"),
+                "labels": [lb["name"] for lb in pr_detail.get("labels", [])],
+                "requested_reviewers": [
+                    r["login"] for r in pr_detail.get("requested_reviewers", [])
+                ],
+            })
+            click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
+        click.echo("...Done", err=True)
+        click.echo(json.dumps(json_data, indent=2))
+        return
+
     for pr_detail in pr_details:
 
         # For compat with python versions < 3.12, f-strings get more powerful.

@@ -4,6 +4,7 @@ import json
 import os
 import random
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
@@ -14,6 +15,9 @@ from tabulate import tabulate
 GITHUB_API_URL = "https://api.github.com"
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 SECRET_GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", None)
+
+_MAX_RETRIES = 3
+_RETRY_STATUSES = {502, 503, 504}
 
 BREAKFAST_ITEMS = [
     "☕️",
@@ -60,9 +64,18 @@ def make_github_api_request(query_string):
         "Authorization": f"token {SECRET_GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json",
     }
-    req = requests.get(url, headers=headers)
-    req.raise_for_status()
-    return req.json()
+    for attempt in range(_MAX_RETRIES + 1):
+        if attempt:
+            time.sleep(2 ** (attempt - 1) + random.uniform(0, 0.5))
+        try:
+            req = requests.get(url, headers=headers)
+            if req.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES:
+                continue
+            req.raise_for_status()
+            return req.json()
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            if attempt == _MAX_RETRIES:
+                raise
 
 
 def _fetch_pr_detail(pr_url):
@@ -277,10 +290,24 @@ def breakfast(organization, repo_filter, ignore_author, mine_only, age, json_out
     pr_data = []
     click.echo(f"Processing {repo_filter} PRs...", nl=False, err=json_output)
     pr_details = []
+    failed_urls = []
     if prs:
         max_workers = min(8, len(prs))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            pr_details = list(executor.map(_fetch_pr_detail, prs))
+            futures = [(url, executor.submit(_fetch_pr_detail, url)) for url in prs]
+        for url, future in futures:
+            try:
+                pr_details.append(future.result())
+            except Exception:
+                failed_urls.append(url)
+    if failed_urls:
+        examples = ", ".join(failed_urls[:3])
+        suffix = " ..." if len(failed_urls) > 3 else ""
+        msg = (
+            f"\nWarning: {len(failed_urls)} PR(s) could not be fetched"
+            f" after retries: {examples}{suffix}"
+        )
+        click.echo(click.style(msg, fg="yellow"), err=True)
     pr_details = filter_pr_details(
         pr_details,
         ignore_author,

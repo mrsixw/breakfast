@@ -6,5 +6,5 @@ tag="v${version}"
 
 gh release create "${tag}" ./breakfast \
   --title "${tag}" \
-  --notes "Automated release." \
+  --generate-notes \
   --target "$(git rev-parse HEAD)"

@@ -7,6 +7,8 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from importlib.metadata import version as pkg_version
+from pathlib import Path
 
 import click
 import requests
@@ -240,6 +242,88 @@ def get_pr_age_days(pr_detail, now=None):
     return max((now - created_dt).days, 0)
 
 
+_UPDATE_CHECK_REPO = "mrsixw/breakfast"
+_CACHE_DIR = Path.home() / ".cache" / "breakfast"
+_CACHE_TTL_SECONDS = 86400  # 24 hours
+
+
+def _read_version_cache():
+    cache_file = _CACHE_DIR / "latest_version.json"
+    try:
+        if not cache_file.exists():
+            return None
+        data = json.loads(cache_file.read_text())
+        cached_at = datetime.fromisoformat(data["checked_at"])
+        age = (datetime.now(timezone.utc) - cached_at).total_seconds()
+        if age > _CACHE_TTL_SECONDS:
+            return None
+        return data.get("latest_version")
+    except Exception:
+        return None
+
+
+def _write_version_cache(latest_version):
+    try:
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cache_file = _CACHE_DIR / "latest_version.json"
+        cache_file.write_text(
+            json.dumps(
+                {
+                    "latest_version": latest_version,
+                    "checked_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        )
+    except Exception:
+        pass
+
+
+def get_latest_version():
+    cached = _read_version_cache()
+    if cached:
+        return cached
+    try:
+        headers = {"Accept": "application/vnd.github.v3+json"}
+        if SECRET_GITHUB_TOKEN:
+            headers["Authorization"] = f"token {SECRET_GITHUB_TOKEN}"
+        resp = requests.get(
+            f"https://api.github.com/repos/{_UPDATE_CHECK_REPO}/releases/latest",
+            headers=headers,
+            timeout=5,
+        )
+        resp.raise_for_status()
+        tag = resp.json().get("tag_name", "")
+        latest = tag.lstrip("v")
+        _write_version_cache(latest)
+        return latest
+    except Exception:
+        return None
+
+
+def _parse_version_tuple(version_str):
+    try:
+        return tuple(int(x) for x in version_str.split("."))
+    except (ValueError, AttributeError):
+        return ()
+
+
+def check_for_update():
+    try:
+        current = pkg_version("breakfast")
+        latest = get_latest_version()
+        if not latest:
+            return None
+        if _parse_version_tuple(latest) > _parse_version_tuple(current):
+            return (
+                f"🍳 A fresh breakfast is ready! "
+                f"v{current} → v{latest} "
+                f"— update at https://github.com/{_UPDATE_CHECK_REPO}/releases/latest"
+            )
+        return None
+    except Exception:
+        return None
+
+
 def generate_terminal_url_anchor(url, url_text="Link"):
     return f"\033]8;;{url}\033\\{url_text}\033]8;;\033\\"
 
@@ -274,8 +358,23 @@ def generate_terminal_url_anchor(url, url_text="Link"):
     default=False,
     help="Output results as JSON instead of a table. Progress messages go to stderr.",
 )
+@click.option(
+    "--no-update-check",
+    is_flag=True,
+    default=False,
+    envvar="BREAKFAST_NO_UPDATE_CHECK",
+    help="Disable the automatic update check.",
+)
 @click.version_option(package_name="breakfast")
-def breakfast(organization, repo_filter, ignore_author, mine_only, age, json_output):
+def breakfast(
+    organization,
+    repo_filter,
+    ignore_author,
+    mine_only,
+    age,
+    json_output,
+    no_update_check,
+):
     if SECRET_GITHUB_TOKEN is None:
         message = "GITHUB_TOKEN not set in environment - exiting..."
         click.echo(click.style(message, fg="red", bold=True))
@@ -343,6 +442,10 @@ def breakfast(organization, repo_filter, ignore_author, mine_only, age, json_out
             click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
         click.echo("...Done", err=True)
         click.echo(json.dumps(json_data, indent=2))
+        if not no_update_check:
+            update_msg = check_for_update()
+            if update_msg:
+                click.echo(click.style(update_msg, fg="cyan", bold=True), err=True)
         return
 
     for pr_detail in pr_details:
@@ -377,6 +480,11 @@ def breakfast(organization, repo_filter, ignore_author, mine_only, age, json_out
     click.echo(
         tabulate(pr_data, headers="keys", showindex="always", tablefmt="outline")
     )
+
+    if not no_update_check:
+        update_msg = check_for_update()
+        if update_msg:
+            click.echo(click.style(update_msg, fg="cyan", bold=True), err=True)
 
 
 if __name__ == "__main__":

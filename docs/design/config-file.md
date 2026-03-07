@@ -1,5 +1,7 @@
 # Config File Design for breakfast
 
+> **Tracking issue:** [#42 — Add config file support](https://github.com/mrsixw/breakfast/issues/42)
+
 ## Overview
 
 Add a config file so users can set persistent defaults for CLI options, avoiding

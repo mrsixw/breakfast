@@ -531,3 +531,239 @@ def test_cli_mine_only_filters_to_authenticated_user(monkeypatch):
     assert result.exit_code == 0
     assert "Alice PR" in result.output
     assert "Bob PR" not in result.output
+
+
+def test_get_check_status_all_success(monkeypatch):
+    monkeypatch.setattr(
+        breakfast,
+        "make_github_api_request",
+        lambda _path: {
+            "check_runs": [
+                {"status": "completed", "conclusion": "success"},
+                {"status": "completed", "conclusion": "skipped"},
+            ]
+        },
+    )
+    assert breakfast.get_check_status("org", "repo", "abc123") == "pass"
+
+
+def test_get_check_status_failure(monkeypatch):
+    monkeypatch.setattr(
+        breakfast,
+        "make_github_api_request",
+        lambda _path: {
+            "check_runs": [
+                {"status": "completed", "conclusion": "success"},
+                {"status": "completed", "conclusion": "failure"},
+            ]
+        },
+    )
+    assert breakfast.get_check_status("org", "repo", "abc123") == "fail"
+
+
+def test_get_check_status_pending(monkeypatch):
+    monkeypatch.setattr(
+        breakfast,
+        "make_github_api_request",
+        lambda _path: {
+            "check_runs": [
+                {"status": "completed", "conclusion": "success"},
+                {"status": "in_progress", "conclusion": None},
+            ]
+        },
+    )
+    assert breakfast.get_check_status("org", "repo", "abc123") == "pending"
+
+
+def test_get_check_status_none(monkeypatch):
+    monkeypatch.setattr(
+        breakfast,
+        "make_github_api_request",
+        lambda _path: {"check_runs": []},
+    )
+    assert breakfast.get_check_status("org", "repo", "abc123") == "none"
+
+
+def test_format_check_status():
+    result = breakfast.format_check_status("pass")
+    assert "pass" in result
+
+    result = breakfast.format_check_status("fail")
+    assert "fail" in result
+
+
+def test_cli_outputs_checks_column(monkeypatch):
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
+
+    def fake_get_prs(_org, _repo_filter):
+        return ["https://github.com/org/repo/pull/1"]
+
+    def fake_api_request(path):
+        if "check-runs" in path:
+            return {
+                "check_runs": [
+                    {"status": "completed", "conclusion": "success"},
+                ]
+            }
+        return {
+            "base": {
+                "repo": {
+                    "name": "repo",
+                    "owner": {"login": "org"},
+                }
+            },
+            "head": {"sha": "abc123"},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": "Test PR",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": "https://github.com/org/repo/pull/1",
+            "number": 1,
+        }
+
+    monkeypatch.setattr(breakfast, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(breakfast, "make_github_api_request", fake_api_request)
+
+    runner = CliRunner()
+    result = runner.invoke(breakfast.breakfast, ["-o", "org", "-r", "repo", "--checks"])
+
+    assert result.exit_code == 0
+    assert "Checks" in result.output
+    assert "pass" in result.output
+
+
+def test_cli_checks_not_shown_by_default(monkeypatch):
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
+
+    def fake_get_prs(_org, _repo_filter):
+        return ["https://github.com/org/repo/pull/1"]
+
+    def fake_api_request(_path):
+        return {
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": "Test PR",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": "https://github.com/org/repo/pull/1",
+            "number": 1,
+        }
+
+    monkeypatch.setattr(breakfast, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(breakfast, "make_github_api_request", fake_api_request)
+
+    runner = CliRunner()
+    result = runner.invoke(breakfast.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert "Checks" not in result.output
+
+
+def test_cli_json_includes_checks_when_enabled(monkeypatch):
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
+
+    def fake_get_prs(_org, _repo_filter):
+        return ["https://github.com/org/repo/pull/1"]
+
+    def fake_api_request(path):
+        if "check-runs" in path:
+            return {
+                "check_runs": [
+                    {"status": "completed", "conclusion": "failure"},
+                ]
+            }
+        return {
+            "base": {
+                "repo": {
+                    "name": "repo",
+                    "owner": {"login": "org"},
+                }
+            },
+            "head": {"sha": "abc123"},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": "Test PR",
+            "user": {"login": "alice"},
+            "state": "open",
+            "draft": False,
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "updated_at": "2026-01-11T00:00:00Z",
+            "html_url": "https://github.com/org/repo/pull/1",
+            "number": 1,
+            "labels": [],
+            "requested_reviewers": [],
+        }
+
+    monkeypatch.setattr(breakfast, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(breakfast, "make_github_api_request", fake_api_request)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        breakfast.breakfast, ["-o", "org", "-r", "repo", "--json", "--checks"]
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.output[result.output.index("[") :])
+    assert data[0]["checks"] == "fail"
+
+
+def test_cli_json_excludes_checks_by_default(monkeypatch):
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
+
+    def fake_get_prs(_org, _repo_filter):
+        return ["https://github.com/org/repo/pull/1"]
+
+    def fake_api_request(_path):
+        return {
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": "Test PR",
+            "user": {"login": "alice"},
+            "state": "open",
+            "draft": False,
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "updated_at": "2026-01-11T00:00:00Z",
+            "html_url": "https://github.com/org/repo/pull/1",
+            "number": 1,
+            "labels": [],
+            "requested_reviewers": [],
+        }
+
+    monkeypatch.setattr(breakfast, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(breakfast, "make_github_api_request", fake_api_request)
+
+    runner = CliRunner()
+    result = runner.invoke(breakfast.breakfast, ["-o", "org", "-r", "repo", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.output[result.output.index("[") :])
+    assert "checks" not in data[0]

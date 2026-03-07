@@ -28,6 +28,7 @@ The default output is a colour-coded terminal table with the following columns:
 | +/- | Lines added (green) and deleted (red) |
 | Comments | Number of review comments |
 | Age | Days since PR creation (only with `--age`) |
+| Checks | CI/check run status: pass, fail, pending, none (only with `--checks`) |
 | Mergeable? | Whether the PR can be merged cleanly |
 | Link | Clickable terminal hyperlink to the PR |
 

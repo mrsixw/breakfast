@@ -16,6 +16,7 @@ breakfast -o my-org -r my-app
 breakfast -o my-org -r my-app --ignore-author dependabot[bot] --ignore-author renovate[bot]
 breakfast -o my-org -r my-app --mine-only
 breakfast -o my-org -r my-app --age
+breakfast -o my-org -r my-app --checks
 breakfast -o my-org -r my-app --json
 ```
 
@@ -25,6 +26,7 @@ breakfast -o my-org -r my-app --json
 - `--ignore-author`: Exclude PRs by author (case-insensitive, repeatable).
 - `--mine-only`: Show only your own PRs.
 - `--age`: Add an age column (days since creation).
+- `--checks`: Add a checks column showing CI status (pass/fail/pending/none).
 - `--json`: Output as JSON instead of a table.
 - `--version`: Show version.
 

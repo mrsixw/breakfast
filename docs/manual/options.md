@@ -135,6 +135,16 @@ $ breakfast -o my-org -r platform --json 2>/dev/null
 
 See [Output Formats](output-formats.md) for full schema details and scripting examples.
 
+## Update notifications
+
+breakfast automatically checks for new versions once per day (cached for 24 hours in `~/.cache/breakfast/`). If a newer version is available, you'll see a message after the main output:
+
+```
+🍳 A fresh breakfast is ready! v0.10.0 → v0.11.0 — update at https://github.com/mrsixw/breakfast/releases/latest
+```
+
+The check is non-blocking and non-fatal — network failures are silently ignored. The notification is sent to stderr so it won't interfere with `--json` output piping.
+
 ## Other options
 
 ### `--version`

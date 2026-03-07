@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import click
 import pytest
+import requests
 from click.testing import CliRunner
 
 import breakfast
@@ -43,10 +44,107 @@ def test_get_pr_age_days_invalid_or_missing():
     assert breakfast.get_pr_age_days({"created_at": "bad-date"}, now=now) == 0
 
 
+def test_make_github_api_request_retries_on_connection_error(monkeypatch):
+    attempts = []
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast.time, "sleep", lambda _: None)
+
+    class GoodResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"ok": True}
+
+    def fake_get(url, headers):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise requests.exceptions.ConnectionError("reset")
+        return GoodResponse()
+
+    monkeypatch.setattr(breakfast.requests, "get", fake_get)
+
+    result = breakfast.make_github_api_request("/repos/org/repo")
+
+    assert result == {"ok": True}
+    assert len(attempts) == 3
+
+
+def test_make_github_api_request_raises_after_max_retries_connection_error(monkeypatch):
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast.time, "sleep", lambda _: None)
+
+    def fake_get(url, headers):
+        raise requests.exceptions.ConnectionError("reset")
+
+    monkeypatch.setattr(breakfast.requests, "get", fake_get)
+
+    with pytest.raises(requests.exceptions.ConnectionError):
+        breakfast.make_github_api_request("/repos/org/repo")
+
+
+def test_make_github_api_request_retries_on_502(monkeypatch):
+    attempts = []
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast.time, "sleep", lambda _: None)
+
+    class BadGateway:
+        status_code = 502
+
+        def raise_for_status(self):
+            raise requests.exceptions.HTTPError("502")
+
+        def json(self):
+            return {}
+
+    class GoodResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"ok": True}
+
+    def fake_get(url, headers):
+        attempts.append(1)
+        return BadGateway() if len(attempts) < 3 else GoodResponse()
+
+    monkeypatch.setattr(breakfast.requests, "get", fake_get)
+
+    result = breakfast.make_github_api_request("/repos/org/repo")
+
+    assert result == {"ok": True}
+    assert len(attempts) == 3
+
+
+def test_make_github_api_request_raises_after_max_retries_502(monkeypatch):
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast.time, "sleep", lambda _: None)
+
+    class BadGateway:
+        status_code = 502
+
+        def raise_for_status(self):
+            raise requests.exceptions.HTTPError("502")
+
+        def json(self):
+            return {}
+
+    monkeypatch.setattr(breakfast.requests, "get", lambda url, headers: BadGateway())
+
+    with pytest.raises(requests.exceptions.HTTPError):
+        breakfast.make_github_api_request("/repos/org/repo")
+
+
 def test_make_github_api_request_builds_headers_and_url(monkeypatch):
     calls = {}
 
     class DummyResponse:
+        status_code = 200
+
         def raise_for_status(self):
             return None
 
@@ -344,6 +442,49 @@ def test_cli_json_output_is_valid_json_when_empty(monkeypatch):
 
     assert result.exit_code == 0
     assert json.loads(result.output[result.output.index("[") :]) == []
+
+
+def test_cli_continues_when_one_pr_fetch_fails(monkeypatch):
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
+
+    def fake_get_prs(_org, _repo_filter):
+        return [
+            "https://github.com/org/repo/pull/1",
+            "https://github.com/org/repo/pull/2",
+        ]
+
+    def fake_api_request(path):
+        if path.endswith("/2"):
+            raise requests.exceptions.ConnectionError("reset")
+        return {
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": "Good PR",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": "https://github.com/org/repo/pull/1",
+            "number": 1,
+        }
+
+    monkeypatch.setattr(breakfast, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(breakfast, "make_github_api_request", fake_api_request)
+    monkeypatch.setattr(breakfast.time, "sleep", lambda _: None)
+
+    runner = CliRunner()
+    result = runner.invoke(breakfast.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert "Good PR" in result.output
+    assert "Warning" in result.output
+    assert "1 PR(s)" in result.output
 
 
 def test_cli_mine_only_filters_to_authenticated_user(monkeypatch):

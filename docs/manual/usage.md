@@ -10,6 +10,21 @@ breakfast -o my-org -r my-app
 
 This queries all repositories in `my-org` whose name contains `my-app`, fetches open PR details, and displays them in a terminal table.
 
+## Example output
+
+```
+$ breakfast -o my-org -r platform
+Fetching my-org PRs...🥐🍳...Done
+Processing platform PRs...🥞🧇🍩...Done
++---------+----------------------------------+-----------------+--------+---------+-----------+-----------+------------+-----------------------+--------+
+|         | Repo                             | PR Title        | Author | State   |   Files   |  Commits  |    +/-      |  Comments  | Mergeable?            | Link   |
++---------+----------------------------------+-----------------+--------+---------+-----------+-----------+------------+-----------------------+--------+
+|       0 | platform-api                     | Add user search | alice  | open    |     3     |     1     |  +42/-10   |     0      | ✅ (clean)            | PR-142 |
+|       1 | platform-api                     | Fix login bug   | bob    | open    |     1     |     1     |  +5/-2     |     3      | ✅ (clean)            | PR-138 |
+|       2 | platform-ui                      | Update nav bar  | carol  | open    |    12     |     4     |  +280/-95  |     1      | ❌ (dirty)            | PR-87  |
++---------+----------------------------------+-----------------+--------+---------+-----------+-----------+------------+-----------------------+--------+
+```
+
 ## Common workflows
 
 ### View PRs for a specific repo filter
@@ -20,6 +35,8 @@ breakfast -o my-org -r platform
 
 ### Ignore bot authors
 
+Filter out automated PRs from bots:
+
 ```bash
 breakfast -o my-org -r my-app \
   --ignore-author dependabot[bot] \
@@ -28,20 +45,61 @@ breakfast -o my-org -r my-app \
 
 ### Show only your own PRs
 
-```bash
-breakfast -o my-org -r my-app --mine-only
+```
+$ breakfast -o my-org -r platform --mine-only
+Fetching my-org PRs...🥓...Done
+Processing platform PRs...🍳...Done
++---------+----------------------------------+------------------------+--------+---------+-----------+-----------+------------+-----------------------+--------+
+|         | Repo                             | PR Title               | Author | State   |   Files   |  Commits  |    +/-      |  Comments  | Mergeable?            | Link   |
++---------+----------------------------------+------------------------+--------+---------+-----------+-----------+------------+-----------------------+--------+
+|       0 | platform-api                     | Add user search        | alice  | open    |     3     |     1     |  +42/-10   |     0      | ✅ (clean)            | PR-142 |
++---------+----------------------------------+------------------------+--------+---------+-----------+-----------+------------+-----------------------+--------+
 ```
 
 ### Show PR age
 
-```bash
-breakfast -o my-org -r my-app --age
+The `--age` column shows days since PR creation, colour-coded like other numeric columns:
+
+```
+$ breakfast -o my-org -r platform --age
+Fetching my-org PRs...🥐...Done
+Processing platform PRs...🍩🧇...Done
++---------+----------------------------------+-----------------+--------+---------+-----------+-----------+------------+-----------+------+-----------------------+--------+
+|         | Repo                             | PR Title        | Author | State   |   Files   |  Commits  |    +/-      |  Comments | Age  | Mergeable?            | Link   |
++---------+----------------------------------+-----------------+--------+---------+-----------+-----------+------------+-----------+------+-----------------------+--------+
+|       0 | platform-api                     | Add user search | alice  | open    |     3     |     1     |  +42/-10   |     0     |   2  | ✅ (clean)            | PR-142 |
+|       1 | platform-api                     | Fix login bug   | bob    | open    |     1     |     1     |  +5/-2     |     3     |  14  | ✅ (clean)            | PR-138 |
+|       2 | platform-ui                      | Update nav bar  | carol  | open    |    12     |     4     |  +280/-95  |     1     |  31  | ❌ (dirty)            | PR-87  |
++---------+----------------------------------+-----------------+--------+---------+-----------+-----------+------------+-----------+------+-----------------------+--------+
 ```
 
 ### Get machine-readable output
 
-```bash
-breakfast -o my-org -r my-app --json
+Progress messages go to stderr, so JSON can be piped cleanly:
+
+```
+$ breakfast -o my-org -r platform --json 2>/dev/null
+[
+  {
+    "repo": "platform-api",
+    "pr_number": 142,
+    "title": "Add user search",
+    "author": "alice",
+    "url": "https://github.com/my-org/platform-api/pull/142",
+    "state": "open",
+    "draft": false,
+    "created_at": "2026-03-05T10:30:00Z",
+    "updated_at": "2026-03-06T14:00:00Z",
+    "additions": 42,
+    "deletions": 10,
+    "changed_files": 3,
+    "commits": 1,
+    "review_comments": 0,
+    "labels": [],
+    "requested_reviewers": ["bob"]
+  },
+  ...
+]
 ```
 
 ### Combine options

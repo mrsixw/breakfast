@@ -30,12 +30,42 @@ breakfast -o my-org -r my-app \
   --ignore-author renovate[bot]
 ```
 
+Without `--ignore-author`, bot PRs appear in the output:
+
+```
++---------+----------------+-------------------------------+------------------+---------+-------+---------+-------------+----------+--------------+--------+
+|         | Repo           | PR Title                      | Author           | State   | Files | Commits |    +/-      | Comments | Mergeable?   | Link   |
++---------+----------------+-------------------------------+------------------+---------+-------+---------+-------------+----------+--------------+--------+
+|       0 | platform-api   | Add user search               | alice            | open    |   3   |    1    |  +42/-10    |    0     | ✅ (clean)   | PR-142 |
+|       1 | platform-api   | Bump lodash from 4.17 to 4.18 | dependabot[bot]  | open    |   1   |    1    |  +3/-3      |    0     | ✅ (clean)   | PR-141 |
+|       2 | platform-api   | Fix login bug                 | bob              | open    |   1   |    1    |  +5/-2      |    3     | ✅ (clean)   | PR-138 |
++---------+----------------+-------------------------------+------------------+---------+-------+---------+-------------+----------+--------------+--------+
+```
+
+With `--ignore-author dependabot[bot]`, the bot PR is excluded:
+
+```
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
+|         | Repo           | PR Title        | Author | State   | Files | Commits |    +/-     | Comments | Mergeable?   | Link   |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
+|       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | ✅ (clean)   | PR-142 |
+|       1 | platform-api   | Fix login bug   | bob    | open    |   1   |    1    |  +5/-2     |    3     | ✅ (clean)   | PR-138 |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
+```
+
 ### `--mine-only`
 
 Show only PRs authored by the currently authenticated GitHub user (determined from `GITHUB_TOKEN`).
 
-```bash
-breakfast -o my-org -r my-app --mine-only
+```
+$ breakfast -o my-org -r platform --mine-only
+Fetching my-org PRs...🥐...Done
+Processing platform PRs...🍳...Done
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
+|         | Repo           | PR Title        | Author | State   | Files | Commits |    +/-     | Comments | Mergeable?   | Link   |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
+|       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | ✅ (clean)   | PR-142 |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
 ```
 
 ## Display options
@@ -44,34 +74,93 @@ breakfast -o my-org -r my-app --mine-only
 
 Add an "Age" column showing the number of days since each PR was created. Displayed between "Comments" and "Mergeable?" columns.
 
-```bash
-breakfast -o my-org -r my-app --age
+```
+$ breakfast -o my-org -r platform --age
+Fetching my-org PRs...🥐...Done
+Processing platform PRs...🍩🧇...Done
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+------+--------------+--------+
+|         | Repo           | PR Title        | Author | State   | Files | Commits |    +/-     | Comments | Age  | Mergeable?   | Link   |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+------+--------------+--------+
+|       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     |   2  | ✅ (clean)   | PR-142 |
+|       1 | platform-api   | Fix login bug   | bob    | open    |   1   |    1    |  +5/-2     |    3     |  14  | ✅ (clean)   | PR-138 |
+|       2 | platform-ui    | Update nav bar  | carol  | open    |  12   |    4    |  +280/-95  |    1     |  31  | ❌ (dirty)   | PR-87  |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+------+--------------+--------+
 ```
 
 ### `--json`
 
 Output results as JSON instead of a terminal table. Progress messages are sent to stderr so JSON output can be piped cleanly.
 
-```bash
-breakfast -o my-org -r my-app --json | jq '.[].title'
+```
+$ breakfast -o my-org -r platform --json 2>/dev/null
+[
+  {
+    "repo": "platform-api",
+    "pr_number": 142,
+    "title": "Add user search",
+    "author": "alice",
+    "url": "https://github.com/my-org/platform-api/pull/142",
+    "state": "open",
+    "draft": false,
+    "created_at": "2026-03-05T10:30:00Z",
+    "updated_at": "2026-03-06T14:00:00Z",
+    "additions": 42,
+    "deletions": 10,
+    "changed_files": 3,
+    "commits": 1,
+    "review_comments": 0,
+    "labels": [],
+    "requested_reviewers": ["bob"]
+  },
+  {
+    "repo": "platform-api",
+    "pr_number": 138,
+    "title": "Fix login bug",
+    "author": "bob",
+    "url": "https://github.com/my-org/platform-api/pull/138",
+    "state": "open",
+    "draft": false,
+    "created_at": "2026-02-21T09:15:00Z",
+    "updated_at": "2026-03-04T16:30:00Z",
+    "additions": 5,
+    "deletions": 2,
+    "changed_files": 1,
+    "commits": 1,
+    "review_comments": 3,
+    "labels": ["bug"],
+    "requested_reviewers": []
+  }
+]
 ```
 
-See [Output Formats](output-formats.md) for details on the JSON schema.
+See [Output Formats](output-formats.md) for full schema details and scripting examples.
 
 ## Other options
 
 ### `--version`
 
-Display the installed version of breakfast.
-
-```bash
-breakfast --version
+```
+$ breakfast --version
+breakfast, version 0.10.0
 ```
 
 ### `--help`
 
-Show help text with all available options.
+```
+$ breakfast --help
+Usage: breakfast [OPTIONS]
 
-```bash
-breakfast --help
+Options:
+  -o, --organization TEXT  One or multiple organizations to report on
+  -r, --repo-filter TEXT   Filter for specific repp(s)
+  --ignore-author TEXT     Ignore PRs raised by one or more authors
+                           (case-insensitive). Repeat for multiple authors,
+                           e.g. --ignore-author dependabot[bot].
+  --mine-only              Only include PRs authored by the currently
+                           authenticated GitHub user.
+  --age                    Include an age column showing PR age in days.
+  --json                   Output results as JSON instead of a table. Progress
+                           messages go to stderr.
+  --version                Show the version and exit.
+  --help                   Show this message and exit.
 ```

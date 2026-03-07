@@ -2,6 +2,19 @@
 
 ## Table output (default)
 
+```
+$ breakfast -o my-org -r platform
+Fetching my-org PRs...🥐🍳...Done
+Processing platform PRs...🥞🧇🍩...Done
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
+|         | Repo           | PR Title        | Author | State   | Files | Commits |    +/-     | Comments | Mergeable?   | Link   |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
+|       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | ✅ (clean)   | PR-142 |
+|       1 | platform-api   | Fix login bug   | bob    | open    |   1   |    1    |  +5/-2     |    3     | ✅ (clean)   | PR-138 |
+|       2 | platform-ui    | Update nav bar  | carol  | open    |  12   |    4    |  +280/-95  |    1     | ❌ (dirty)   | PR-87  |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
+```
+
 The default output is a colour-coded terminal table with the following columns:
 
 | Column | Description |
@@ -59,15 +72,73 @@ Each PR object contains:
 }
 ```
 
+### Full example
+
+```
+$ breakfast -o my-org -r platform --json 2>/dev/null
+[
+  {
+    "repo": "platform-api",
+    "pr_number": 142,
+    "title": "Add user search",
+    "author": "alice",
+    "url": "https://github.com/my-org/platform-api/pull/142",
+    "state": "open",
+    "draft": false,
+    "created_at": "2026-03-05T10:30:00Z",
+    "updated_at": "2026-03-06T14:00:00Z",
+    "additions": 42,
+    "deletions": 10,
+    "changed_files": 3,
+    "commits": 1,
+    "review_comments": 0,
+    "labels": [],
+    "requested_reviewers": ["bob"]
+  },
+  {
+    "repo": "platform-api",
+    "pr_number": 138,
+    "title": "Fix login bug",
+    "author": "bob",
+    "url": "https://github.com/my-org/platform-api/pull/138",
+    "state": "open",
+    "draft": false,
+    "created_at": "2026-02-21T09:15:00Z",
+    "updated_at": "2026-03-04T16:30:00Z",
+    "additions": 5,
+    "deletions": 2,
+    "changed_files": 1,
+    "commits": 1,
+    "review_comments": 3,
+    "labels": ["bug"],
+    "requested_reviewers": []
+  }
+]
+```
+
 ### Piping and scripting
 
 ```bash
 # List all PR titles
-breakfast -o my-org -r my-app --json | jq '.[].title'
+$ breakfast -o my-org -r platform --json 2>/dev/null | jq '.[].title'
+"Add user search"
+"Fix login bug"
 
 # Count PRs per author
-breakfast -o my-org -r my-app --json | jq 'group_by(.author) | map({author: .[0].author, count: length})'
+$ breakfast -o my-org -r platform --json 2>/dev/null | jq 'group_by(.author) | map({author: .[0].author, count: length})'
+[
+  { "author": "alice", "count": 1 },
+  { "author": "bob", "count": 1 }
+]
 
 # Find PRs with no reviewers
-breakfast -o my-org -r my-app --json | jq '[.[] | select(.requested_reviewers | length == 0)]'
+$ breakfast -o my-org -r platform --json 2>/dev/null | jq '[.[] | select(.requested_reviewers | length == 0)]'
+[
+  {
+    "repo": "platform-api",
+    "pr_number": 138,
+    "title": "Fix login bug",
+    ...
+  }
+]
 ```

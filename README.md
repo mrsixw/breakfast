@@ -1,7 +1,9 @@
-# breakfast
+# 🥐 breakfast
 [![CI](https://github.com/mrsixw/breakfast/actions/workflows/ci.yml/badge.svg)](https://github.com/mrsixw/breakfast/actions/workflows/ci.yml)
 
-Simple tool for pulling PRs you might be interested in.
+The most important meal of your workday.
+
+Breakfast is the first thing you should consume each morning — and open PRs are the first thing you should consume at the start of your workday. **breakfast** serves them up in a tasty terminal table so you can start your day right.
 
 ## Quick start
 

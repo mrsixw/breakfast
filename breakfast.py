@@ -260,10 +260,10 @@ def get_check_status(owner, repo, sha):
 
 def format_check_status(status):
     styles = {
-        "pass": ("green", "pass"),
-        "fail": ("red", "fail"),
-        "pending": ("yellow", "pending"),
-        "none": ("white", "none"),
+        "pass": ("green", "✅ pass"),
+        "fail": ("red", "❌ fail"),
+        "pending": ("yellow", "⚠️ pending"),
+        "none": ("white", "➖ none"),
     }
     colour, text = styles.get(status, ("white", status))
     return click.style(text, fg=colour, bold=True)

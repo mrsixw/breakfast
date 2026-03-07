@@ -4,6 +4,7 @@
 - **breakfast** is a CLI tool that displays open GitHub pull requests across an organization's repos in a terminal table.
 - Built with Python and Click. Uses the GitHub REST and GraphQL APIs.
 - Single-module project: main code in `breakfast.py`, tests in `test_breakfast.py`.
+- The name is tongue-in-cheek: breakfast is the first thing you consume each morning, and open PRs are the first thing you should consume at the start of your workday.
 
 ## Project Structure
 - `breakfast.py` — CLI entry point and all application logic
@@ -59,6 +60,11 @@
 - Use `ruff` (lint + import sorting) and `black` (formatting).
 - Prefer running checks via CI and pre-commit hooks where possible.
 - Before committing and pushing changes, run `make test`, `make lint`, and `make format` locally.
+
+## Tone and Personality
+- This project is playful and fun. Embrace whimsy — emoji, breakfast theming, and a lighthearted tone are encouraged.
+- The progress spinner already uses random breakfast emoji (🥐🍳🧇). New user-facing features should follow this spirit: use emoji and colour to make output feel lively, not dry.
+- Keep the fun in the UI layer (output, messages, docs). The underlying code should still be clean and well-tested.
 
 ## Documentation
 - User-facing documentation lives in `docs/manual/`. Design documents live in `docs/design/`.

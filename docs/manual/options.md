@@ -145,6 +145,16 @@ breakfast automatically checks for new versions once per day (cached for 24 hour
 
 The check is non-blocking and non-fatal — network failures are silently ignored. The notification is sent to stderr so it won't interfere with `--json` output piping.
 
+To disable the update check:
+
+```bash
+# Via CLI flag
+breakfast -o my-org -r my-app --no-update-check
+
+# Via environment variable (useful in CI or scripts)
+export BREAKFAST_NO_UPDATE_CHECK=1
+```
+
 ## Other options
 
 ### `--version`

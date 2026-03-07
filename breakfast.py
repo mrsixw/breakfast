@@ -358,8 +358,23 @@ def generate_terminal_url_anchor(url, url_text="Link"):
     default=False,
     help="Output results as JSON instead of a table. Progress messages go to stderr.",
 )
+@click.option(
+    "--no-update-check",
+    is_flag=True,
+    default=False,
+    envvar="BREAKFAST_NO_UPDATE_CHECK",
+    help="Disable the automatic update check.",
+)
 @click.version_option(package_name="breakfast")
-def breakfast(organization, repo_filter, ignore_author, mine_only, age, json_output):
+def breakfast(
+    organization,
+    repo_filter,
+    ignore_author,
+    mine_only,
+    age,
+    json_output,
+    no_update_check,
+):
     if SECRET_GITHUB_TOKEN is None:
         message = "GITHUB_TOKEN not set in environment - exiting..."
         click.echo(click.style(message, fg="red", bold=True))
@@ -427,9 +442,10 @@ def breakfast(organization, repo_filter, ignore_author, mine_only, age, json_out
             click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
         click.echo("...Done", err=True)
         click.echo(json.dumps(json_data, indent=2))
-        update_msg = check_for_update()
-        if update_msg:
-            click.echo(click.style(update_msg, fg="cyan", bold=True), err=True)
+        if not no_update_check:
+            update_msg = check_for_update()
+            if update_msg:
+                click.echo(click.style(update_msg, fg="cyan", bold=True), err=True)
         return
 
     for pr_detail in pr_details:
@@ -465,9 +481,10 @@ def breakfast(organization, repo_filter, ignore_author, mine_only, age, json_out
         tabulate(pr_data, headers="keys", showindex="always", tablefmt="outline")
     )
 
-    update_msg = check_for_update()
-    if update_msg:
-        click.echo(click.style(update_msg, fg="cyan", bold=True), err=True)
+    if not no_update_check:
+        update_msg = check_for_update()
+        if update_msg:
+            click.echo(click.style(update_msg, fg="cyan", bold=True), err=True)
 
 
 if __name__ == "__main__":

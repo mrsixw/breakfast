@@ -637,3 +637,46 @@ def test_write_and_read_version_cache(monkeypatch, tmp_path):
 
     breakfast._write_version_cache("3.0.0")
     assert breakfast._read_version_cache() == "3.0.0"
+
+
+def test_no_update_check_flag_skips_update(monkeypatch):
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(breakfast, "get_github_prs", lambda _o, _r: [])
+    check_called = []
+    monkeypatch.setattr(
+        breakfast,
+        "check_for_update",
+        lambda: check_called.append(1) or "update!",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        breakfast.breakfast,
+        ["-o", "org", "-r", "repo", "--no-update-check"],
+    )
+
+    assert result.exit_code == 0
+    assert len(check_called) == 0
+
+
+def test_no_update_check_env_var(monkeypatch):
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(breakfast, "get_github_prs", lambda _o, _r: [])
+    monkeypatch.setenv("BREAKFAST_NO_UPDATE_CHECK", "1")
+    check_called = []
+    monkeypatch.setattr(
+        breakfast,
+        "check_for_update",
+        lambda: check_called.append(1) or "update!",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        breakfast.breakfast,
+        ["-o", "org", "-r", "repo"],
+    )
+
+    assert result.exit_code == 0
+    assert len(check_called) == 0

@@ -12,6 +12,9 @@
 - `Makefile` — build, test, lint, and format targets
 - `utils/read_version.py` — version helper for CI
 - `mkver.conf` — version bump configuration
+- `docs/` — project documentation
+  - `docs/manual/` — user-facing manual (installation, usage, options, output formats, troubleshooting)
+  - `docs/design/` — technical design documents for planned features
 
 ## Environment
 - Python >= 3.11
@@ -56,3 +59,8 @@
 - Use `ruff` (lint + import sorting) and `black` (formatting).
 - Prefer running checks via CI and pre-commit hooks where possible.
 - Before committing and pushing changes, run `make test`, `make lint`, and `make format` locally.
+
+## Documentation
+- User-facing documentation lives in `docs/manual/`. Design documents live in `docs/design/`.
+- **When adding, changing, or removing CLI options, features, or user-visible behaviour in `breakfast.py`, you MUST update the relevant manual pages in `docs/manual/` in the same commit or PR.** This includes `options.md`, `usage.md`, `output-formats.md`, and `troubleshooting.md` as appropriate.
+- When adding a new feature design, create a document in `docs/design/` and add it to the table in `docs/design/README.md`.

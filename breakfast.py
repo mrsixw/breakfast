@@ -242,6 +242,35 @@ def get_pr_age_days(pr_detail, now=None):
     return max((now - created_dt).days, 0)
 
 
+def get_check_status(owner, repo, sha):
+    data = make_github_api_request(f"/repos/{owner}/{repo}/commits/{sha}/check-runs")
+    check_runs = data.get("check_runs", [])
+    if not check_runs:
+        return "none"
+
+    for cr in check_runs:
+        if cr.get("status") in ("queued", "in_progress"):
+            return "pending"
+
+    conclusions = {cr.get("conclusion") for cr in check_runs}
+    fail_states = {"failure", "cancelled", "timed_out", "action_required"}
+    if conclusions & fail_states:
+        return "fail"
+
+    return "pass"
+
+
+def format_check_status(status):
+    styles = {
+        "pass": ("green", "✅ pass"),
+        "fail": ("red", "❌ fail"),
+        "pending": ("yellow", "⚠️ pending"),
+        "none": ("white", "➖ none"),
+    }
+    colour, text = styles.get(status, ("white", status))
+    return click.style(text, fg=colour, bold=True)
+
+
 _UPDATE_CHECK_REPO = "mrsixw/breakfast"
 _CACHE_DIR = Path.home() / ".cache" / "breakfast"
 _CACHE_TTL_SECONDS = 86400  # 24 hours
@@ -359,6 +388,12 @@ def generate_terminal_url_anchor(url, url_text="Link"):
     help="Output results as JSON instead of a table. Progress messages go to stderr.",
 )
 @click.option(
+    "--checks",
+    is_flag=True,
+    default=False,
+    help="Include a checks column showing CI/check status for each PR.",
+)
+@click.option(
     "--no-update-check",
     is_flag=True,
     default=False,
@@ -373,6 +408,7 @@ def breakfast(
     mine_only,
     age,
     json_output,
+    checks,
     no_update_check,
 ):
     if SECRET_GITHUB_TOKEN is None:
@@ -414,31 +450,49 @@ def breakfast(
         current_user_login=current_user_login,
     )
 
+    check_statuses = {}
+    if checks and pr_details:
+        max_workers = min(8, len(pr_details))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            check_futures = []
+            for pr_detail in pr_details:
+                owner = pr_detail["base"]["repo"]["owner"]["login"]
+                repo_name = pr_detail["base"]["repo"]["name"]
+                sha = pr_detail["head"]["sha"]
+                future = executor.submit(get_check_status, owner, repo_name, sha)
+                check_futures.append((pr_detail["number"], future))
+        for pr_number, future in check_futures:
+            try:
+                check_statuses[pr_number] = future.result()
+            except Exception:
+                check_statuses[pr_number] = "none"
+
     if json_output:
         json_data = []
         for pr_detail in pr_details:
-            json_data.append(
-                {
-                    "repo": pr_detail["base"]["repo"]["name"],
-                    "pr_number": pr_detail["number"],
-                    "title": pr_detail["title"],
-                    "author": pr_detail["user"]["login"],
-                    "url": pr_detail["html_url"],
-                    "state": pr_detail["state"],
-                    "draft": pr_detail.get("draft", False),
-                    "created_at": pr_detail.get("created_at"),
-                    "updated_at": pr_detail.get("updated_at"),
-                    "additions": pr_detail.get("additions"),
-                    "deletions": pr_detail.get("deletions"),
-                    "changed_files": pr_detail.get("changed_files"),
-                    "commits": pr_detail.get("commits"),
-                    "review_comments": pr_detail.get("review_comments"),
-                    "labels": [lb["name"] for lb in pr_detail.get("labels", [])],
-                    "requested_reviewers": [
-                        r["login"] for r in pr_detail.get("requested_reviewers", [])
-                    ],
-                }
-            )
+            entry = {
+                "repo": pr_detail["base"]["repo"]["name"],
+                "pr_number": pr_detail["number"],
+                "title": pr_detail["title"],
+                "author": pr_detail["user"]["login"],
+                "url": pr_detail["html_url"],
+                "state": pr_detail["state"],
+                "draft": pr_detail.get("draft", False),
+                "created_at": pr_detail.get("created_at"),
+                "updated_at": pr_detail.get("updated_at"),
+                "additions": pr_detail.get("additions"),
+                "deletions": pr_detail.get("deletions"),
+                "changed_files": pr_detail.get("changed_files"),
+                "commits": pr_detail.get("commits"),
+                "review_comments": pr_detail.get("review_comments"),
+                "labels": [lb["name"] for lb in pr_detail.get("labels", [])],
+                "requested_reviewers": [
+                    r["login"] for r in pr_detail.get("requested_reviewers", [])
+                ],
+            }
+            if checks:
+                entry["checks"] = check_statuses.get(pr_detail["number"], "none")
+            json_data.append(entry)
             click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
         click.echo("...Done", err=True)
         click.echo(json.dumps(json_data, indent=2))
@@ -469,6 +523,10 @@ def breakfast(
         }
         if age:
             row["Age"] = click_colour_grade_number(get_pr_age_days(pr_detail))
+        if checks:
+            row["Checks"] = format_check_status(
+                check_statuses.get(pr_detail["number"], "none")
+            )
         row["Mergeable?"] = f"{mergable} ({mergable_state})"
         row["Link"] = generate_terminal_url_anchor(
             pr_detail["html_url"],

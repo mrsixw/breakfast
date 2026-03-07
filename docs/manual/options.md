@@ -135,6 +135,40 @@ $ breakfast -o my-org -r platform --json 2>/dev/null
 
 See [Output Formats](output-formats.md) for full schema details and scripting examples.
 
+### `--checks`
+
+Show CI/check status for each PR. This is opt-in because it requires an additional API call per PR.
+
+```
+$ breakfast -o my-org -r platform --checks
+Fetching my-org PRs...🥐...Done
+Processing platform PRs...🍩🧇...Done
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+----------+--------------+--------+
+|         | Repo           | PR Title        | Author | State   | Files | Commits |    +/-     | Comments | Checks   | Mergeable?   | Link   |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+----------+--------------+--------+
+|       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | pass     | ✅ (clean)   | PR-142 |
+|       1 | platform-api   | Fix login bug   | bob    | open    |   1   |    1    |  +5/-2     |    3     | fail     | ✅ (clean)   | PR-138 |
+|       2 | platform-ui    | Update nav bar  | carol  | open    |  12   |    4    |  +280/-95  |    1     | pending  | ❌ (dirty)   | PR-87  |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+----------+--------------+--------+
+```
+
+Check status values:
+- **pass** (green) - All check runs succeeded or were skipped
+- **fail** (red) - One or more check runs failed, were cancelled, or timed out
+- **pending** (yellow) - One or more check runs are still queued or in progress
+- **none** (white) - No check runs configured for this PR
+
+With `--json --checks`, a `"checks"` field is included in each PR object:
+
+```json
+{
+  "repo": "platform-api",
+  "title": "Add user search",
+  "checks": "pass",
+  ...
+}
+```
+
 ## Update notifications
 
 breakfast automatically checks for new versions once per day (cached for 24 hours in `~/.cache/breakfast/`). If a newer version is available, you'll see a message after the main output:

@@ -1,7 +1,9 @@
-# breakfast
+# 🥐 breakfast
 [![CI](https://github.com/mrsixw/breakfast/actions/workflows/ci.yml/badge.svg)](https://github.com/mrsixw/breakfast/actions/workflows/ci.yml)
 
-Simple tool for pulling PRs you might be interested in.
+The most important meal of your workday.
+
+Breakfast is the first thing you should consume each morning — and open PRs are the first thing you should consume at the start of your workday. **breakfast** serves them up in a tasty terminal table so you can start your day right.
 
 ## Quick start
 
@@ -16,6 +18,7 @@ breakfast -o my-org -r my-app
 breakfast -o my-org -r my-app --ignore-author dependabot[bot] --ignore-author renovate[bot]
 breakfast -o my-org -r my-app --mine-only
 breakfast -o my-org -r my-app --age
+breakfast -o my-org -r my-app --checks
 breakfast -o my-org -r my-app --json
 ```
 
@@ -25,6 +28,7 @@ breakfast -o my-org -r my-app --json
 - `--ignore-author`: Exclude PRs by author (case-insensitive, repeatable).
 - `--mine-only`: Show only your own PRs.
 - `--age`: Add an age column (days since creation).
+- `--checks`: Add a checks column showing CI status (pass/fail/pending/none).
 - `--json`: Output as JSON instead of a table.
 - `--version`: Show version.
 

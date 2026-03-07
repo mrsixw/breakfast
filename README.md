@@ -3,17 +3,33 @@
 
 Simple tool for pulling PRs you might be interested in.
 
+## Quick start
+
+```bash
+export GITHUB_TOKEN="ghp_your_token_here"
+breakfast -o my-org -r my-app
+```
+
 ## Usage
 ```bash
-./breakfast --organization cisco-sbg --repo-filter foo
-./breakfast --organization cisco-sbg --repo-filter foo --ignore-author dependabot[bot] --ignore-author renovate[bot]
-./breakfast --organization cisco-sbg --repo-filter foo --mine-only
-./breakfast --organization cisco-sbg --repo-filter foo --age
+breakfast -o my-org -r my-app
+breakfast -o my-org -r my-app --ignore-author dependabot[bot] --ignore-author renovate[bot]
+breakfast -o my-org -r my-app --mine-only
+breakfast -o my-org -r my-app --age
+breakfast -o my-org -r my-app --json
 ```
 
 ## Options
-- `--organization`, `-o`: One or multiple organizations to report on.
-- `--repo-filter`, `-r`: Filter for specific repo(s) by name substring.
-- `--ignore-author`: Ignore PRs raised by one or more authors (case-insensitive). Repeat for multiple authors.
-- `--mine-only`: Only include PRs authored by the currently authenticated GitHub user.
-- `--age`: Add an `Age` column (days since PR creation) between `Comments` and `Mergeable?`.
+- `--organization`, `-o`: Organization to query for PRs.
+- `--repo-filter`, `-r`: Filter repos by name substring.
+- `--ignore-author`: Exclude PRs by author (case-insensitive, repeatable).
+- `--mine-only`: Show only your own PRs.
+- `--age`: Add an age column (days since creation).
+- `--json`: Output as JSON instead of a table.
+- `--version`: Show version.
+
+## Documentation
+
+- [User Manual](docs/manual/) - Installation, usage, options reference, output formats, and troubleshooting
+- [Design Documents](docs/design/) - Technical designs for planned features
+- [Contributing](CONTRIBUTING.md) - How to contribute to the project

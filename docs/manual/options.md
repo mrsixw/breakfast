@@ -169,6 +169,26 @@ With `--json --checks`, a `"checks"` field is included in each PR object:
 }
 ```
 
+## Update notifications
+
+breakfast automatically checks for new versions once per day (cached for 24 hours in `~/.cache/breakfast/`). If a newer version is available, you'll see a message after the main output:
+
+```
+🍳 A fresh breakfast is ready! v0.10.0 → v0.11.0 — update at https://github.com/mrsixw/breakfast/releases/latest
+```
+
+The check is non-blocking and non-fatal — network failures are silently ignored. The notification is sent to stderr so it won't interfere with `--json` output piping.
+
+To disable the update check:
+
+```bash
+# Via CLI flag
+breakfast -o my-org -r my-app --no-update-check
+
+# Via environment variable (useful in CI or scripts)
+export BREAKFAST_NO_UPDATE_CHECK=1
+```
+
 ## Other options
 
 ### `--version`

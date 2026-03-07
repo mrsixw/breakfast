@@ -767,3 +767,152 @@ def test_cli_json_excludes_checks_by_default(monkeypatch):
     assert result.exit_code == 0
     data = json.loads(result.output[result.output.index("[") :])
     assert "checks" not in data[0]
+
+
+def test_parse_version_tuple():
+    assert breakfast._parse_version_tuple("1.2.3") == (1, 2, 3)
+    assert breakfast._parse_version_tuple("0.10.0") == (0, 10, 0)
+    assert breakfast._parse_version_tuple("bad") == ()
+    assert breakfast._parse_version_tuple(None) == ()
+
+
+def test_check_for_update_newer_available(monkeypatch):
+    monkeypatch.setattr(breakfast, "pkg_version", lambda _name: "0.9.0")
+    monkeypatch.setattr(breakfast, "get_latest_version", lambda: "0.10.0")
+
+    result = breakfast.check_for_update()
+
+    assert result is not None
+    assert "v0.9.0" in result
+    assert "v0.10.0" in result
+    assert "fresh breakfast" in result
+
+
+def test_check_for_update_up_to_date(monkeypatch):
+    monkeypatch.setattr(breakfast, "pkg_version", lambda _name: "0.10.0")
+    monkeypatch.setattr(breakfast, "get_latest_version", lambda: "0.10.0")
+
+    assert breakfast.check_for_update() is None
+
+
+def test_check_for_update_no_latest(monkeypatch):
+    monkeypatch.setattr(breakfast, "pkg_version", lambda _name: "0.10.0")
+    monkeypatch.setattr(breakfast, "get_latest_version", lambda: None)
+
+    assert breakfast.check_for_update() is None
+
+
+def test_check_for_update_handles_errors(monkeypatch):
+    def boom(_name):
+        raise Exception("boom")
+
+    monkeypatch.setattr(breakfast, "pkg_version", boom)
+    monkeypatch.setattr(breakfast, "get_latest_version", lambda: "1.0.0")
+
+    assert breakfast.check_for_update() is None
+
+
+def test_get_latest_version_from_cache(monkeypatch, tmp_path):
+    monkeypatch.setattr(breakfast, "_CACHE_DIR", tmp_path)
+    cache_file = tmp_path / "latest_version.json"
+    cache_file.write_text(
+        json.dumps(
+            {
+                "latest_version": "1.2.3",
+                "checked_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+    )
+
+    assert breakfast.get_latest_version() == "1.2.3"
+
+
+def test_get_latest_version_expired_cache_fetches(monkeypatch, tmp_path):
+    monkeypatch.setattr(breakfast, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    cache_file = tmp_path / "latest_version.json"
+    old_time = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    cache_file.write_text(
+        json.dumps(
+            {
+                "latest_version": "0.1.0",
+                "checked_at": old_time.isoformat(),
+            }
+        )
+    )
+
+    class FakeResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"tag_name": "v2.0.0"}
+
+    monkeypatch.setattr(
+        breakfast.requests,
+        "get",
+        lambda *args, **kwargs: FakeResp(),
+    )
+
+    assert breakfast.get_latest_version() == "2.0.0"
+
+
+def test_get_latest_version_api_failure_returns_none(monkeypatch, tmp_path):
+    monkeypatch.setattr(breakfast, "_CACHE_DIR", tmp_path)
+
+    def fail(*args, **kwargs):
+        raise requests.exceptions.ConnectionError("nope")
+
+    monkeypatch.setattr(breakfast.requests, "get", fail)
+
+    assert breakfast.get_latest_version() is None
+
+
+def test_write_and_read_version_cache(monkeypatch, tmp_path):
+    monkeypatch.setattr(breakfast, "_CACHE_DIR", tmp_path)
+
+    breakfast._write_version_cache("3.0.0")
+    assert breakfast._read_version_cache() == "3.0.0"
+
+
+def test_no_update_check_flag_skips_update(monkeypatch):
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(breakfast, "get_github_prs", lambda _o, _r: [])
+    check_called = []
+    monkeypatch.setattr(
+        breakfast,
+        "check_for_update",
+        lambda: check_called.append(1) or "update!",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        breakfast.breakfast,
+        ["-o", "org", "-r", "repo", "--no-update-check"],
+    )
+
+    assert result.exit_code == 0
+    assert len(check_called) == 0
+
+
+def test_no_update_check_env_var(monkeypatch):
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(breakfast, "get_github_prs", lambda _o, _r: [])
+    monkeypatch.setenv("BREAKFAST_NO_UPDATE_CHECK", "1")
+    check_called = []
+    monkeypatch.setattr(
+        breakfast,
+        "check_for_update",
+        lambda: check_called.append(1) or "update!",
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        breakfast.breakfast,
+        ["-o", "org", "-r", "repo"],
+    )
+
+    assert result.exit_code == 0
+    assert len(check_called) == 0

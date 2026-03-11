@@ -41,13 +41,12 @@ def test_normalize_ignore_authors_multiple():
 
 
 def test_load_config_expand_user(tmp_path, monkeypatch):
-    import os
     # Mock HOME to tmp_path
     monkeypatch.setenv("HOME", str(tmp_path))
-    
+
     cfg_file = tmp_path / "myconfig.toml"
     cfg_file.write_text('organization = "home-org"')
-    
+
     # Test path with ~
     result = config.load_config(str(cfg_file).replace(str(tmp_path), "~"))
     assert result["organization"] == "home-org"

@@ -5,9 +5,17 @@
 - Python 3.11 or later
 - A [GitHub personal access token](https://github.com/settings/tokens) with `repo` scope
 
+## Install uv
+
+If you do not already have [uv](https://docs.astral.sh/uv/), install it first:
+
+```bash
+python -m pip install --user uv
+```
+
 ## Install from source
 
-Clone the repository and install with [uv](https://docs.astral.sh/uv/):
+Clone the repository and install the runtime dependencies:
 
 ```bash
 git clone https://github.com/mrsixw/breakfast.git
@@ -20,7 +28,8 @@ uv sync
 breakfast can be built as a standalone [shiv](https://github.com/linkedin/shiv) executable:
 
 ```bash
-make build
+uv sync --extra build
+uv run shiv -c breakfast -o breakfast .
 ```
 
 This produces a `./breakfast` binary that can be copied anywhere on your `PATH`.

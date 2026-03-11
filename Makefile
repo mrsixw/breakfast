@@ -1,6 +1,8 @@
 .ONESHELL:
 SHELL = /bin/bash
 
+.PHONY: activate build version-bump release breakfast smoketest test lint format
+
 .venv:
 	uv venv .venv
 	uv sync --extra dev
@@ -8,7 +10,8 @@ SHELL = /bin/bash
 activate: .venv
 	. .venv/bin/activate
 
-build: activate
+build:
+	uv sync --extra build
 	uv run shiv -c breakfast -o breakfast .
 
 version-bump:

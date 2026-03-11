@@ -15,14 +15,14 @@ Enter
 Sleep 1s
 
 # Show the help command
-Type "uv run breakfast --help"
+Type "./breakfast --help"
 Sleep 500ms
 Enter
 Sleep 3s
 
 # Clear and show a real-world example
 Ctrl+L
-Type "uv run breakfast -o google -r python"
+Type "./breakfast -o google -r python"
 Sleep 500ms
 Enter
 

@@ -10,7 +10,8 @@ SHELL = /bin/bash
 activate: .venv
 	. .venv/bin/activate
 
-build:
+build: .venv
+
 	uv sync --extra build
 	uv run shiv -c breakfast -o breakfast .
 
@@ -21,8 +22,8 @@ release: build
 
 breakfast: build
 
-smoketest: breakfast
-	./breakfast --version
+smoketest: breakfast .venv
+	. .venv/bin/activate && ./breakfast --version
 
 test: .venv
 	uv sync --extra test

@@ -1,0 +1,157 @@
+import os
+import random
+import time
+
+import click
+import requests
+
+from .ui import BREAKFAST_ITEMS
+
+GITHUB_API_URL = "https://api.github.com"
+GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
+SECRET_GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", None)
+
+_MAX_RETRIES = 3
+_RETRY_STATUSES = {502, 503, 504}
+
+
+def make_github_api_request(query_string):
+    url = GITHUB_API_URL + query_string
+    headers = {
+        "Authorization": f"token {SECRET_GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    for attempt in range(_MAX_RETRIES + 1):
+        if attempt:
+            time.sleep(2 ** (attempt - 1) + random.uniform(0, 0.5))
+        try:
+            req = requests.get(url, headers=headers)
+            if req.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES:
+                continue
+            req.raise_for_status()
+            return req.json()
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            if attempt == _MAX_RETRIES:
+                raise
+
+
+def _fetch_pr_detail(pr_url):
+    url_parts = pr_url.split("/")
+    return make_github_api_request(
+        f"/repos/{url_parts[3]}/{url_parts[4]}/pulls/{url_parts[6]}"
+    )
+
+
+def make_paginated_github_api_requst(query_string, rate=100):
+    page, returned = 1, rate
+    all_data = []
+    while returned >= rate:
+        paginated_string = "{}&page={}&per_page={}".format(query_string, page, rate)
+        data = make_github_api_request(paginated_string)
+        returned = len(data)
+        page = page + 1
+        for x in data:
+            all_data.append(x)
+    return all_data
+
+
+def make_github_graphql_request(query, variables={}):
+    headers = {
+        "Authorization": f"Bearer {SECRET_GITHUB_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {"query": query, "variables": variables or {}}
+    response = requests.post(GITHUB_GRAPHQL_URL, json=payload, headers=headers)
+    response.raise_for_status()
+
+    resp_json = response.json()
+    if "errors" in resp_json:
+        raise ValueError(f"GraphQL request failed: {resp_json['errors']}")
+
+    return response.json()
+
+
+def get_github_prs(organization, repo_filter):
+    base_query = """
+    query($organization: String!, $cursor: String){
+      organization(login: $organization){
+        repositories(after: $cursor, first:100){
+          nodes{
+            name
+            pullRequests(first:100,states: [OPEN]){
+                nodes{
+                    url
+                 }
+            }
+          }
+          pageInfo {
+            endCursor
+            hasNextPage
+          }
+        }
+      }
+    }
+        """
+    variables = {"organization": organization}
+
+    gql_responses = []
+
+    click.echo(f"Fetching {organization} PRs...", nl=False)
+    while True:
+        response = make_github_graphql_request(base_query, variables)
+        gql_responses.append(response)
+        page_info = response["data"]["organization"]["repositories"]["pageInfo"]
+        if not page_info["hasNextPage"]:
+            break
+        variables["cursor"] = page_info["endCursor"]
+        click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False)
+    click.echo("...Done")
+
+    prs = []
+    for response in gql_responses:
+        for repo in response["data"]["organization"]["repositories"]["nodes"]:
+            if repo_filter in repo["name"]:
+                for pr in repo["pullRequests"]["nodes"]:
+                    prs.append(pr["url"])
+    return prs
+
+
+def get_authenticated_user_login():
+    user = make_github_api_request("/user")
+    login = user.get("login")
+    if not login:
+        raise ValueError("Unable to determine authenticated GitHub user login.")
+    return login
+
+
+def get_check_status(owner, repo, sha):
+    # Check Runs API (GitHub Actions, newer CI integrations)
+    cr_data = make_github_api_request(f"/repos/{owner}/{repo}/commits/{sha}/check-runs")
+    check_runs = cr_data.get("check_runs", [])
+
+    # Commit Status API (Jenkins, older CI integrations)
+    status_data = make_github_api_request(f"/repos/{owner}/{repo}/commits/{sha}/status")
+    statuses = status_data.get("statuses", [])
+
+    if not check_runs and not statuses:
+        return "none"
+
+    # Check runs: look for pending or failures
+    for cr in check_runs:
+        if cr.get("status") in ("queued", "in_progress"):
+            return "pending"
+
+    cr_conclusions = {cr.get("conclusion") for cr in check_runs}
+    cr_fail_states = {"failure", "cancelled", "timed_out", "action_required"}
+
+    # Commit statuses: look for pending or failures
+    status_states = {s.get("state") for s in statuses}
+    status_fail_states = {"failure", "error"}
+
+    if "pending" in status_states:
+        return "pending"
+
+    if (cr_conclusions & cr_fail_states) or (status_states & status_fail_states):
+        return "fail"
+
+    return "pass"

@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-breakfast = "breakfast:breakfast"
+breakfast = "breakfast.cli:breakfast"
 
 [project.optional-dependencies]
 test = [
@@ -40,8 +40,8 @@ dev = [
   "shiv",
 ]
 
-[tool.setuptools]
-py-modules = ["breakfast"]
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.black]
 line-length = 88

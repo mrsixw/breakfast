@@ -8,7 +8,8 @@ SHELL = /bin/bash
 activate: .venv
 	. .venv/bin/activate
 
-build: activate
+build: .venv
+	uv sync --extra build
 	uv run shiv -c breakfast -o breakfast .
 
 version-bump:
@@ -18,8 +19,8 @@ release: build
 
 breakfast: build
 
-smoketest: breakfast
-	./breakfast --version
+smoketest: breakfast .venv
+	. .venv/bin/activate && ./breakfast --version
 
 test: .venv
 	uv sync --extra test

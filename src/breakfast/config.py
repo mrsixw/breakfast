@@ -1,7 +1,16 @@
+import os
 import tomllib
 from pathlib import Path
 
 import click
+
+
+def get_config_dir():
+    """Get the XDG-compliant configuration directory."""
+    xdg_config = os.getenv("XDG_CONFIG_HOME")
+    if xdg_config:
+        return Path(xdg_config) / "breakfast"
+    return Path.home() / ".config" / "breakfast"
 
 
 def load_config(config_path=None):
@@ -9,9 +18,10 @@ def load_config(config_path=None):
         paths = [Path(config_path).expanduser().resolve()]
     else:
         # XDG-compliant pathing prioritized
+        config_dir = get_config_dir()
         paths = [
             Path.cwd() / ".breakfast.toml",
-            Path.home() / ".config" / "breakfast" / "config.toml",
+            config_dir / "config.toml",
             Path.home() / ".breakfast.toml",
         ]
 
@@ -35,7 +45,8 @@ def load_config(config_path=None):
 
 def generate_default_config():
     """Generate a default XDG-compliant config file."""
-    config_path = Path.home() / ".config" / "breakfast" / "config.toml"
+    config_dir = get_config_dir()
+    config_path = config_dir / "config.toml"
     if config_path.exists():
         click.echo(
             click.style(f"Config file already exists at {config_path}", fg="yellow")

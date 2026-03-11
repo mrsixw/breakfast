@@ -113,3 +113,11 @@ def test_write_and_read_version_cache(monkeypatch, tmp_path):
 
     updater._write_version_cache("3.0.0")
     assert updater._read_version_cache() == "3.0.0"
+
+
+def test_get_cache_dir_xdg(tmp_path, monkeypatch):
+    custom_path = tmp_path / "custom-cache"
+    monkeypatch.setenv("XDG_CACHE_HOME", str(custom_path))
+
+    cache_dir = updater._get_cache_dir()
+    assert cache_dir == custom_path / "breakfast"

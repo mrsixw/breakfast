@@ -55,6 +55,7 @@ def test_load_config_expand_user(tmp_path, monkeypatch):
 def test_generate_default_config(tmp_path, monkeypatch):
     # Mock Path.home() to tmp_path
     monkeypatch.setattr(config.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
 
     # First run: should create the file
     result = config.generate_default_config()
@@ -66,3 +67,11 @@ def test_generate_default_config(tmp_path, monkeypatch):
     # Second run: should not overwrite
     result2 = config.generate_default_config()
     assert result2 is False
+
+
+def test_get_config_dir_xdg(tmp_path, monkeypatch):
+    custom_path = tmp_path / "custom-xdg"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(custom_path))
+
+    config_dir = config.get_config_dir()
+    assert config_dir == custom_path / "breakfast"

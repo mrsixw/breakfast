@@ -41,4 +41,9 @@ The script controlling the recording is located at `utils/vhs/demo.tape`. You ca
 - Adjust the typing speed and wait times (`Sleep`).
 - Change the repositories being queried.
 
-**Note**: If the GitHub API is slow, you may need to increase the `Sleep` values in the `.tape` file to ensure the table has enough time to render before the recording ends.
+**Tip for timing:** When changing the query, time it manually and add a 10% buffer to the `Sleep` value in the tape script to ensure the table renders completely:
+```bash
+time ($(pwd)/.venv/bin/python3 ./breakfast -o psf -r requests > /dev/null)
+```
+
+**Note**: If the GitHub API is slow, you may need to increase the `Sleep` values in the `.tape` file further.

@@ -12,6 +12,7 @@ Set Theme "Catppuccin Mocha"
 Type "alias breakfast='$(pwd)/.venv/bin/python3 ./breakfast'"
 Enter
 Ctrl+L
+Sleep 1s
 Type "# Serving up a fresh breakfast..."
 Sleep 500ms
 Enter
@@ -25,12 +26,13 @@ Sleep 3s
 
 # Clear and show a real-world example
 Ctrl+L
-Type "breakfast -o google -r python"
+Type "breakfast -o psf -r requests"
 Sleep 500ms
 Enter
 
 # Wait for the breakfast emoji progress spinner to finish
-Sleep 15s
+# (Timed at 15s + 10% buffer)
+Sleep 17s
 
 # Admire the table
 Sleep 8s

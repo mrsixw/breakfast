@@ -6,11 +6,12 @@ import click
 
 def load_config(config_path=None):
     if config_path:
-        paths = [Path(config_path)]
+        paths = [Path(config_path).expanduser().resolve()]
     else:
         paths = [
-            Path(".breakfast.toml"),
+            Path.cwd() / ".breakfast.toml",
             Path.home() / ".config" / "breakfast" / "config.toml",
+            Path.home() / ".breakfast.toml",
         ]
 
     merged = {}

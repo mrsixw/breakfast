@@ -5,7 +5,7 @@ Thanks for your interest in contributing to **breakfast**! This guide covers set
 ## Prerequisites
 
 - Python >= 3.11
-- [uv](https://docs.astral.sh/uv/) package manager (not pip)
+- [uv](https://docs.astral.sh/uv/) package manager (not pip). If you do not already have it, install it with `python -m pip install --user uv`.
 - A `GITHUB_TOKEN` environment variable for running the tool
 
 ## Getting Started

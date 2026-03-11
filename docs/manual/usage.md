@@ -102,6 +102,26 @@ $ breakfast -o my-org -r platform --json 2>/dev/null
 ]
 ```
 
+### Use a Configuration File
+
+Set persistent defaults in a configuration file so you don't have to type them every time. `breakfast` looks for `.breakfast.toml` in the current directory, and then `~/.config/breakfast/config.toml`.
+
+```toml
+# ~/.config/breakfast/config.toml
+organization = "my-org"
+repo-filter = "platform"
+ignore-author = ["dependabot[bot]", "renovate[bot]"]
+age = true
+```
+
+With this config, running `breakfast` is equivalent to:
+
+```bash
+breakfast -o my-org -r platform --ignore-author dependabot[bot] --ignore-author renovate[bot] --age
+```
+
+CLI flags always override configuration file values. For example, `breakfast --no-age` will hide the age column even if it's set to `true` in your config.
+
 ### Combine options
 
 ```bash

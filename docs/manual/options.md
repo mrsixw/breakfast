@@ -189,6 +189,33 @@ breakfast -o my-org -r my-app --no-update-check
 export BREAKFAST_NO_UPDATE_CHECK=1
 ```
 
+## Configuration options
+
+### `--config`
+
+Specify an explicit path to a configuration file, bypassing the default locations (`.breakfast.toml` and `~/.config/breakfast/config.toml`).
+
+```bash
+breakfast --config /path/to/my-custom-config.toml
+```
+
+### `--show-config`
+
+Print the fully resolved configuration (merged from config files and CLI flags) and exit. Useful for debugging precedence.
+
+```bash
+breakfast --show-config
+```
+
+### `--no-*` overrides
+
+For boolean flags and list options, you can explicitly negate a configuration file default using the `--no-` prefix:
+- `--no-age`: Disable the age column.
+- `--no-mine-only`: Disable the mine-only filter.
+- `--no-checks`: Disable the checks column.
+- `--no-json`: Output as a table instead of JSON.
+- `--no-ignore-author`: Clear all ignored authors loaded from the config.
+
 ## Other options
 
 ### `--version`

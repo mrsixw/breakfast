@@ -916,3 +916,80 @@ def test_no_update_check_env_var(monkeypatch):
 
     assert result.exit_code == 0
     assert len(check_called) == 0
+
+
+def test_load_config_explicit_path(tmp_path):
+    import breakfast
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        'organization = "test-org"\n' "age = true\n" 'ignore-author = ["bot"]'
+    )
+
+    cfg = breakfast.load_config(str(config_file))
+    assert cfg["organization"] == "test-org"
+    assert cfg["ignore-author"] == ["bot"]
+    assert cfg["age"] is True
+
+
+def test_cli_config_override(monkeypatch, tmp_path):
+    from click.testing import CliRunner
+
+    import breakfast
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        'organization = "cfg-org"\n'
+        'repo-filter = "cfg-repo"\n'
+        'ignore-author = ["cfg-bot"]\n'
+        "age = true"
+    )
+
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "fake_token")
+    monkeypatch.setattr(breakfast, "get_github_prs", lambda org, repo: [])
+
+    runner = CliRunner()
+    result = runner.invoke(
+        breakfast.breakfast, ["--config", str(config_file), "--show-config"]
+    )
+
+    assert result.exit_code == 0
+    assert "organization: cfg-org" in result.output
+    assert "repo-filter: cfg-repo" in result.output
+    assert "age: True" in result.output
+    assert "'cfg-bot'" in result.output
+
+    # Test CLI flag overriding config
+    result2 = runner.invoke(
+        breakfast.breakfast,
+        [
+            "--config",
+            str(config_file),
+            "-o",
+            "cli-org",
+            "--no-age",
+            "--ignore-author",
+            "cli-bot",
+            "--show-config",
+        ],
+    )
+    assert "organization: cli-org" in result2.output
+    assert "age: False" in result2.output
+    # ignore-author should be merged: cli-bot + cfg-bot
+    assert "'cli-bot'" in result2.output
+    assert "'cfg-bot'" in result2.output
+
+    # Test clear ignore-author
+    result3 = runner.invoke(
+        breakfast.breakfast,
+        [
+            "--config",
+            str(config_file),
+            "--no-ignore-author",
+            "--ignore-author",
+            "only-me",
+            "--show-config",
+        ],
+    )
+    assert "'only-me'" in result3.output
+    assert "'cfg-bot'" not in result3.output

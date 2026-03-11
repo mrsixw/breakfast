@@ -5,6 +5,7 @@ import os
 import random
 import sys
 import time
+import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from importlib.metadata import version as pkg_version
@@ -353,11 +354,40 @@ def check_for_update():
         return None
 
 
+def load_config(config_path=None):
+    if config_path:
+        paths = [Path(config_path)]
+    else:
+        paths = [
+            Path(".breakfast.toml"),
+            Path.home() / ".config" / "breakfast" / "config.toml",
+        ]
+
+    merged = {}
+    for path in reversed(paths):
+        if path.exists():
+            with open(path, "rb") as f:
+                try:
+                    data = tomllib.load(f)
+                except Exception as e:
+                    msg = f"Warning: Failed to parse config {path}: {e}"
+                    click.echo(click.style(msg, fg="yellow"), err=True)
+                    continue
+            for key, value in data.items():
+                if isinstance(value, list) and isinstance(merged.get(key), list):
+                    merged[key] = value + merged[key]
+                else:
+                    merged[key] = value
+    return merged
+
+
 def generate_terminal_url_anchor(url, url_text="Link"):
     return f"\033]8;;{url}\033\\{url_text}\033]8;;\033\\"
 
 
 @click.command()
+@click.option("--config", help="Path to config file.")
+@click.option("--show-config", is_flag=True, help="Print the resolved config and exit.")
 @click.option("--organization", "-o", help="One or multiple organizations to report on")
 @click.option("--repo-filter", "-r", help="Filter for specific repp(s)")
 @click.option(
@@ -369,28 +399,29 @@ def generate_terminal_url_anchor(url, url_text="Link"):
     ),
 )
 @click.option(
-    "--mine-only",
+    "--no-ignore-author",
     is_flag=True,
-    default=False,
+    help="Clear config defaults for ignore-author.",
+)
+@click.option(
+    "--mine-only/--no-mine-only",
+    default=None,
     help="Only include PRs authored by the currently authenticated GitHub user.",
 )
 @click.option(
-    "--age",
-    is_flag=True,
-    default=False,
+    "--age/--no-age",
+    default=None,
     help="Include an age column showing PR age in days.",
 )
 @click.option(
-    "--json",
+    "--json/--no-json",
     "json_output",
-    is_flag=True,
-    default=False,
+    default=None,
     help="Output results as JSON instead of a table. Progress messages go to stderr.",
 )
 @click.option(
-    "--checks",
-    is_flag=True,
-    default=False,
+    "--checks/--no-checks",
+    default=None,
     help="Include a checks column showing CI/check status for each PR.",
 )
 @click.option(
@@ -402,15 +433,58 @@ def generate_terminal_url_anchor(url, url_text="Link"):
 )
 @click.version_option(package_name="breakfast")
 def breakfast(
+    config,
+    show_config,
     organization,
     repo_filter,
     ignore_author,
+    no_ignore_author,
     mine_only,
     age,
     json_output,
     checks,
     no_update_check,
 ):
+    cfg = load_config(config)
+
+    organization = organization if organization is not None else cfg.get("organization")
+    repo_filter = repo_filter if repo_filter is not None else cfg.get("repo-filter", "")
+
+    if no_ignore_author:
+        merged_ignore_authors = list(ignore_author)
+    else:
+        merged_ignore_authors = list(ignore_author) + cfg.get("ignore-author", [])
+    ignore_author = merged_ignore_authors
+
+    mine_only = mine_only if mine_only is not None else cfg.get("mine-only", False)
+    age = age if age is not None else cfg.get("age", False)
+    if json_output is None:
+        json_output = cfg.get("format") == "json"
+    checks = checks if checks is not None else cfg.get("checks", False)
+
+    if show_config:
+        click.echo("Resolved config:")
+        resolved = {
+            "organization": organization,
+            "repo-filter": repo_filter,
+            "ignore-author": ignore_author,
+            "mine-only": mine_only,
+            "age": age,
+            "json": json_output,
+            "checks": checks,
+        }
+        for k, v in resolved.items():
+            click.echo(f"  {k}: {v}")
+        sys.exit(0)
+
+    if not organization:
+        message = (
+            "Organization must be provided via CLI (-o) "
+            "or config file (organization)."
+        )
+        click.echo(click.style(message, fg="red", bold=True))
+        sys.exit(1)
+
     if SECRET_GITHUB_TOKEN is None:
         message = "GITHUB_TOKEN not set in environment - exiting..."
         click.echo(click.style(message, fg="red", bold=True))

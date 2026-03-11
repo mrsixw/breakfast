@@ -50,3 +50,19 @@ def test_load_config_expand_user(tmp_path, monkeypatch):
     # Test path with ~
     result = config.load_config(str(cfg_file).replace(str(tmp_path), "~"))
     assert result["organization"] == "home-org"
+
+
+def test_generate_default_config(tmp_path, monkeypatch):
+    # Mock Path.home() to tmp_path
+    monkeypatch.setattr(config.Path, "home", lambda: tmp_path)
+
+    # First run: should create the file
+    result = config.generate_default_config()
+    assert result is True
+    config_file = tmp_path / ".config" / "breakfast" / "config.toml"
+    assert config_file.exists()
+    assert 'organization = "my-org"' in config_file.read_text()
+
+    # Second run: should not overwrite
+    result2 = config.generate_default_config()
+    assert result2 is False

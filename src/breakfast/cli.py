@@ -13,7 +13,7 @@ from .api import (
     get_check_status,
     get_github_prs,
 )
-from .config import filter_pr_details, load_config
+from .config import filter_pr_details, generate_default_config, load_config
 from .ui import (
     BREAKFAST_ITEMS,
     click_colour_grade_number,
@@ -46,6 +46,9 @@ def get_pr_age_days(pr_detail, now=None):
 @click.command()
 @click.option("--config", help="Path to config file.")
 @click.option("--show-config", is_flag=True, help="Print the resolved config and exit.")
+@click.option(
+    "--init-config", is_flag=True, help="Generate a default config file and exit."
+)
 @click.option("--organization", "-o", help="One or multiple organizations to report on")
 @click.option("--repo-filter", "-r", help="Filter for specific repp(s)")
 @click.option(
@@ -93,6 +96,7 @@ def get_pr_age_days(pr_detail, now=None):
 def breakfast(
     config,
     show_config,
+    init_config,
     organization,
     repo_filter,
     ignore_author,
@@ -103,6 +107,10 @@ def breakfast(
     checks,
     no_update_check,
 ):
+    if init_config:
+        generate_default_config()
+        sys.exit(0)
+
     cfg = load_config(config)
 
     organization = organization if organization is not None else cfg.get("organization")

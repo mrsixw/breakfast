@@ -9,20 +9,23 @@ Set WindowBar Colorful
 Set Theme "Catppuccin Mocha"
 
 # Start the demo
+Type "alias breakfast='$(pwd)/.venv/bin/python3 ./breakfast'"
+Enter
+Ctrl+L
 Type "# Serving up a fresh breakfast..."
 Sleep 500ms
 Enter
 Sleep 1s
 
 # Show the help command
-Type "./breakfast --help"
+Type "breakfast --help"
 Sleep 500ms
 Enter
 Sleep 3s
 
 # Clear and show a real-world example
 Ctrl+L
-Type "./breakfast -o google -r python"
+Type "breakfast -o google -r python"
 Sleep 500ms
 Enter
 

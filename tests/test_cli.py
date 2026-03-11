@@ -573,3 +573,21 @@ def test_no_update_check_env_var(monkeypatch):
 
     assert result.exit_code == 0
     assert len(check_called) == 0
+
+
+def test_cli_init_config(monkeypatch):
+    from breakfast import cli
+
+    called = []
+
+    def fake_generate():
+        called.append(True)
+        return True
+
+    monkeypatch.setattr(cli, "generate_default_config", fake_generate)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--init-config"])
+
+    assert result.exit_code == 0
+    assert len(called) == 1

@@ -162,6 +162,17 @@ loads the config before parameter resolution. This keeps the main function clean
 - `--no-mine-only` — disable mine-only filter (to override config)
 - `--no-ignore-author` — clear all ignore-author entries from config
 - `--show-config` — print the resolved config (merged config + CLI) and exit (useful for debugging)
+- `--init-config` — generate a default configuration file at the XDG-compliant user path (`~/.config/breakfast/config.toml`) and exit.
+
+### Config File Generation
+
+The `--init-config` flag provides a quick start for users:
+1. Checks if `~/.config/breakfast/config.toml` already exists (to avoid overwriting).
+2. Creates the directory structure if missing.
+3. Writes a commented-out template with common defaults.
+4. Provides feedback to the user on where the file was created and how to edit it.
+
+The XDG Base Directory path is prioritized for initialization to keep the user's home directory clean, following modern Linux/macOS conventions.
 
 ### 4. Config file discovery feedback
 

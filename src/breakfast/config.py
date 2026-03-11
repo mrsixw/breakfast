@@ -1,16 +1,28 @@
+import os
 import tomllib
 from pathlib import Path
 
 import click
 
 
+def get_config_dir():
+    """Get the XDG-compliant configuration directory."""
+    xdg_config = os.getenv("XDG_CONFIG_HOME")
+    if xdg_config:
+        return Path(xdg_config) / "breakfast"
+    return Path.home() / ".config" / "breakfast"
+
+
 def load_config(config_path=None):
     if config_path:
-        paths = [Path(config_path)]
+        paths = [Path(config_path).expanduser().resolve()]
     else:
+        # XDG-compliant pathing prioritized
+        config_dir = get_config_dir()
         paths = [
-            Path(".breakfast.toml"),
-            Path.home() / ".config" / "breakfast" / "config.toml",
+            Path.cwd() / ".breakfast.toml",
+            config_dir / "config.toml",
+            Path.home() / ".breakfast.toml",
         ]
 
     merged = {}
@@ -29,6 +41,41 @@ def load_config(config_path=None):
                 else:
                     merged[key] = value
     return merged
+
+
+def generate_default_config():
+    """Generate a default XDG-compliant config file."""
+    config_dir = get_config_dir()
+    config_path = config_dir / "config.toml"
+    if config_path.exists():
+        click.echo(
+            click.style(f"Config file already exists at {config_path}", fg="yellow")
+        )
+        return False
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    default_content = """# breakfast configuration file
+# Default organization(s) to query
+# organization = "my-org"
+
+# Default repo filter (substring match)
+# repo-filter = "my-app"
+
+# Authors to always ignore (case-insensitive)
+# ignore-author = ["dependabot[bot]", "renovate[bot]"]
+
+# Always show the age column
+# age = true
+
+# Always show CI/check status for each PR
+# checks = true
+
+# Default output format: "table" or "json"
+# format = "table"
+"""
+    config_path.write_text(default_content)
+    click.echo(click.style(f"Created default config at {config_path}", fg="green"))
+    return True
 
 
 def normalize_ignore_authors(ignore_authors):

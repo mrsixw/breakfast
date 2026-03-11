@@ -25,6 +25,10 @@ breakfast: build
 smoketest: breakfast .venv
 	. .venv/bin/activate && ./breakfast --version
 
+demo: breakfast .venv
+	export SHIV_INTERPRETER=$$(pwd)/.venv/bin/python3; \
+	vhs < utils/vhs/demo.tape
+
 test: .venv
 	uv sync --extra test
 	uv run pytest -v

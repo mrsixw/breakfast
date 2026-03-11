@@ -243,18 +243,33 @@ def get_pr_age_days(pr_detail, now=None):
 
 
 def get_check_status(owner, repo, sha):
-    data = make_github_api_request(f"/repos/{owner}/{repo}/commits/{sha}/check-runs")
-    check_runs = data.get("check_runs", [])
-    if not check_runs:
+    # Check Runs API (GitHub Actions, newer CI integrations)
+    cr_data = make_github_api_request(f"/repos/{owner}/{repo}/commits/{sha}/check-runs")
+    check_runs = cr_data.get("check_runs", [])
+
+    # Commit Status API (Jenkins, older CI integrations)
+    status_data = make_github_api_request(f"/repos/{owner}/{repo}/commits/{sha}/status")
+    statuses = status_data.get("statuses", [])
+
+    if not check_runs and not statuses:
         return "none"
 
+    # Check runs: look for pending or failures
     for cr in check_runs:
         if cr.get("status") in ("queued", "in_progress"):
             return "pending"
 
-    conclusions = {cr.get("conclusion") for cr in check_runs}
-    fail_states = {"failure", "cancelled", "timed_out", "action_required"}
-    if conclusions & fail_states:
+    cr_conclusions = {cr.get("conclusion") for cr in check_runs}
+    cr_fail_states = {"failure", "cancelled", "timed_out", "action_required"}
+
+    # Commit statuses: look for pending or failures
+    status_states = {s.get("state") for s in statuses}
+    status_fail_states = {"failure", "error"}
+
+    if "pending" in status_states:
+        return "pending"
+
+    if (cr_conclusions & cr_fail_states) or (status_states & status_fail_states):
         return "fail"
 
     return "pass"
@@ -460,12 +475,12 @@ def breakfast(
                 repo_name = pr_detail["base"]["repo"]["name"]
                 sha = pr_detail["head"]["sha"]
                 future = executor.submit(get_check_status, owner, repo_name, sha)
-                check_futures.append((pr_detail["number"], future))
-        for pr_number, future in check_futures:
+                check_futures.append((pr_detail["id"], future))
+        for pr_id, future in check_futures:
             try:
-                check_statuses[pr_number] = future.result()
+                check_statuses[pr_id] = future.result()
             except Exception:
-                check_statuses[pr_number] = "none"
+                check_statuses[pr_id] = "none"
 
     if json_output:
         json_data = []
@@ -491,7 +506,7 @@ def breakfast(
                 ],
             }
             if checks:
-                entry["checks"] = check_statuses.get(pr_detail["number"], "none")
+                entry["checks"] = check_statuses.get(pr_detail["id"], "none")
             json_data.append(entry)
             click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
         click.echo("...Done", err=True)
@@ -525,7 +540,7 @@ def breakfast(
             row["Age"] = click_colour_grade_number(get_pr_age_days(pr_detail))
         if checks:
             row["Checks"] = format_check_status(
-                check_statuses.get(pr_detail["number"], "none")
+                check_statuses.get(pr_detail["id"], "none")
             )
         row["Mergeable?"] = f"{mergable} ({mergable_state})"
         row["Link"] = generate_terminal_url_anchor(

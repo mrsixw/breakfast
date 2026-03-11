@@ -2,7 +2,7 @@
 # Set up the terminal
 Output docs/demo.gif
 Set FontSize 16
-Set Width 1200
+Set Width 1400
 Set Height 600
 Set Padding 40
 Set WindowBar Colorful

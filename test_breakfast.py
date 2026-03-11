@@ -534,54 +534,111 @@ def test_cli_mine_only_filters_to_authenticated_user(monkeypatch):
 
 
 def test_get_check_status_all_success(monkeypatch):
-    monkeypatch.setattr(
-        breakfast,
-        "make_github_api_request",
-        lambda _path: {
-            "check_runs": [
-                {"status": "completed", "conclusion": "success"},
-                {"status": "completed", "conclusion": "skipped"},
-            ]
-        },
-    )
+    def fake_api(path):
+        if "check-runs" in path:
+            return {
+                "check_runs": [
+                    {"status": "completed", "conclusion": "success"},
+                    {"status": "completed", "conclusion": "skipped"},
+                ]
+            }
+        return {"statuses": []}
+
+    monkeypatch.setattr(breakfast, "make_github_api_request", fake_api)
     assert breakfast.get_check_status("org", "repo", "abc123") == "pass"
 
 
 def test_get_check_status_failure(monkeypatch):
-    monkeypatch.setattr(
-        breakfast,
-        "make_github_api_request",
-        lambda _path: {
-            "check_runs": [
-                {"status": "completed", "conclusion": "success"},
-                {"status": "completed", "conclusion": "failure"},
-            ]
-        },
-    )
+    def fake_api(path):
+        if "check-runs" in path:
+            return {
+                "check_runs": [
+                    {"status": "completed", "conclusion": "success"},
+                    {"status": "completed", "conclusion": "failure"},
+                ]
+            }
+        return {"statuses": []}
+
+    monkeypatch.setattr(breakfast, "make_github_api_request", fake_api)
     assert breakfast.get_check_status("org", "repo", "abc123") == "fail"
 
 
 def test_get_check_status_pending(monkeypatch):
-    monkeypatch.setattr(
-        breakfast,
-        "make_github_api_request",
-        lambda _path: {
-            "check_runs": [
-                {"status": "completed", "conclusion": "success"},
-                {"status": "in_progress", "conclusion": None},
-            ]
-        },
-    )
+    def fake_api(path):
+        if "check-runs" in path:
+            return {
+                "check_runs": [
+                    {"status": "completed", "conclusion": "success"},
+                    {"status": "in_progress", "conclusion": None},
+                ]
+            }
+        return {"statuses": []}
+
+    monkeypatch.setattr(breakfast, "make_github_api_request", fake_api)
     assert breakfast.get_check_status("org", "repo", "abc123") == "pending"
 
 
 def test_get_check_status_none(monkeypatch):
-    monkeypatch.setattr(
-        breakfast,
-        "make_github_api_request",
-        lambda _path: {"check_runs": []},
-    )
+    def fake_api(path):
+        if "check-runs" in path:
+            return {"check_runs": []}
+        return {"statuses": []}
+
+    monkeypatch.setattr(breakfast, "make_github_api_request", fake_api)
     assert breakfast.get_check_status("org", "repo", "abc123") == "none"
+
+
+def test_get_check_status_commit_status_failure(monkeypatch):
+    """Jenkins-style CI uses the commit status API, not check runs."""
+
+    def fake_api(path):
+        if "check-runs" in path:
+            return {"check_runs": []}
+        return {
+            "statuses": [
+                {"context": "ci/jenkins/branch", "state": "success"},
+                {"context": "ci/jenkins/pr-merge", "state": "error"},
+            ]
+        }
+
+    monkeypatch.setattr(breakfast, "make_github_api_request", fake_api)
+    assert breakfast.get_check_status("org", "repo", "abc123") == "fail"
+
+
+def test_get_check_status_commit_status_pending(monkeypatch):
+    def fake_api(path):
+        if "check-runs" in path:
+            return {"check_runs": []}
+        return {"statuses": [{"context": "ci/jenkins/branch", "state": "pending"}]}
+
+    monkeypatch.setattr(breakfast, "make_github_api_request", fake_api)
+    assert breakfast.get_check_status("org", "repo", "abc123") == "pending"
+
+
+def test_get_check_status_commit_status_all_success(monkeypatch):
+    def fake_api(path):
+        if "check-runs" in path:
+            return {"check_runs": []}
+        return {"statuses": [{"context": "ci/jenkins/branch", "state": "success"}]}
+
+    monkeypatch.setattr(breakfast, "make_github_api_request", fake_api)
+    assert breakfast.get_check_status("org", "repo", "abc123") == "pass"
+
+
+def test_get_check_status_mixed_sources(monkeypatch):
+    """Check runs pass but commit statuses fail — overall should be fail."""
+
+    def fake_api(path):
+        if "check-runs" in path:
+            return {
+                "check_runs": [
+                    {"status": "completed", "conclusion": "success"},
+                ]
+            }
+        return {"statuses": [{"context": "ci/jenkins/pr-merge", "state": "failure"}]}
+
+    monkeypatch.setattr(breakfast, "make_github_api_request", fake_api)
+    assert breakfast.get_check_status("org", "repo", "abc123") == "fail"
 
 
 def test_format_check_status():
@@ -627,6 +684,7 @@ def test_cli_outputs_checks_column(monkeypatch):
             "created_at": "2026-01-10T00:00:00Z",
             "html_url": "https://github.com/org/repo/pull/1",
             "number": 1,
+            "id": 1001,
         }
 
     monkeypatch.setattr(breakfast, "get_github_prs", fake_get_prs)
@@ -638,6 +696,83 @@ def test_cli_outputs_checks_column(monkeypatch):
     assert result.exit_code == 0
     assert "Checks" in result.output
     assert "pass" in result.output
+
+
+def test_cli_checks_no_collision_across_repos(monkeypatch):
+    """PRs with the same number in different repos must keep separate check statuses."""
+    monkeypatch.setattr(breakfast, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(breakfast, "BREAKFAST_ITEMS", ["*"])
+
+    def fake_get_prs(_org, _repo_filter):
+        return [
+            "https://github.com/org/repo-a/pull/17",
+            "https://github.com/org/repo-b/pull/17",
+        ]
+
+    pr_details = {
+        "/repos/org/repo-a/pulls/17": {
+            "base": {"repo": {"name": "repo-a", "owner": {"login": "org"}}},
+            "head": {"sha": "sha-a"},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 1,
+            "deletions": 0,
+            "title": "PR A",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": "https://github.com/org/repo-a/pull/17",
+            "number": 17,
+            "id": 2001,
+        },
+        "/repos/org/repo-b/pulls/17": {
+            "base": {"repo": {"name": "repo-b", "owner": {"login": "org"}}},
+            "head": {"sha": "sha-b"},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 2,
+            "deletions": 1,
+            "title": "PR B",
+            "user": {"login": "bob"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": "https://github.com/org/repo-b/pull/17",
+            "number": 17,
+            "id": 2002,
+        },
+    }
+
+    check_runs = {
+        "/repos/org/repo-a/commits/sha-a/check-runs": {
+            "check_runs": [{"status": "completed", "conclusion": "success"}]
+        },
+        "/repos/org/repo-b/commits/sha-b/check-runs": {
+            "check_runs": [{"status": "completed", "conclusion": "failure"}]
+        },
+        "/repos/org/repo-a/commits/sha-a/status": {"statuses": []},
+        "/repos/org/repo-b/commits/sha-b/status": {"statuses": []},
+    }
+
+    def fake_api_request(path):
+        if path in check_runs:
+            return check_runs[path]
+        return pr_details[path]
+
+    monkeypatch.setattr(breakfast, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(breakfast, "make_github_api_request", fake_api_request)
+
+    runner = CliRunner()
+    result = runner.invoke(breakfast.breakfast, ["-o", "org", "-r", "repo", "--checks"])
+
+    assert result.exit_code == 0
+    assert "pass" in result.output
+    assert "fail" in result.output
 
 
 def test_cli_checks_not_shown_by_default(monkeypatch):
@@ -712,6 +847,7 @@ def test_cli_json_includes_checks_when_enabled(monkeypatch):
             "updated_at": "2026-01-11T00:00:00Z",
             "html_url": "https://github.com/org/repo/pull/1",
             "number": 1,
+            "id": 1001,
             "labels": [],
             "requested_reviewers": [],
         }

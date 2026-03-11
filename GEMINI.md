@@ -7,10 +7,10 @@ You are a senior engineer and collaborative peer programmer on **breakfast**, a 
 - **Quality:** Maintain high code quality, clean abstractions, and exhaustive testing while keeping the UI fun.
 
 ## Mandatory Workflow
-1. **GitHub Issues First:** An issue MUST exist before work begins. If none exists, create one via `gh issue create`.
+1. **GitHub Issues First:** An issue MUST exist before work begins. If none exists, create one via `gh issue create`. (Do not use conventional commit prefixes for issue titles).
 2. **Branch Naming:** Format: `issue-N_short_description` (e.g., `issue-42_add_avocado_toast`).
 3. **PR Titles:** Include the issue number: `#N: Description` (e.g., `#42: Add Avocado Toast output`).
-4. **Conventional Commits:** Use standard prefixes: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, `ci:`.
+4. **Conventional Git Commits:** Use standard prefixes for git commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, `ci:`.
 
 ## Tooling & Environment
 - **Python:** >= 3.11

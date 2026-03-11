@@ -23,6 +23,6 @@ You are a senior engineer and collaborative peer programmer on **breakfast**, a 
 - **Env:** Requires `GITHUB_TOKEN` at runtime.
 
 ## Technical Integrity & Validation
-- **Single Module:** Logic lives in `breakfast.py`; tests in `test_breakfast.py`.
+- **Project Structure:** Logic is decomposed into modules within `src/breakfast/`; tests are module-specific in `tests/`.
 - **Pre-commit Checks:** Always run `make test`, `make lint`, and `make format` before committing.
-- **Documentation:** If CLI options, features, or user-visible behaviors change, you MUST update the relevant manual pages in `docs/manual/` (`options.md`, `usage.md`, etc.) in the same PR.
+- **Documentation:** If CLI options, features, or user-visible behaviors change, you MUST update the relevant manual pages in `docs/manual/` (`options.md`, `usage.md`, etc.). If the project structure or developer workflow changes, you MUST update `CONTRIBUTING.md`. These updates should be in the same PR.

@@ -169,6 +169,40 @@ With `--json --checks`, a `"checks"` field is included in each PR object:
 }
 ```
 
+### `--limit`
+
+Cap the number of PRs displayed. Results are limited after all filtering is applied. There is no config file equivalent — this is intentionally a CLI-only flag.
+
+```bash
+breakfast -o my-org -r my-app --limit 10
+```
+
+### `--max-title-length`
+
+Truncate PR titles to a maximum number of characters. Titles longer than the limit are cut and suffixed with `…`. When unset, titles are displayed in full.
+
+```bash
+breakfast -o my-org -r my-app --max-title-length 72
+```
+
+Example — without `--max-title-length`:
+
+```
+| Fix: #4362 - Redirect resolved even though allow_redirects is set to False causing exception for unsupported connection adapter | ...
+```
+
+With `--max-title-length 60`:
+
+```
+| Fix: #4362 - Redirect resolved even though allow_redir… | ...
+```
+
+Can also be set in the config file to apply to all runs:
+
+```toml
+max-title-length = 72
+```
+
 ## Update notifications
 
 breakfast automatically checks for new versions once per day (cached for 24 hours in `~/.cache/breakfast/`). If a newer version is available, you'll see a message after the main output:

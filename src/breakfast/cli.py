@@ -86,6 +86,18 @@ def get_pr_age_days(pr_detail, now=None):
     help="Include a checks column showing CI/check status for each PR.",
 )
 @click.option(
+    "--limit",
+    type=int,
+    default=None,
+    help="Cap the number of PRs shown. Unset means show all results.",
+)
+@click.option(
+    "--max-title-length",
+    type=int,
+    default=None,
+    help="Truncate PR titles to this many characters. Unset means no truncation.",
+)
+@click.option(
     "--no-update-check",
     is_flag=True,
     default=False,
@@ -105,6 +117,8 @@ def breakfast(
     age,
     json_output,
     checks,
+    limit,
+    max_title_length,
     no_update_check,
 ):
     if init_config:
@@ -127,6 +141,11 @@ def breakfast(
     if json_output is None:
         json_output = cfg.get("format") == "json"
     checks = checks if checks is not None else cfg.get("checks", False)
+    max_title_length = (
+        max_title_length
+        if max_title_length is not None
+        else cfg.get("max-title-length")
+    )
 
     if show_config:
         click.echo("Resolved config:")
@@ -138,6 +157,7 @@ def breakfast(
             "age": age,
             "json": json_output,
             "checks": checks,
+            "max-title-length": max_title_length,
         }
         for k, v in resolved.items():
             click.echo(f"  {k}: {v}")
@@ -189,6 +209,8 @@ def breakfast(
         mine_only=mine_only,
         current_user_login=current_user_login,
     )
+    if limit is not None:
+        pr_details = pr_details[:limit]
 
     check_statuses = {}
     if checks and pr_details:
@@ -248,9 +270,13 @@ def breakfast(
         adds = click.style("+" + str(pr_detail["additions"]), fg="green", bold=True)
         subs = click.style("-" + str(pr_detail["deletions"]), fg="red", bold=True)
 
+        title = pr_detail["title"]
+        if max_title_length and len(title) > max_title_length:
+            title = title[: max_title_length - 1] + "…"
+
         row = {
             "Repo": pr_detail["base"]["repo"]["name"],
-            "PR Title": pr_detail["title"],
+            "PR Title": title,
             "Author": pr_detail["user"]["login"],
             "State": pr_detail["state"],
             "Files": click_colour_grade_number(pr_detail["changed_files"]),

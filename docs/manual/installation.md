@@ -1,38 +1,37 @@
 # Installation
 
-## Prerequisites
+## Primary Method: One-liner
 
-- Python 3.11 or later
-- A [GitHub personal access token](https://github.com/settings/tokens) with `repo` scope
-
-## Install uv
-
-If you do not already have [uv](https://docs.astral.sh/uv/), install it first:
+Install the latest pre-compiled binary instantly:
 
 ```bash
-python -m pip install --user uv
+curl -sSL https://raw.githubusercontent.com/mrsixw/breakfast/main/install.sh | bash
 ```
 
-## Install from source
+This script will:
+1. Download the latest `breakfast` binary from GitHub Releases.
+2. Install it to `~/.local/bin/breakfast`.
+3. Initialize a default configuration file at `~/.config/breakfast/config.toml`.
 
-Clone the repository and install the runtime dependencies:
+## Advanced: Install from source
+
+If you want to contribute or build manually, follow these steps.
+
+### Prerequisites
+
+- Python 3.11 or later
+- [uv](https://docs.astral.sh/uv/) package manager
+- A [GitHub personal access token](https://github.com/settings/tokens) with `repo` scope
+
+### Build the binary
 
 ```bash
 git clone https://github.com/mrsixw/breakfast.git
 cd breakfast
-uv sync
+make build
 ```
 
-## Build the binary
-
-breakfast can be built as a standalone [shiv](https://github.com/linkedin/shiv) executable:
-
-```bash
-uv sync --extra build
-uv run shiv -c breakfast -o breakfast .
-```
-
-This produces a `./breakfast` binary that can be copied anywhere on your `PATH`.
+This produces a `./breakfast` standalone executable using [shiv](https://github.com/linkedin/shiv).
 
 ## Set up your GitHub token
 

@@ -11,7 +11,7 @@ Thanks for your interest in contributing to **breakfast**! This guide covers set
 ## Getting Started
 
 1. Fork and clone the repository.
-2. Create a virtual environment and install dev dependencies:
+2. Install from source and set up dev dependencies:
 
    ```bash
    make .venv
@@ -27,11 +27,16 @@ Thanks for your interest in contributing to **breakfast**! This guide covers set
 
 ## Project Structure
 
-- `breakfast.py` — CLI entry point and all application logic
-- `test_breakfast.py` — all tests (pytest)
+- `src/breakfast/` — package source code
+  - `cli.py` — Click command definition and entry point
+  - `api.py` — GitHub API interaction logic
+  - `config.py` — TOML configuration and filtering
+  - `ui.py` — Terminal formatting and progress emojis
+  - `updater.py` — Version checking and caching
+- `tests/` — module-specific pytest suite
 - `pyproject.toml` — project metadata, dependencies, tool config
 - `Makefile` — build, test, lint, and format targets
-- `utils/read_version.py` — version helper for CI
+- `utils/` — shell and python scripts for release management
 - `mkver.conf` — version bump configuration
 
 ## Development Workflow

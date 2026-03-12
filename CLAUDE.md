@@ -3,15 +3,20 @@
 ## Project Overview
 - **breakfast** is a CLI tool that displays open GitHub pull requests across an organization's repos in a terminal table.
 - Built with Python and Click. Uses the GitHub REST and GraphQL APIs.
-- Single-module project: main code in `breakfast.py`, tests in `test_breakfast.py`.
+- Package structure: code in `src/breakfast/`, tests in `tests/`.
 - The name is tongue-in-cheek: breakfast is the first thing you consume each morning, and open PRs are the first thing you should consume at the start of your workday.
 
 ## Project Structure
-- `breakfast.py` — CLI entry point and all application logic
-- `test_breakfast.py` — all tests (pytest)
+- `src/breakfast/` — package source code
+  - `cli.py` — Click command definition and entry point
+  - `api.py` — GitHub API interaction logic
+  - `config.py` — TOML configuration and filtering
+  - `ui.py` — Terminal formatting and progress emojis
+  - `updater.py` — Version checking and caching
+- `tests/` — module-specific pytest suite
 - `pyproject.toml` — project metadata, dependencies, tool config
 - `Makefile` — build, test, lint, and format targets
-- `utils/read_version.py` — version helper for CI
+- `utils/` — helper scripts for release management
 - `mkver.conf` — version bump configuration
 - `docs/` — project documentation
   - `docs/manual/` — user-facing manual (installation, usage, options, output formats, troubleshooting)
@@ -68,5 +73,6 @@
 
 ## Documentation
 - User-facing documentation lives in `docs/manual/`. Design documents live in `docs/design/`.
-- **When adding, changing, or removing CLI options, features, or user-visible behaviour in `breakfast.py`, you MUST update the relevant manual pages in `docs/manual/` in the same commit or PR.** This includes `options.md`, `usage.md`, `output-formats.md`, and `troubleshooting.md` as appropriate.
+- **When adding, changing, or removing CLI options, features, or user-visible behaviour, you MUST update the relevant manual pages in `docs/manual/` in the same commit or PR.** This includes `options.md`, `usage.md`, `output-formats.md`, and `troubleshooting.md` as appropriate.
+- **If the project structure or developer workflow changes, you MUST update `CONTRIBUTING.md`.**
 - When adding a new feature design, create a document in `docs/design/` and add it to the table in `docs/design/README.md`.

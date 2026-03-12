@@ -13,7 +13,7 @@ activate: .venv
 build: .venv
 
 	uv sync --extra build
-	uv run shiv -c breakfast -o breakfast .
+	uv run shiv -c breakfast -o breakfast --python "$(shell uv python find)" .
 
 version-bump:
 	git mkver patch
@@ -26,7 +26,7 @@ smoketest: breakfast .venv
 	. .venv/bin/activate && ./breakfast --version
 
 demo: breakfast .venv
-	vhs < utils/vhs/demo.tape
+	PATH="$(shell pwd):$$PATH" vhs utils/vhs/demo.tape
 
 test: .venv
 	uv sync --extra test

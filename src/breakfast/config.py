@@ -72,6 +72,9 @@ def generate_default_config():
 
 # Default output format: "table" or "json"
 # format = "table"
+
+# Truncate PR titles to this many characters (unset = no truncation)
+# max-title-length = 72
 """
     config_path.write_text(default_content)
     click.echo(click.style(f"Created default config at {config_path}", fg="green"))

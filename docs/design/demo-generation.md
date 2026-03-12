@@ -19,6 +19,8 @@ The easiest way to regenerate the GIF is using the included `Makefile` target:
 make demo
 ```
 
+This builds the `breakfast` binary (with the correct Python shebang via `shiv --python`), adds the project root to `PATH`, then runs VHS. The demo types `breakfast` as a bare command — no alias or `uv run` prefix needed.
+
 ### Manual Method
 
 If you want to run it manually:
@@ -28,10 +30,8 @@ If you want to run it manually:
     make build
     ```
 2.  **Run VHS**:
-    Set the `SHIV_INTERPRETER` to the absolute path of your project's virtual environment python to ensure compatibility:
     ```bash
-    export SHIV_INTERPRETER=$(pwd)/.venv/bin/python3
-    vhs < utils/vhs/demo.tape
+    PATH="$(pwd):$PATH" vhs utils/vhs/demo.tape
     ```
 
 ## Customizing the Demo
@@ -43,7 +43,7 @@ The script controlling the recording is located at `utils/vhs/demo.tape`. You ca
 
 **Tip for timing:** When changing the query, time it manually and add a 10% buffer to the `Sleep` value in the tape script to ensure the table renders completely:
 ```bash
-time ($(pwd)/.venv/bin/python3 ./breakfast -o psf -r requests > /dev/null)
+time (./breakfast -o psf -r requests > /dev/null)
 ```
 
 **Note**: If the GitHub API is slow, you may need to increase the `Sleep` values in the `.tape` file further.

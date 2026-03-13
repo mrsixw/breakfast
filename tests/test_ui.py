@@ -27,7 +27,17 @@ def test_generate_terminal_url_anchor():
 
 def test_format_check_status():
     result = ui.format_check_status("pass")
-    assert "pass" in result
+    assert "✅ pass" in result
 
     result = ui.format_check_status("fail")
-    assert "fail" in result
+    assert "❌ fail" in result
+
+    result = ui.format_check_status("pending", style="ascii")
+    assert "pending" in result
+    assert "⚠️" not in result
+
+
+def test_format_mergeable_status():
+    assert ui.format_mergeable_status(True, "clean") == "✅ (clean)"
+    assert ui.format_mergeable_status(False, "dirty") == "❌ (dirty)"
+    assert ui.format_mergeable_status(True, "clean", style="ascii") == "yes (clean)"

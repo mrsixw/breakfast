@@ -70,6 +70,9 @@ def generate_default_config():
 # Always show CI/check status for each PR
 # checks = true
 
+# Render status cells using "emoji" (default) or "ascii"
+# status-style = "emoji"
+
 # Default output format: "table" or "json"
 # format = "table"
 

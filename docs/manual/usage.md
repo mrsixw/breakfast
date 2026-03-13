@@ -111,6 +111,12 @@ breakfast -o my-org -r my-app \
   --mine-only
 ```
 
+### Use ASCII status labels for terminal compatibility
+
+```bash
+breakfast -o my-org -r platform --checks --status-style ascii
+```
+
 ## How it works
 
 1. **Fetch repositories** - Uses the GitHub GraphQL API to paginate through all repositories in the organization

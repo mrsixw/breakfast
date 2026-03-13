@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import requests
 from click.testing import CliRunner
+from tabulate import tabulate
 
 from breakfast import api, cli
 
@@ -68,6 +69,7 @@ def test_cli_outputs_table(monkeypatch):
     assert result.exit_code == 0
     assert "PR-1" in result.output
     assert "repo" in result.output
+    assert "✅ (clean)" in result.output
 
 
 def test_cli_outputs_age_column_when_enabled(monkeypatch):
@@ -319,7 +321,7 @@ def test_cli_outputs_checks_column(monkeypatch):
 
     assert result.exit_code == 0
     assert "Checks" in result.output
-    assert "pass" in result.output
+    assert "✅ pass" in result.output
 
 
 def test_cli_checks_no_collision_across_repos(monkeypatch):
@@ -434,6 +436,22 @@ def test_cli_checks_not_shown_by_default(monkeypatch):
 
     assert result.exit_code == 0
     assert "Checks" not in result.output
+
+
+def test_cli_show_config_includes_status_style_from_config(tmp_path):
+    cfg_path = tmp_path / "breakfast.toml"
+    cfg_path.write_text(
+        'organization = "org"\n'
+        'repo-filter = "repo"\n'
+        "checks = true\n"
+        'status-style = "ascii"\n'
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--config", str(cfg_path), "--show-config"])
+
+    assert result.exit_code == 0
+    assert "status-style: ascii" in result.output
 
 
 def test_cli_json_includes_checks_when_enabled(monkeypatch):
@@ -709,6 +727,125 @@ def _make_pr_fixture(title="Test PR", number=1):
         "html_url": f"https://github.com/org/repo/pull/{number}",
         "number": number,
     }
+
+
+def test_auto_fit_measures_later_rows_when_fitting_table():
+    rows = [
+        {
+            "Repo": "short",
+            "PR Title": "short",
+            "Author": "alice",
+            "State": "open",
+            "Files": "1",
+            "Commits": "1",
+            "+/-": "+1/-0",
+            "Comments": "0",
+            "Mergeable?": "yes (clean)",
+            "Link": "PR-1",
+        },
+        {
+            "Repo": "a-very-long-repository-name-that-should-be-truncated",
+            "PR Title": "short",
+            "Author": "alice",
+            "State": "open",
+            "Files": "1",
+            "Commits": "1",
+            "+/-": "+1/-0",
+            "Comments": "0",
+            "Mergeable?": "yes (clean)",
+            "Link": "PR-2",
+        },
+    ]
+
+    terminal_width = cli._table_width(rows[:1])
+    fitted_rows = cli._auto_fit(rows, terminal_width, explicit_max_title_length=None)
+    rendered_width = len(
+        tabulate(
+            fitted_rows, headers="keys", showindex="always", tablefmt="outline"
+        ).splitlines()[0]
+    )
+
+    assert rendered_width <= terminal_width
+    assert fitted_rows[1]["Repo"].endswith("…")
+
+
+def test_cli_status_columns_use_ascii_to_keep_rows_aligned(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    def fake_get_prs(_org, _repo_filter):
+        return [
+            "https://github.com/org/repo/pull/1",
+            "https://github.com/org/repo/pull/2",
+            "https://github.com/org/repo/pull/3",
+            "https://github.com/org/repo/pull/4",
+        ]
+
+    pr_details = {
+        "/repos/org/repo/pulls/1": _make_pr_fixture(number=1),
+        "/repos/org/repo/pulls/2": _make_pr_fixture(number=2),
+        "/repos/org/repo/pulls/3": _make_pr_fixture(number=3),
+        "/repos/org/repo/pulls/4": _make_pr_fixture(number=4),
+    }
+    for idx, pr_detail in enumerate(pr_details.values(), start=1):
+        pr_detail["base"]["repo"]["owner"] = {"login": "org"}
+        pr_detail["head"] = {"sha": f"sha-{idx}"}
+        pr_detail["id"] = 1000 + idx
+
+    pr_details["/repos/org/repo/pulls/3"]["mergeable"] = False
+    pr_details["/repos/org/repo/pulls/3"]["mergeable_state"] = "dirty"
+    pr_details["/repos/org/repo/pulls/4"]["mergeable_state"] = "blocked"
+
+    check_runs = {
+        "/repos/org/repo/commits/sha-1/check-runs": {
+            "check_runs": [{"status": "completed", "conclusion": "success"}]
+        },
+        "/repos/org/repo/commits/sha-1/status": {"statuses": []},
+    }
+
+    check_runs["/repos/org/repo/commits/sha-2/check-runs"] = {
+        "check_runs": [{"status": "in_progress", "conclusion": None}]
+    }
+    check_runs["/repos/org/repo/commits/sha-2/status"] = {"statuses": []}
+    check_runs["/repos/org/repo/commits/sha-3/check-runs"] = {
+        "check_runs": [{"status": "completed", "conclusion": "failure"}]
+    }
+    check_runs["/repos/org/repo/commits/sha-3/status"] = {"statuses": []}
+    check_runs["/repos/org/repo/commits/sha-4/check-runs"] = {"check_runs": []}
+    check_runs["/repos/org/repo/commits/sha-4/status"] = {"statuses": []}
+
+    def fake_api_request(path):
+        if path in check_runs:
+            return check_runs[path]
+        return pr_details[path]
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--checks", "--status-style", "ascii"],
+    )
+
+    assert result.exit_code == 0
+    assert "yes (clean)" in result.output
+    assert "no (dirty)" in result.output
+    assert "pending" in result.output
+    assert "✅" not in result.output
+    assert "❌" not in result.output
+    assert "⚠️" not in result.output
+    assert "➖" not in result.output
+
+    table_lines = [
+        cli._strip_ansi(line)
+        for line in result.output.splitlines()
+        if line.startswith(("+", "|"))
+    ]
+    widths = {len(line) for line in table_lines}
+
+    assert len(widths) == 1
 
 
 def test_auto_fit_truncates_title_to_terminal_width(monkeypatch):

@@ -2,7 +2,7 @@
 # Set up the terminal
 Output docs/demo.gif
 Set FontSize 16
-Set Width 2200
+Set Width 1280
 Set Height 600
 Set Padding 40
 Set WindowBar Colorful
@@ -23,7 +23,7 @@ Sleep 3s
 
 # Clear and show a real-world example
 Ctrl+L
-Type "breakfast -o psf -r requests --max-title-length 55 --limit 10"
+Type "breakfast -o psf -r requests --limit 10 --max-title-length 40"
 Sleep 500ms
 Enter
 

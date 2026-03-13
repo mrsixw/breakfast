@@ -32,6 +32,8 @@ The default output is a colour-coded terminal table with the following columns:
 | Mergeable? | Whether the PR can be merged cleanly |
 | Link | Clickable terminal hyperlink to the PR |
 
+Use `--status-style ascii` if your terminal font renders the status emoji with uneven column widths.
+
 ### Colour coding
 
 Numeric columns (Files, Commits, Comments, Age) are colour-graded:

@@ -45,6 +45,20 @@ The "Link" column uses OSC 8 terminal hyperlinks. If you see escape codes instea
 
 Use `--json` output and extract the `url` field as an alternative.
 
+## Table columns drift around `Checks` or `Mergeable?`
+
+Some terminal and font combinations render the status emoji at uneven widths. If the `|` separators stop lining up, switch the status cells to ASCII:
+
+```bash
+breakfast -o my-org -r my-app --checks --status-style ascii
+```
+
+Or set it once in config:
+
+```toml
+status-style = "ascii"
+```
+
 ## "GraphQL request failed" errors
 
 This typically means the organization name is incorrect or your token doesn't have access to the organization. Verify:

@@ -63,6 +63,7 @@ def test_generate_default_config(tmp_path, monkeypatch):
     config_file = tmp_path / ".config" / "breakfast" / "config.toml"
     assert config_file.exists()
     assert 'organization = "my-org"' in config_file.read_text()
+    assert 'status-style = "emoji"' in config_file.read_text()
 
     # Second run: should not overwrite
     result2 = config.generate_default_config()

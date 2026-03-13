@@ -48,6 +48,7 @@
 
 ## Pull Requests
 - Include the issue number in PR titles (e.g., `#7: Split test deps and migrate to uv`).
+- Always include `Closes #N` in the PR body so the issue is automatically closed when the PR is merged.
 - Ensure CI is green before requesting review or merging PRs.
 
 ## mkver Usage

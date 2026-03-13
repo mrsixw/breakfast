@@ -1,5 +1,7 @@
 import json
 import random
+import re
+import shutil
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
@@ -21,6 +23,126 @@ from .ui import (
     generate_terminal_url_anchor,
 )
 from .updater import check_for_update
+
+# Columns dropped as last resort (least important first)
+_DROPPABLE_COLUMNS = ["State", "Commits", "Files", "+/-", "Cmt", "Age", "Checks"]
+
+_ANSI_RE = re.compile(r"\x1b(?:\[[0-9;]*[mK]|\]8;;[^\x1b]*\x1b\\)")
+
+
+def _strip_ansi(s):
+    return _ANSI_RE.sub("", str(s))
+
+
+def _table_width(rows):
+    """Return visual table width via the border line (ANSI-stripped for accuracy)."""
+    plain_rows = [{k: _strip_ansi(v) for k, v in row.items()} for row in rows[:1]]
+    table_str = tabulate(
+        plain_rows, headers="keys", showindex="always", tablefmt="outline"
+    )
+    return len(table_str.split("\n")[0])
+
+
+def _truncate_col(pr_data, key, terminal_width, min_len=8):
+    """Shrink a text column to help the table fit within terminal_width.
+
+    For PR Title, calculates the exact available space from overhead.
+    For other columns (Repo, Author), trims by the current excess so that
+    even when many other wide columns are present the truncation still fires.
+    """
+    if key not in pr_data[0]:
+        return pr_data
+
+    if key == "PR Title":
+        # Exact calculation: measure overhead with a placeholder title
+        overhead = _table_width([{**pr_data[0], key: "X" * min_len}]) - min_len
+        limit = terminal_width - overhead
+    else:
+        # Excess-based: shrink the longest value by however much the table overflows
+        excess = _table_width(pr_data) - terminal_width
+        if excess <= 0:
+            return pr_data
+        current_max = max(len(_strip_ansi(row[key])) for row in pr_data)
+        limit = max(current_max - excess, min_len)
+
+    if limit < min_len:
+        return pr_data
+    return [
+        {
+            **row,
+            key: (
+                row[key][: limit - 1] + "…"
+                if len(_strip_ansi(row[key])) > limit
+                else row[key]
+            ),
+        }
+        for row in pr_data
+    ]
+
+
+def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
+    """Progressively compress the table to fit within terminal_width."""
+    if not pr_data:
+        return pr_data
+
+    def fits():
+        return _table_width(pr_data) <= terminal_width
+
+    # 1. Auto-truncate PR Title (skip if caller already applied an explicit limit)
+    if explicit_max_title_length is None:
+        pr_data = _truncate_col(pr_data, "PR Title", terminal_width, min_len=10)
+
+    if fits():
+        return pr_data
+
+    # 2. Truncate Repo
+    pr_data = _truncate_col(pr_data, "Repo", terminal_width, min_len=8)
+    if fits():
+        return pr_data
+
+    # 3. Truncate Author
+    pr_data = _truncate_col(pr_data, "Author", terminal_width, min_len=8)
+    if fits():
+        return pr_data
+
+    # 4. Compress Mergeable?: "✅ (clean)" → "✅"
+    if "Mergeable?" in pr_data[0]:
+        pr_data = [
+            {**row, "Mergeable?": re.sub(r" \(.*\)$", "", row["Mergeable?"])}
+            for row in pr_data
+        ]
+    if fits():
+        return pr_data
+
+    # 5. Compress Checks: "✅ pass" → "✅" (strip ANSI then keep emoji token)
+    if "Checks" in pr_data[0]:
+        pr_data = [
+            {**row, "Checks": _strip_ansi(row["Checks"]).split()[0]} for row in pr_data
+        ]
+    if fits():
+        return pr_data
+
+    # 6. Rename "Comments" → "Cmt" (shorter header)
+    if "Comments" in pr_data[0]:
+        pr_data = [
+            {("Cmt" if k == "Comments" else k): v for k, v in row.items()}
+            for row in pr_data
+        ]
+    if fits():
+        return pr_data
+
+    # 7. Drop low-priority columns as last resort
+    for col in _DROPPABLE_COLUMNS:
+        if fits():
+            break
+        if col in pr_data[0]:
+            pr_data = [{k: v for k, v in row.items() if k != col} for row in pr_data]
+
+    return pr_data
+
+
+def _stdout_is_tty():
+    return sys.stdout.isatty()
 
 
 def get_pr_age_days(pr_detail, now=None):
@@ -270,13 +392,9 @@ def breakfast(
         adds = click.style("+" + str(pr_detail["additions"]), fg="green", bold=True)
         subs = click.style("-" + str(pr_detail["deletions"]), fg="red", bold=True)
 
-        title = pr_detail["title"]
-        if max_title_length and len(title) > max_title_length:
-            title = title[: max_title_length - 1] + "…"
-
         row = {
             "Repo": pr_detail["base"]["repo"]["name"],
-            "PR Title": title,
+            "PR Title": pr_detail["title"],
             "Author": pr_detail["user"]["login"],
             "State": pr_detail["state"],
             "Files": click_colour_grade_number(pr_detail["changed_files"]),
@@ -298,6 +416,24 @@ def breakfast(
         pr_data.append(row)
         click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False)
     click.echo("...Done")
+
+    # Apply explicit title truncation, then auto-fit to terminal if interactive
+    if max_title_length:
+        pr_data = [
+            {
+                **row,
+                "PR Title": (
+                    row["PR Title"][: max_title_length - 1] + "…"
+                    if len(row["PR Title"]) > max_title_length
+                    else row["PR Title"]
+                ),
+            }
+            for row in pr_data
+        ]
+    if _stdout_is_tty() and pr_data:
+        terminal_width = shutil.get_terminal_size().columns
+        pr_data = _auto_fit(pr_data, terminal_width, max_title_length)
+
     click.echo(
         tabulate(pr_data, headers="keys", showindex="always", tablefmt="outline")
     )

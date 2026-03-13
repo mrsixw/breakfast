@@ -1,6 +1,7 @@
 import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 import requests
 from click.testing import CliRunner
@@ -689,6 +690,179 @@ def test_cli_limit_caps_results(monkeypatch):
 
     assert result.exit_code == 0
     assert result.output.count("PR number") == 2
+
+
+def _make_pr_fixture(title="Test PR", number=1):
+    return {
+        "base": {"repo": {"name": "repo"}},
+        "mergeable": True,
+        "mergeable_state": "clean",
+        "additions": 1,
+        "deletions": 0,
+        "title": title,
+        "user": {"login": "alice"},
+        "state": "open",
+        "changed_files": 1,
+        "commits": 1,
+        "review_comments": 0,
+        "created_at": "2026-01-10T00:00:00Z",
+        "html_url": f"https://github.com/org/repo/pull/{number}",
+        "number": number,
+    }
+
+
+def test_auto_fit_truncates_title_to_terminal_width(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(
+        api, "make_github_api_request", lambda _: _make_pr_fixture(title="A" * 200)
+    )
+
+    runner = CliRunner()
+    term = type("T", (), {"columns": 150})()
+    with patch("shutil.get_terminal_size", return_value=term):
+        monkeypatch.setattr(cli, "_stdout_is_tty", lambda: True)
+        result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert "A" * 200 not in result.output
+    assert "…" in result.output
+
+
+def test_auto_fit_skips_truncation_when_title_fits(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(
+        api, "make_github_api_request", lambda _: _make_pr_fixture(title="Short title")
+    )
+
+    runner = CliRunner()
+    term = type("T", (), {"columns": 220})()
+    with patch("shutil.get_terminal_size", return_value=term):
+        monkeypatch.setattr(cli, "_stdout_is_tty", lambda: True)
+        result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert "Short title" in result.output
+
+
+def test_auto_fit_truncates_repo_and_author_before_dropping(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+    )
+
+    def fake_api(_path):
+        r = _make_pr_fixture(title="Short")
+        r["base"]["repo"]["name"] = "a-very-long-repository-name"
+        r["user"]["login"] = "a-very-long-author-name"
+        return r
+
+    monkeypatch.setattr(api, "make_github_api_request", fake_api)
+
+    runner = CliRunner()
+    term = type("T", (), {"columns": 100})()
+    with patch("shutil.get_terminal_size", return_value=term):
+        monkeypatch.setattr(cli, "_stdout_is_tty", lambda: True)
+        result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    # Full long names should have been truncated
+    assert "a-very-long-repository-name" not in result.output
+    assert "a-very-long-author-name" not in result.output
+
+
+def test_auto_fit_compresses_mergeable_before_dropping(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_fixture())
+
+    runner = CliRunner()
+    term = type("T", (), {"columns": 100})()
+    with patch("shutil.get_terminal_size", return_value=term):
+        monkeypatch.setattr(cli, "_stdout_is_tty", lambda: True)
+        result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    # "(clean)" reason should be gone if compression kicked in
+    assert "(clean)" not in result.output
+
+
+def test_auto_fit_drops_columns_when_very_narrow(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_fixture())
+
+    runner = CliRunner()
+    term = type("T", (), {"columns": 60})()
+    with patch("shutil.get_terminal_size", return_value=term):
+        monkeypatch.setattr(cli, "_stdout_is_tty", lambda: True)
+        result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    # At least one droppable column should be absent
+    assert "State" not in result.output or "Commits" not in result.output
+
+
+def test_auto_fit_noop_when_not_tty(monkeypatch):
+    """When stdout is not a TTY (e.g. piped), auto-fit must not run."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(
+        api, "make_github_api_request", lambda _: _make_pr_fixture(title="A" * 200)
+    )
+
+    # CliRunner uses a non-TTY stream by default — no patching of isatty
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert "A" * 200 in result.output
+
+
+def test_explicit_max_title_length_overrides_auto_fit(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(
+        api, "make_github_api_request", lambda _: _make_pr_fixture(title="A" * 100)
+    )
+
+    runner = CliRunner()
+    term = type("T", (), {"columns": 220})()
+    with patch("shutil.get_terminal_size", return_value=term):
+        monkeypatch.setattr(cli, "_stdout_is_tty", lambda: True)
+        result = runner.invoke(
+            cli.breakfast, ["-o", "org", "-r", "repo", "--max-title-length", "20"]
+        )
+
+    assert result.exit_code == 0
+    assert "A" * 19 + "…" in result.output
 
 
 def test_cli_init_config(monkeypatch):

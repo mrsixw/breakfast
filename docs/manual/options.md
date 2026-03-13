@@ -169,6 +169,22 @@ With `--json --checks`, a `"checks"` field is included in each PR object:
 }
 ```
 
+### Auto-fit to terminal width
+
+When writing to an interactive terminal, breakfast automatically fits the table to the available width. No flags required — it just works.
+
+The table is compressed progressively, in order of least impact:
+
+1. **PR Title** is truncated first (or respects `--max-title-length` if set)
+2. **Repo** name is trimmed
+3. **Author** name is trimmed
+4. **Mergeable?** reason is dropped (`"✅ (clean)"` → `"✅"`)
+5. **Checks** label is dropped (`"✅ pass"` → `"✅"`)
+6. **Comments** header is shortened to `"Cmt"`
+7. Low-priority columns are dropped entirely: State, Commits, Files, +/-, Cmt, Age, Checks
+
+Auto-fit is a no-op when output is piped or redirected (not a TTY), so `--json` and scripting workflows are unaffected.
+
 ### `--limit`
 
 Cap the number of PRs displayed. Results are limited after all filtering is applied. There is no config file equivalent — this is intentionally a CLI-only flag.

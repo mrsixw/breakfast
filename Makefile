@@ -13,7 +13,7 @@ activate: .venv
 build: .venv
 
 	uv sync --extra build
-	uv run shiv -c breakfast -o breakfast --python "$(shell uv python find)" .
+	uv run shiv -c breakfast -o breakfast --python '/usr/bin/env python3' .
 
 version-bump:
 	git mkver patch

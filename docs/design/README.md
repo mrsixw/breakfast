@@ -9,3 +9,4 @@ Each document captures the problem, proposed solution, and implementation approa
 | Document | Status | Issue |
 |----------|--------|-------|
 | [Config File](config-file.md) | Proposed | [#42](https://github.com/mrsixw/breakfast/issues/42) |
+| [Text User Interface](tui.md) | Proposed | |

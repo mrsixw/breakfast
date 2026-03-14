@@ -31,6 +31,9 @@
 ## Testing
 - Tests use `pytest` with `monkeypatch` for mocking and `click.testing.CliRunner` for CLI tests.
 - Run `make test` before committing.
+- **Testing with Cache:** Since caching is implemented, all manual testing must be performed both *with* the cache enabled and *without* the cache (e.g., clearing the cache or disabling it).
+- **Real App Testing:** Always perform a real, end-to-end test of the CLI application in the terminal, not just unit tests.
+- **Clean Workspace:** All work must be performed on a clean git tree with a fresh clone of the `main` branch.
 
 ## Work Items
 - This project uses GitHub issues (not Jira). Reference the GitHub issue number in branch names and PR titles.

@@ -237,6 +237,35 @@ Can also be set in the config file to apply to all runs:
 max-title-length = 72
 ```
 
+## Caching options
+
+### `--cache-ttl`
+
+How long PR results are cached on disk before a fresh fetch is made. Accepts a bare number of seconds or a human-friendly suffix: `30s`, `5m`, `2h`. Defaults to `300` (5 minutes).
+
+```bash
+breakfast -o my-org -r my-app --cache-ttl 10m   # cache for 10 minutes
+breakfast -o my-org -r my-app --cache-ttl 3600   # cache for 1 hour (in seconds)
+```
+
+Can also be set in the config file:
+
+```toml
+cache-ttl = "5m"
+```
+
+The cache is stored in `~/.cache/breakfast/` (or `$XDG_CACHE_HOME/breakfast/`). Each `(organization, repo-filter)` pair gets its own cache file, keyed by a hash of those values.
+
+### `--no-cache`
+
+Skip reading and writing the disk cache entirely — always fetches fresh from the GitHub API.
+
+```bash
+breakfast -o my-org -r my-app --no-cache
+```
+
+Useful when you need up-to-the-minute data and don't want to wait for the TTL to expire. Note that CI check statuses (`--checks`) are always fetched fresh regardless of cache state.
+
 ## Update notifications
 
 breakfast automatically checks for new versions once per day (cached for 24 hours in `~/.cache/breakfast/`). If a newer version is available, you'll see a message after the main output:
@@ -297,6 +326,10 @@ Options:
   --max-title-length INTEGER    Truncate PR titles to this many characters.
                                 Unset means no truncation.
   --no-update-check             Disable the automatic update check.
+  --cache-ttl TEXT              How long to cache PR results (seconds, or
+                                suffix: 5m, 2h, 30s). Default: 300.
+  --no-cache                    Skip reading and writing the PR cache; always
+                                fetch fresh.
   --version                     Show the version and exit.
   --help                        Show this message and exit.
 ```

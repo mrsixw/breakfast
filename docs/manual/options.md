@@ -146,9 +146,9 @@ Processing platform PRs...🍩🧇...Done
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+----------+--------------+--------+
 |         | Repo           | PR Title        | Author | State   | Files | Commits |    +/-     | Comments | Checks   | Mergeable?   | Link   |
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+----------+--------------+--------+
-|       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | pass     | ✅ (clean)   | PR-142 |
-|       1 | platform-api   | Fix login bug   | bob    | open    |   1   |    1    |  +5/-2     |    3     | fail     | ✅ (clean)   | PR-138 |
-|       2 | platform-ui    | Update nav bar  | carol  | open    |  12   |    4    |  +280/-95  |    1     | pending  | ❌ (dirty)   | PR-87  |
+|       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | ✅ pass  | ✅ (clean)   | PR-142 |
+|       1 | platform-api   | Fix login bug   | bob    | open    |   1   |    1    |  +5/-2     |    3     | ❌ fail  | ✅ (clean)   | PR-138 |
+|       2 | platform-ui    | Update nav bar  | carol  | open    |  12   |    4    |  +280/-95  |    1     | ⚠️ pending | ❌ (dirty)   | PR-87  |
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+----------+--------------+--------+
 ```
 
@@ -167,6 +167,74 @@ With `--json --checks`, a `"checks"` field is included in each PR object:
   "checks": "pass",
   ...
 }
+```
+
+### `--status-style`
+
+Choose how the `Checks` and `Mergeable?` columns are rendered in table output.
+
+```bash
+breakfast -o my-org -r platform --checks --status-style ascii
+```
+
+Supported values:
+- `emoji` - default whimsical output, such as `✅ pass` and `❌ (dirty)`
+- `ascii` - terminal-safe fallback, such as `pass` and `no (dirty)`
+
+This is also available in config:
+
+```toml
+status-style = "ascii"
+```
+
+### Auto-fit to terminal width
+
+When writing to an interactive terminal, breakfast automatically fits the table to the available width. No flags required — it just works.
+
+The table is compressed progressively, in order of least impact:
+
+1. **PR Title** is truncated first (or respects `--max-title-length` if set)
+2. **Repo** name is trimmed
+3. **Author** name is trimmed
+4. **Mergeable?** reason is dropped (`"✅ (clean)"` → `"✅"`)
+5. **Checks** label is dropped (`"✅ pass"` → `"✅"`)
+6. **Comments** header is shortened to `"Cmt"`
+7. Low-priority columns are dropped entirely: State, Commits, Files, +/-, Cmt, Age, Checks
+
+Auto-fit is a no-op when output is piped or redirected (not a TTY), so `--json` and scripting workflows are unaffected.
+
+### `--limit`
+
+Cap the number of PRs displayed. Results are limited after all filtering is applied. There is no config file equivalent — this is intentionally a CLI-only flag.
+
+```bash
+breakfast -o my-org -r my-app --limit 10
+```
+
+### `--max-title-length`
+
+Truncate PR titles to a maximum number of characters. Titles longer than the limit are cut and suffixed with `…`. When unset, titles are displayed in full.
+
+```bash
+breakfast -o my-org -r my-app --max-title-length 72
+```
+
+Example — without `--max-title-length`:
+
+```
+| Fix: #4362 - Redirect resolved even though allow_redirects is set to False causing exception for unsupported connection adapter | ...
+```
+
+With `--max-title-length 60`:
+
+```
+| Fix: #4362 - Redirect resolved even though allow_redir… | ...
+```
+
+Can also be set in the config file to apply to all runs:
+
+```toml
+max-title-length = 72
 ```
 
 ## Update notifications
@@ -205,16 +273,30 @@ $ breakfast --help
 Usage: breakfast [OPTIONS]
 
 Options:
-  -o, --organization TEXT  One or multiple organizations to report on
-  -r, --repo-filter TEXT   Filter for specific repp(s)
-  --ignore-author TEXT     Ignore PRs raised by one or more authors
-                           (case-insensitive). Repeat for multiple authors,
-                           e.g. --ignore-author dependabot[bot].
-  --mine-only              Only include PRs authored by the currently
-                           authenticated GitHub user.
-  --age                    Include an age column showing PR age in days.
-  --json                   Output results as JSON instead of a table. Progress
-                           messages go to stderr.
-  --version                Show the version and exit.
-  --help                   Show this message and exit.
+  --config TEXT                 Path to config file.
+  --show-config                 Print the resolved config and exit.
+  --init-config                 Generate a default config file and exit.
+  -o, --organization TEXT       One or multiple organizations to report on
+  -r, --repo-filter TEXT        Filter for specific repp(s)
+  --ignore-author TEXT          Ignore PRs raised by one or more authors
+                                (case-insensitive). Repeat for multiple
+                                authors, e.g. --ignore-author
+                                dependabot[bot].
+  --no-ignore-author            Clear config defaults for ignore-author.
+  --mine-only / --no-mine-only  Only include PRs authored by the currently
+                                authenticated GitHub user.
+  --age / --no-age              Include an age column showing PR age in days.
+  --json / --no-json            Output results as JSON instead of a table.
+                                Progress messages go to stderr.
+  --checks / --no-checks        Include a checks column showing CI/check
+                                status for each PR.
+  --status-style [emoji|ascii]  Render status cells with emoji (default) or
+                                ASCII labels.
+  --limit INTEGER               Cap the number of PRs shown. Unset means show
+                                all results.
+  --max-title-length INTEGER    Truncate PR titles to this many characters.
+                                Unset means no truncation.
+  --no-update-check             Disable the automatic update check.
+  --version                     Show the version and exit.
+  --help                        Show this message and exit.
 ```

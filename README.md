@@ -1,9 +1,17 @@
 # 🥐 breakfast
 [![CI](https://github.com/mrsixw/breakfast/actions/workflows/ci.yml/badge.svg)](https://github.com/mrsixw/breakfast/actions/workflows/ci.yml)
 
+![breakfast demo](docs/demo.gif)
+
 The most important meal of your workday.
 
 Breakfast is the first thing you should consume each morning — and open PRs are the first thing you should consume at the start of your workday. **breakfast** serves them up in a tasty terminal table so you can start your day right.
+
+## Installation
+
+```bash
+curl -sSL https://raw.githubusercontent.com/mrsixw/breakfast/main/install.sh | bash
+```
 
 ## Quick start
 
@@ -19,6 +27,7 @@ breakfast -o my-org -r my-app --ignore-author dependabot[bot] --ignore-author re
 breakfast -o my-org -r my-app --mine-only
 breakfast -o my-org -r my-app --age
 breakfast -o my-org -r my-app --checks
+breakfast -o my-org -r my-app --checks --status-style ascii
 breakfast -o my-org -r my-app --json
 ```
 
@@ -29,6 +38,7 @@ breakfast -o my-org -r my-app --json
 - `--mine-only`: Show only your own PRs.
 - `--age`: Add an age column (days since creation).
 - `--checks`: Add a checks column showing CI status (pass/fail/pending/none).
+- `--status-style`: Render status cells with emoji (default) or ASCII labels.
 - `--json`: Output as JSON instead of a table.
 - `--version`: Show version.
 

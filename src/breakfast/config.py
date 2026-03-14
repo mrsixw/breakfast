@@ -70,8 +70,14 @@ def generate_default_config():
 # Always show CI/check status for each PR
 # checks = true
 
+# Render status cells using "emoji" (default) or "ascii"
+# status-style = "emoji"
+
 # Default output format: "table" or "json"
 # format = "table"
+
+# Truncate PR titles to this many characters (unset = no truncation)
+# max-title-length = 72
 
 # How long to cache PR results (seconds, or use suffix: 5m, 2h)
 # cache-ttl = 300

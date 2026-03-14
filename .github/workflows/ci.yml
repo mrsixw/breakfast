@@ -113,3 +113,22 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: utils/create_release.sh "${{ steps.bump.outputs.version }}"
+
+  verify-release:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install latest release
+        run: |
+          curl -sSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/install.sh | bash
+
+      - name: Verify installation
+        run: |
+          ~/.local/bin/breakfast --version
+          ls -l ~/.config/breakfast/config.toml

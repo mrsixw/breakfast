@@ -36,11 +36,14 @@
 ## Testing
 - Tests use `pytest` with `monkeypatch` for mocking and `click.testing.CliRunner` for CLI tests.
 - Run `make test` before committing.
+- **Testing with Cache:** Since caching is implemented, all manual testing must be performed both *with* the cache enabled and *without* the cache (e.g., clearing the cache or disabling it).
+- **Real App Testing:** Always perform a real, end-to-end test of the CLI application in the terminal, not just unit tests.
 
 ## Work Items
 - This project uses GitHub issues (not Jira). Reference the GitHub issue number in branch names and PR titles.
 - Branch names should include the issue number and a short description (e.g., `issue-26_filter_pr_authors`).
 - **A GitHub issue MUST exist before any work begins.** If the user requests a change and no issue exists yet, create one (or ask the user to create one) before starting implementation. Every branch, commit, and PR must reference an issue number.
+- **Always use git worktrees.** Each issue gets its own worktree so branches stay fully isolated — especially important when multiple agents work in parallel. Create one with `git worktree add ../breakfast-issue-N issue-N_short_description`. Never do feature work directly in the main checkout.
 
 ## Commit Messages
 - Use Conventional Commits (e.g., `feat: ...`, `fix: ...`, `chore: ...`, `docs: ...`, `refactor: ...`, `test: ...`, `ci: ...`).

@@ -78,6 +78,9 @@ def generate_default_config():
 
 # Truncate PR titles to this many characters (unset = no truncation)
 # max-title-length = 72
+
+# How long to cache PR results (seconds, or use suffix: 5m, 2h)
+# cache-ttl = 300
 """
     config_path.write_text(default_content)
     click.echo(click.style(f"Created default config at {config_path}", fg="green"))

@@ -117,10 +117,27 @@ breakfast -o my-org -r my-app \
 breakfast -o my-org -r platform --checks --status-style ascii
 ```
 
+### Speed up repeated runs with caching
+
+PR results are cached to disk for 5 minutes by default. The second run is near-instant:
+
+```bash
+breakfast -o my-org -r platform          # fetches from API, writes cache
+breakfast -o my-org -r platform          # served from cache (~instant)
+breakfast -o my-org -r platform --no-cache   # always fetches fresh
+```
+
+Adjust the TTL with `--cache-ttl`:
+
+```bash
+breakfast -o my-org -r platform --cache-ttl 10m   # cache for 10 minutes
+```
+
 ## How it works
 
-1. **Fetch repositories** - Uses the GitHub GraphQL API to paginate through all repositories in the organization
-2. **Filter repos** - Keeps only repos whose name contains the `--repo-filter` substring
-3. **Fetch PR details** - Uses the GitHub REST API to fetch full details for each open PR (parallelized for speed)
-4. **Filter PRs** - Applies author filters (`--ignore-author`, `--mine-only`)
-5. **Display** - Renders results as a terminal table or JSON
+1. **Check cache** - Looks for a recent on-disk cache for the `(organization, repo-filter)` pair; if found and within the TTL, skips steps 2–3 entirely
+2. **Fetch repositories** - Uses the GitHub GraphQL API to paginate through all repositories in the organization
+3. **Filter repos** - Keeps only repos whose name contains the `--repo-filter` substring
+4. **Fetch PR details** - Uses the GitHub REST API to fetch full details for each open PR (parallelized for speed); writes results to disk cache
+5. **Filter PRs** - Applies author filters (`--ignore-author`, `--mine-only`)
+6. **Display** - Renders results as a terminal table or JSON

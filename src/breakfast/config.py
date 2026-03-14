@@ -72,6 +72,9 @@ def generate_default_config():
 
 # Default output format: "table" or "json"
 # format = "table"
+
+# How long to cache PR results (seconds, or use suffix: 5m, 2h)
+# cache-ttl = 300
 """
     config_path.write_text(default_content)
     click.echo(click.style(f"Created default config at {config_path}", fg="green"))

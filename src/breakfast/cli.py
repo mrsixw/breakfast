@@ -13,6 +13,7 @@ from .api import (
     get_check_status,
     get_github_prs,
 )
+from .cache import parse_ttl, read_pr_cache, write_pr_cache
 from .config import filter_pr_details, generate_default_config, load_config
 from .ui import (
     BREAKFAST_ITEMS,
@@ -92,6 +93,21 @@ def get_pr_age_days(pr_detail, now=None):
     envvar="BREAKFAST_NO_UPDATE_CHECK",
     help="Disable the automatic update check.",
 )
+@click.option(
+    "--cache-ttl",
+    type=str,
+    default=None,
+    help=(
+        "How long to cache PR results (seconds, or suffix: 5m, 2h, 30s)."
+        " Default: 300."
+    ),
+)
+@click.option(
+    "--no-cache",
+    is_flag=True,
+    default=False,
+    help="Skip reading and writing the PR cache; always fetch fresh.",
+)
 @click.version_option(package_name="breakfast")
 def breakfast(
     config,
@@ -106,6 +122,8 @@ def breakfast(
     json_output,
     checks,
     no_update_check,
+    cache_ttl,
+    no_cache,
 ):
     if init_config:
         generate_default_config()
@@ -128,6 +146,15 @@ def breakfast(
         json_output = cfg.get("format") == "json"
     checks = checks if checks is not None else cfg.get("checks", False)
 
+    # Resolve effective cache TTL: CLI > config > default 300
+    raw_ttl = cache_ttl if cache_ttl is not None else cfg.get("cache-ttl", 300)
+    try:
+        cache_ttl_seconds = parse_ttl(raw_ttl)
+    except ValueError as exc:
+        msg = f"Error: invalid --cache-ttl value: {exc}"
+        click.echo(click.style(msg, fg="red", bold=True))
+        sys.exit(1)
+
     if show_config:
         click.echo("Resolved config:")
         resolved = {
@@ -138,6 +165,8 @@ def breakfast(
             "age": age,
             "json": json_output,
             "checks": checks,
+            "cache-ttl": cache_ttl_seconds,
+            "no-cache": no_cache,
         }
         for k, v in resolved.items():
             click.echo(f"  {k}: {v}")
@@ -160,29 +189,36 @@ def breakfast(
         current_user_login = get_authenticated_user_login()
 
     # grab all the pull requests we are interested in
-    prs = get_github_prs(organization, repo_filter)
-
     pr_data = []
     click.echo(f"Processing {repo_filter} PRs...", nl=False, err=json_output)
-    pr_details = []
-    failed_urls = []
-    if prs:
-        max_workers = min(8, len(prs))
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [(url, executor.submit(_fetch_pr_detail, url)) for url in prs]
-        for url, future in futures:
-            try:
-                pr_details.append(future.result())
-            except Exception:
-                failed_urls.append(url)
-    if failed_urls:
-        examples = ", ".join(failed_urls[:3])
-        suffix = " ..." if len(failed_urls) > 3 else ""
-        msg = (
-            f"\nWarning: {len(failed_urls)} PR(s) could not be fetched"
-            f" after retries: {examples}{suffix}"
-        )
-        click.echo(click.style(msg, fg="yellow"), err=True)
+
+    pr_details = None
+    if not no_cache:
+        pr_details = read_pr_cache(organization, repo_filter, cache_ttl_seconds)
+
+    if pr_details is None:
+        prs = get_github_prs(organization, repo_filter)
+        pr_details = []
+        failed_urls = []
+        if prs:
+            max_workers = min(8, len(prs))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [(url, executor.submit(_fetch_pr_detail, url)) for url in prs]
+            for url, future in futures:
+                try:
+                    pr_details.append(future.result())
+                except Exception:
+                    failed_urls.append(url)
+        if failed_urls:
+            examples = ", ".join(failed_urls[:3])
+            suffix = " ..." if len(failed_urls) > 3 else ""
+            msg = (
+                f"\nWarning: {len(failed_urls)} PR(s) could not be fetched"
+                f" after retries: {examples}{suffix}"
+            )
+            click.echo(click.style(msg, fg="yellow"), err=True)
+        if not no_cache:
+            write_pr_cache(organization, repo_filter, pr_details)
     pr_details = filter_pr_details(
         pr_details,
         ignore_author,

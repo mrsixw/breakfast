@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import requests
 from click.testing import CliRunner
 
-from breakfast import api, cli
+from breakfast import api, cache, cli
 
 
 def test_get_pr_age_days():
@@ -591,3 +591,161 @@ def test_cli_init_config(monkeypatch):
 
     assert result.exit_code == 0
     assert len(called) == 1
+
+
+# ---------------------------------------------------------------------------
+# Cache integration tests
+# ---------------------------------------------------------------------------
+
+
+def _make_pr_detail(number=1):
+    return {
+        "base": {"repo": {"name": "repo", "owner": {"login": "org"}}},
+        "head": {"sha": "abc123"},
+        "mergeable": True,
+        "mergeable_state": "clean",
+        "additions": 5,
+        "deletions": 2,
+        "title": f"PR number {number}",
+        "user": {"login": "alice"},
+        "state": "open",
+        "changed_files": 1,
+        "commits": 1,
+        "review_comments": 0,
+        "created_at": "2026-01-10T00:00:00Z",
+        "html_url": f"https://github.com/org/repo/pull/{number}",
+        "number": number,
+        "id": 1000 + number,
+    }
+
+
+def test_cache_hit_skips_get_github_prs(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+
+    # Pre-populate cache
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(1)])
+
+    api_called = []
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: api_called.append(1) or [])
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert len(api_called) == 0, "get_github_prs should not be called on a cache hit"
+    assert "PR number 1" in result.output
+
+
+def test_no_cache_flag_always_fetches(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+
+    # Pre-populate cache
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(99)])
+
+    api_called = []
+
+    def fake_get_prs(_org, _repo):
+        api_called.append(1)
+        return ["https://github.com/org/repo/pull/1"]
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_detail(1))
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--no-cache"])
+
+    assert result.exit_code == 0
+    assert len(api_called) == 1, "get_github_prs must be called when --no-cache is set"
+
+
+def test_no_cache_flag_writes_nothing(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--no-cache"])
+
+    assert result.exit_code == 0
+    assert list(tmp_path.glob("prs_*.json")) == []
+
+
+def test_invalid_cache_ttl_exits_with_code_1(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--cache-ttl", "0"]
+    )
+
+    assert result.exit_code == 1
+    assert "invalid" in result.output.lower() or "cache-ttl" in result.output.lower()
+
+
+def test_config_cache_ttl_respected(monkeypatch, tmp_path):
+    """cache-ttl = "5m" in config is honoured when no CLI flag given."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+
+    # Simulate config returning cache-ttl = "5m"
+    monkeypatch.setattr(cli, "load_config", lambda _: {"cache-ttl": "5m"})
+
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(7)])
+
+    api_called = []
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: api_called.append(1) or [])
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert len(api_called) == 0, "cache-ttl from config should be honoured"
+
+
+def test_corrupt_cache_falls_back_to_live_fetch(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+
+    # Write corrupt cache file
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    path = cache.cache_path("org", "repo")
+    path.write_text("}{bad json")
+
+    api_called = []
+
+    def fake_get_prs(*a):
+        api_called.append(1)
+        return ["https://github.com/org/repo/pull/1"]
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_detail(1))
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert len(api_called) == 1, "corrupt cache should fall back to live fetch"
+    assert "PR number 1" in result.output

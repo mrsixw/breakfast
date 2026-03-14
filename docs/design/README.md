@@ -11,3 +11,4 @@ Each document captures the problem, proposed solution, and implementation approa
 | [Config File](config-file.md) | Proposed | [#42](https://github.com/mrsixw/breakfast/issues/42) |
 | [Demo Generation](demo-generation.md) | Implemented | [#80](https://github.com/mrsixw/breakfast/issues/80) |
 | [PR Caching](pr-caching.md) | Proposed | [#45](https://github.com/mrsixw/breakfast/issues/45) |
+| [Text User Interface](tui.md) | Proposed | [#46](https://github.com/mrsixw/breakfast/issues/46) |

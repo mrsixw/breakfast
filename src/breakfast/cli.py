@@ -345,11 +345,12 @@ def breakfast(
 
     # grab all the pull requests we are interested in
     pr_data = []
-    click.echo(f"Processing {repo_filter} PRs...", nl=False, err=json_output)
 
     pr_details = None
+    served_from_cache = False
     if not no_cache:
         pr_details = read_pr_cache(organization, repo_filter, cache_ttl_seconds)
+        served_from_cache = pr_details is not None
 
     if pr_details is None:
         prs = get_github_prs(organization, repo_filter)
@@ -374,6 +375,8 @@ def breakfast(
             click.echo(click.style(msg, fg="yellow"), err=True)
         if not no_cache:
             write_pr_cache(organization, repo_filter, pr_details)
+
+    click.echo(f"Processing {repo_filter} PRs...", nl=False, err=json_output)
     pr_details = filter_pr_details(
         pr_details,
         ignore_author,
@@ -426,8 +429,9 @@ def breakfast(
             if checks:
                 entry["checks"] = check_statuses.get(pr_detail["id"], "none")
             json_data.append(entry)
-            click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
-        click.echo("...Done", err=True)
+            if not served_from_cache:
+                click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
+        click.echo("⚡...Done" if served_from_cache else "...Done", err=True)
         click.echo(json.dumps(json_data, indent=2))
         if not no_update_check:
             update_msg = check_for_update()
@@ -466,8 +470,9 @@ def breakfast(
             f"PR-{pr_detail['number']}",
         )
         pr_data.append(row)
-        click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False)
-    click.echo("...Done")
+        if not served_from_cache:
+            click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False)
+    click.echo("⚡...Done" if served_from_cache else "...Done")
 
     # Apply explicit title truncation, then auto-fit to terminal if interactive
     if max_title_length:

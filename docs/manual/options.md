@@ -276,6 +276,23 @@ breakfast -o my-org -r my-app --refresh
 
 Unlike `--no-cache`, the cache is still updated — so `--refresh` is the right choice when you know something has changed and want the next run to be fast again. Use `--no-cache` only when you want to bypass caching entirely.
 
+### `--refresh-prs`
+
+Re-fetch PR details (comments, CI status, merge state) using the cached repo list, then write the fresh results back to the cache.
+
+```bash
+breakfast -o my-org -r my-app --refresh-prs
+```
+
+Faster than `--refresh` when you know the set of open PRs hasn't changed — for example, no PRs have been opened or closed, but you want to see updated review comments or merge status. The GraphQL discovery call is skipped; only the per-PR REST fetches are re-run.
+
+| Flag | GraphQL cache | PR detail cache |
+|---|---|---|
+| *(none)* | read | read |
+| `--refresh-prs` | read | skip, write fresh |
+| `--refresh` | skip, write fresh | skip, write fresh |
+| `--no-cache` | skip entirely | skip entirely |
+
 ## Update notifications
 
 breakfast automatically checks for new versions once per day (cached for 24 hours in `~/.cache/breakfast/`). If a newer version is available, you'll see a message after the main output:
@@ -342,6 +359,9 @@ Options:
                                 fetch fresh.
   --refresh                     Ignore the cache for this run but write fresh
                                 results back to it.
+  --refresh-prs                 Re-fetch PR details using the cached repo list.
+                                Faster than --refresh when only PR state has
+                                changed.
   --version                     Show the version and exit.
   --help                        Show this message and exit.
 ```

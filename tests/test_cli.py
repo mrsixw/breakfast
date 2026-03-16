@@ -1264,3 +1264,59 @@ def test_refresh_does_not_use_cached_data(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert "PR number 99" not in result.output, "stale cached PR should not appear"
     assert "PR number 1" in result.output
+
+
+def test_refresh_prs_uses_graphql_cache_skips_pr_cache(monkeypatch, tmp_path):
+    """--refresh-prs uses the cached URL list but re-fetches PR details."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+    monkeypatch.setattr(cli, "read_graphql_cache", cache.read_graphql_cache)
+    monkeypatch.setattr(cli, "write_graphql_cache", cache.write_graphql_cache)
+
+    # Warm PR detail cache (stale) and GraphQL cache
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(99)])
+    cache.write_graphql_cache(
+        "org", "repo", ["https://api.github.com/repos/org/repo/pulls/1"]
+    )
+
+    graphql_called = []
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *a: graphql_called.append(1) or []
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_detail(1))
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh-prs"])
+
+    assert result.exit_code == 0
+    assert len(graphql_called) == 0, "--refresh-prs should use cached GraphQL result"
+    assert "PR number 99" not in result.output, "stale PR cache should be bypassed"
+    assert "PR number 1" in result.output
+
+
+def test_refresh_prs_writes_fresh_pr_cache(monkeypatch, tmp_path):
+    """--refresh-prs writes fresh PR details back to cache."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+    monkeypatch.setattr(cli, "read_graphql_cache", cache.read_graphql_cache)
+    monkeypatch.setattr(cli, "write_graphql_cache", cache.write_graphql_cache)
+
+    cache.write_graphql_cache(
+        "org", "repo", ["https://api.github.com/repos/org/repo/pulls/1"]
+    )
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+    monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_detail(1))
+
+    runner = CliRunner()
+    runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh-prs"])
+
+    cached = cache.read_pr_cache("org", "repo", 300)
+    assert cached is not None, "--refresh-prs should write fresh data to PR cache"

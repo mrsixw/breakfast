@@ -16,7 +16,13 @@ from .api import (
     get_check_status,
     get_github_prs,
 )
-from .cache import parse_ttl, read_pr_cache, write_pr_cache
+from .cache import (
+    parse_ttl,
+    read_graphql_cache,
+    read_pr_cache,
+    write_graphql_cache,
+    write_pr_cache,
+)
 from .config import filter_pr_details, generate_default_config, load_config
 from .ui import (
     BREAKFAST_ITEMS,
@@ -256,6 +262,15 @@ def get_pr_age_days(pr_detail, now=None):
     default=False,
     help="Ignore the cache for this run but write fresh results back to it.",
 )
+@click.option(
+    "--refresh-prs",
+    is_flag=True,
+    default=False,
+    help=(
+        "Re-fetch PR details using the cached repo list."
+        " Faster than --refresh when only PR state has changed."
+    ),
+)
 @click.version_option(package_name="breakfast")
 def breakfast(
     config,
@@ -276,6 +291,7 @@ def breakfast(
     cache_ttl,
     no_cache,
     refresh,
+    refresh_prs,
 ):
     if init_config:
         generate_default_config()
@@ -331,6 +347,7 @@ def breakfast(
             "cache-ttl": cache_ttl_seconds,
             "no-cache": no_cache,
             "refresh": refresh,
+            "refresh-prs": refresh_prs,
         }
         for k, v in resolved.items():
             click.echo(f"  {k}: {v}")
@@ -355,12 +372,22 @@ def breakfast(
     # grab all the pull requests we are interested in
     pr_data = []
 
+    # --- Layer 1: full PR detail cache (skip on --refresh or --refresh-prs) ---
     pr_details = None
-    if not no_cache and not refresh:
+    if not no_cache and not refresh and not refresh_prs:
         pr_details = read_pr_cache(organization, repo_filter, cache_ttl_seconds)
 
     if pr_details is None:
-        prs = get_github_prs(organization, repo_filter)
+        # --- Layer 2: GraphQL URL list cache (skip only on --refresh) ---
+        prs = None
+        if not no_cache and not refresh:
+            prs = read_graphql_cache(organization, repo_filter, cache_ttl_seconds)
+
+        if prs is None:
+            prs = get_github_prs(organization, repo_filter)
+            if not no_cache:
+                write_graphql_cache(organization, repo_filter, prs)
+
         pr_details = []
         failed_urls = []
         click.echo(f"Processing {repo_filter} PRs...", nl=False, err=json_output)
@@ -392,7 +419,7 @@ def breakfast(
             click.echo(click.style(msg, fg="yellow"), err=True)
         if not no_cache:
             write_pr_cache(organization, repo_filter, pr_details)
-            if refresh:
+            if refresh or refresh_prs:
                 click.echo("🔄 Cache refreshed.", err=json_output)
     else:
         click.echo(f"Processing {repo_filter} PRs...⚡...Done", err=json_output)

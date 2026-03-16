@@ -179,3 +179,45 @@ def test_get_cache_dir_default_without_xdg(monkeypatch):
     monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
     result = cache._get_cache_dir()
     assert result == Path.home() / ".cache" / "breakfast"
+
+
+# ---------------------------------------------------------------------------
+# GraphQL cache
+# ---------------------------------------------------------------------------
+
+
+def test_graphql_cache_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    urls = ["https://api.github.com/repos/org/repo/pulls/1"]
+    cache.write_graphql_cache("org", "filter", urls)
+    assert cache.read_graphql_cache("org", "filter", 300) == urls
+
+
+def test_graphql_cache_miss_no_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    assert cache.read_graphql_cache("org", "filter", 300) is None
+
+
+def test_graphql_cache_expired(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    urls = ["https://api.github.com/repos/org/repo/pulls/1"]
+    cache.write_graphql_cache("org", "filter", urls)
+    # Manually backdate the fetched_at timestamp
+    path = cache.graphql_cache_path("org", "filter")
+    data = json.loads(path.read_text())
+    old_time = (datetime.now(timezone.utc) - timedelta(seconds=400)).isoformat()
+    data["fetched_at"] = old_time
+    path.write_text(json.dumps(data))
+    assert cache.read_graphql_cache("org", "filter", 300) is None
+
+
+def test_graphql_cache_corrupt_json(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.graphql_cache_path("org", "filter").parent.mkdir(parents=True, exist_ok=True)
+    cache.graphql_cache_path("org", "filter").write_text("}{bad json")
+    assert cache.read_graphql_cache("org", "filter", 300) is None
+
+
+def test_graphql_cache_uses_separate_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    assert cache.graphql_cache_path("org", "f") != cache.cache_path("org", "f")

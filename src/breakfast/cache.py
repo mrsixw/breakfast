@@ -64,6 +64,45 @@ def cache_path(org: str, repo_filter: str) -> Path:
     return _CACHE_DIR / f"prs_{key}.json"
 
 
+def graphql_cache_path(org: str, repo_filter: str) -> Path:
+    key = make_cache_key(org, repo_filter)
+    return _CACHE_DIR / f"graphql_{key}.json"
+
+
+def read_graphql_cache(org: str, repo_filter: str, ttl: int) -> list | None:
+    """Return cached PR URL list if present and within TTL, else None."""
+    path = graphql_cache_path(org, repo_filter)
+    try:
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text())
+        fetched_at = datetime.fromisoformat(data["fetched_at"])
+        age = (datetime.now(timezone.utc) - fetched_at).total_seconds()
+        if age > ttl:
+            return None
+        return data["urls"]
+    except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
+        print(f"Warning: failed to read GraphQL cache: {exc}", file=sys.stderr)
+        return None
+
+
+def write_graphql_cache(org: str, repo_filter: str, urls: list) -> None:
+    """Write PR URL list to disk cache. Silently ignores write failures."""
+    try:
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path = graphql_cache_path(org, repo_filter)
+        payload = {
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "organization": org,
+            "repo_filter": repo_filter,
+            "url_count": len(urls),
+            "urls": urls,
+        }
+        path.write_text(json.dumps(payload))
+    except OSError as exc:
+        print(f"Warning: failed to write GraphQL cache: {exc}", file=sys.stderr)
+
+
 def read_pr_cache(org: str, repo_filter: str, ttl: int) -> list | None:
     """Return cached pr_details if present and within TTL, else None."""
     path = cache_path(org, repo_filter)

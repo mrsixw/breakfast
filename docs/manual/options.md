@@ -266,6 +266,16 @@ breakfast -o my-org -r my-app --no-cache
 
 Useful when you need up-to-the-minute data and don't want to wait for the TTL to expire. Note that CI check statuses (`--checks`) are always fetched fresh regardless of cache state.
 
+### `--refresh`
+
+Ignore the current cache for this run, fetch fresh data, and write the results back to the cache. Subsequent runs within the TTL will be served from the freshly updated cache.
+
+```bash
+breakfast -o my-org -r my-app --refresh
+```
+
+Unlike `--no-cache`, the cache is still updated — so `--refresh` is the right choice when you know something has changed and want the next run to be fast again. Use `--no-cache` only when you want to bypass caching entirely.
+
 ## Update notifications
 
 breakfast automatically checks for new versions once per day (cached for 24 hours in `~/.cache/breakfast/`). If a newer version is available, you'll see a message after the main output:
@@ -330,6 +340,8 @@ Options:
                                 suffix: 5m, 2h, 30s). Default: 300.
   --no-cache                    Skip reading and writing the PR cache; always
                                 fetch fresh.
+  --refresh                     Ignore the cache for this run but write fresh
+                                results back to it.
   --version                     Show the version and exit.
   --help                        Show this message and exit.
 ```

@@ -1207,3 +1207,60 @@ def test_pr_results_grouped_by_repo(monkeypatch, tmp_path):
     alpha_pos = result.output.index("alpha-service")
     zebra_pos = result.output.index("zebra-service")
     assert alpha_pos < zebra_pos, "repos should appear in alphabetical order"
+
+
+def test_refresh_ignores_cache_and_writes_fresh(monkeypatch, tmp_path):
+    """--refresh bypasses the cache read but still writes fresh data back."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+
+    # Pre-populate cache with stale data
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(99)])
+
+    api_called = []
+
+    def fake_get_prs(*a):
+        api_called.append(1)
+        return ["https://github.com/org/repo/pull/1"]
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_detail(1))
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh"])
+
+    assert result.exit_code == 0
+    assert len(api_called) == 1, "--refresh should always fetch fresh"
+    assert "PR number 1" in result.output
+    # Cache should now contain fresh data
+    cached = cache.read_pr_cache("org", "repo", 300)
+    assert cached is not None
+    assert cached[0]["number"] == 1
+
+
+def test_refresh_does_not_use_cached_data(monkeypatch, tmp_path):
+    """--refresh must not serve stale data even when cache is warm."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(99)])
+
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *a: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_detail(1))
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh"])
+
+    assert result.exit_code == 0
+    assert "PR number 99" not in result.output, "stale cached PR should not appear"
+    assert "PR number 1" in result.output

@@ -250,6 +250,12 @@ def get_pr_age_days(pr_detail, now=None):
     default=False,
     help="Skip reading and writing the PR cache; always fetch fresh.",
 )
+@click.option(
+    "--refresh",
+    is_flag=True,
+    default=False,
+    help="Ignore the cache for this run but write fresh results back to it.",
+)
 @click.version_option(package_name="breakfast")
 def breakfast(
     config,
@@ -269,6 +275,7 @@ def breakfast(
     no_update_check,
     cache_ttl,
     no_cache,
+    refresh,
 ):
     if init_config:
         generate_default_config()
@@ -323,6 +330,7 @@ def breakfast(
             "max-title-length": max_title_length,
             "cache-ttl": cache_ttl_seconds,
             "no-cache": no_cache,
+            "refresh": refresh,
         }
         for k, v in resolved.items():
             click.echo(f"  {k}: {v}")
@@ -348,7 +356,7 @@ def breakfast(
     pr_data = []
 
     pr_details = None
-    if not no_cache:
+    if not no_cache and not refresh:
         pr_details = read_pr_cache(organization, repo_filter, cache_ttl_seconds)
 
     if pr_details is None:
@@ -384,6 +392,8 @@ def breakfast(
             click.echo(click.style(msg, fg="yellow"), err=True)
         if not no_cache:
             write_pr_cache(organization, repo_filter, pr_details)
+            if refresh:
+                click.echo("🔄 Cache refreshed.", err=json_output)
     else:
         click.echo(f"Processing {repo_filter} PRs...⚡...Done", err=json_output)
     pr_details = filter_pr_details(

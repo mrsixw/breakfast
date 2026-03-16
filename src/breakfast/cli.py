@@ -6,6 +6,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import click
+import requests
 from tabulate import tabulate
 
 from .api import (
@@ -347,10 +348,8 @@ def breakfast(
     pr_data = []
 
     pr_details = None
-    served_from_cache = False
     if not no_cache:
         pr_details = read_pr_cache(organization, repo_filter, cache_ttl_seconds)
-        served_from_cache = pr_details is not None
 
     if pr_details is None:
         prs = get_github_prs(organization, repo_filter)
@@ -372,7 +371,7 @@ def breakfast(
                             nl=False,
                             err=json_output,
                         )
-                    except Exception:
+                    except requests.exceptions.RequestException:
                         failed_urls.append(url)
         click.echo("...Done", err=json_output)
         if failed_urls:
@@ -386,9 +385,7 @@ def breakfast(
         if not no_cache:
             write_pr_cache(organization, repo_filter, pr_details)
     else:
-        click.echo(
-            f"Processing {repo_filter} PRs...⚡...Done", err=json_output
-        )
+        click.echo(f"Processing {repo_filter} PRs...⚡...Done", err=json_output)
     pr_details = filter_pr_details(
         pr_details,
         ignore_author,
@@ -412,7 +409,7 @@ def breakfast(
         for pr_id, future in check_futures:
             try:
                 check_statuses[pr_id] = future.result()
-            except Exception:
+            except requests.exceptions.RequestException:
                 check_statuses[pr_id] = "none"
 
     if json_output:

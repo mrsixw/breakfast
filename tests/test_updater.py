@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError
 
 import requests
 
@@ -41,7 +42,7 @@ def test_check_for_update_no_latest(monkeypatch):
 
 def test_check_for_update_handles_errors(monkeypatch):
     def boom(_name):
-        raise Exception("boom")
+        raise PackageNotFoundError("breakfast")
 
     monkeypatch.setattr(updater, "pkg_version", boom)
     monkeypatch.setattr(updater, "get_latest_version", lambda: "1.0.0")

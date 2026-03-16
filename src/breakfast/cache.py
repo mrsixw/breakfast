@@ -76,7 +76,7 @@ def read_pr_cache(org: str, repo_filter: str, ttl: int) -> list | None:
         if age > ttl:
             return None
         return data["prs"]
-    except Exception as exc:
+    except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
         print(f"Warning: failed to read PR cache: {exc}", file=sys.stderr)
         return None
 
@@ -94,5 +94,5 @@ def write_pr_cache(org: str, repo_filter: str, pr_details: list) -> None:
             "prs": pr_details,
         }
         path.write_text(json.dumps(payload))
-    except Exception as exc:
+    except OSError as exc:
         print(f"Warning: failed to write PR cache: {exc}", file=sys.stderr)

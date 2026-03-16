@@ -1176,3 +1176,34 @@ def test_corrupt_cache_falls_back_to_live_fetch(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert len(api_called) == 1, "corrupt cache should fall back to live fetch"
     assert "PR number 1" in result.output
+
+
+def test_pr_results_grouped_by_repo(monkeypatch, tmp_path):
+    """PRs from multiple repos should appear grouped by repo name in the output."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+
+    def make_pr(number, repo):
+        pr = _make_pr_detail(number)
+        pr["base"]["repo"]["name"] = repo
+        pr["html_url"] = f"https://github.com/org/{repo}/pull/{number}"
+        return pr
+
+    # Store PRs in reverse-alphabetical order; sorting should fix this
+    prs = [
+        make_pr(3, "zebra-service"),
+        make_pr(1, "alpha-service"),
+        make_pr(2, "alpha-service"),
+    ]
+    cache.write_pr_cache("org", "svc", prs)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "svc"])
+
+    assert result.exit_code == 0
+    alpha_pos = result.output.index("alpha-service")
+    zebra_pos = result.output.index("zebra-service")
+    assert alpha_pos < zebra_pos, "repos should appear in alphabetical order"

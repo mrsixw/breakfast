@@ -392,6 +392,7 @@ def breakfast(
         mine_only=mine_only,
         current_user_login=current_user_login,
     )
+    pr_details.sort(key=lambda pr: pr["base"]["repo"]["name"])
     if limit is not None:
         pr_details = pr_details[:limit]
 

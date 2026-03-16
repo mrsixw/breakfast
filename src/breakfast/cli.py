@@ -3,7 +3,7 @@ import random
 import re
 import shutil
 import sys
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import click
 from tabulate import tabulate
@@ -356,27 +356,39 @@ def breakfast(
         prs = get_github_prs(organization, repo_filter)
         pr_details = []
         failed_urls = []
+        click.echo(f"Processing {repo_filter} PRs...", nl=False, err=json_output)
         if prs:
             max_workers = min(8, len(prs))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = [(url, executor.submit(_fetch_pr_detail, url)) for url in prs]
-            for url, future in futures:
-                try:
-                    pr_details.append(future.result())
-                except Exception:
-                    failed_urls.append(url)
+                future_to_url = {
+                    executor.submit(_fetch_pr_detail, url): url for url in prs
+                }
+                for future in as_completed(future_to_url):
+                    url = future_to_url[future]
+                    try:
+                        pr_details.append(future.result())
+                        click.echo(
+                            random.choices(BREAKFAST_ITEMS)[0],
+                            nl=False,
+                            err=json_output,
+                        )
+                    except Exception:
+                        failed_urls.append(url)
+        click.echo("...Done", err=json_output)
         if failed_urls:
             examples = ", ".join(failed_urls[:3])
             suffix = " ..." if len(failed_urls) > 3 else ""
             msg = (
-                f"\nWarning: {len(failed_urls)} PR(s) could not be fetched"
+                f"Warning: {len(failed_urls)} PR(s) could not be fetched"
                 f" after retries: {examples}{suffix}"
             )
             click.echo(click.style(msg, fg="yellow"), err=True)
         if not no_cache:
             write_pr_cache(organization, repo_filter, pr_details)
-
-    click.echo(f"Processing {repo_filter} PRs...", nl=False, err=json_output)
+    else:
+        click.echo(
+            f"Processing {repo_filter} PRs...⚡...Done", err=json_output
+        )
     pr_details = filter_pr_details(
         pr_details,
         ignore_author,
@@ -429,9 +441,6 @@ def breakfast(
             if checks:
                 entry["checks"] = check_statuses.get(pr_detail["id"], "none")
             json_data.append(entry)
-            if not served_from_cache:
-                click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
-        click.echo("⚡...Done" if served_from_cache else "...Done", err=True)
         click.echo(json.dumps(json_data, indent=2))
         if not no_update_check:
             update_msg = check_for_update()
@@ -470,9 +479,6 @@ def breakfast(
             f"PR-{pr_detail['number']}",
         )
         pr_data.append(row)
-        if not served_from_cache:
-            click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False)
-    click.echo("⚡...Done" if served_from_cache else "...Done")
 
     # Apply explicit title truncation, then auto-fit to terminal if interactive
     if max_title_length:

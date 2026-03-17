@@ -169,17 +169,58 @@ With `--json --checks`, a `"checks"` field is included in each PR object:
 }
 ```
 
+### `--approvals`
+
+Show review approval status for each PR. This is opt-in because it requires an additional API call per PR.
+
+```
+$ breakfast -o my-org -r platform --approvals
+Fetching my-org PRs...🥐...Done
+Processing platform PRs...🍩🧇...Done
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------------+--------+
+|         | Repo           | PR Title        | Author | State   | Files | Commits |    +/-     | Comments | Approved     | Mergeable?   | Link   |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------------+--------+
+|       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | ✅ approved  | ✅ (clean)   | PR-142 |
+|       1 | platform-api   | Fix login bug   | bob    | open    |   1   |    1    |  +5/-2     |    3     | ❌ changes   | ✅ (clean)   | PR-138 |
+|       2 | platform-ui    | Update nav bar  | carol  | open    |  12   |    4    |  +280/-95  |    1     | ⏳ pending   | ❌ (dirty)   | PR-87  |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------------+--------+
+```
+
+Approval values:
+- **✅ approved** (green) — at least one reviewer has approved and no changes are requested
+- **❌ changes** (red) — at least one reviewer has requested changes
+- **⏳ pending** (yellow) — no qualifying reviews yet
+
+The most recent review per reviewer is used, mirroring GitHub's own UI logic.
+
+Can also be set in the config file:
+
+```toml
+approvals = true
+```
+
+With `--json --approvals`, an `"approval"` field is included in each PR object:
+
+```json
+{
+  "repo": "platform-api",
+  "title": "Add user search",
+  "approval": "approved",
+  ...
+}
+```
+
 ### `--status-style`
 
-Choose how the `Checks` and `Mergeable?` columns are rendered in table output.
+Choose how the `Checks`, `Approved`, and `Mergeable?` columns are rendered in table output.
 
 ```bash
 breakfast -o my-org -r platform --checks --status-style ascii
 ```
 
 Supported values:
-- `emoji` - default whimsical output, such as `✅ pass` and `❌ (dirty)`
-- `ascii` - terminal-safe fallback, such as `pass` and `no (dirty)`
+- `emoji` - default whimsical output, such as `✅ pass`, `✅ approved`, and `❌ (dirty)`
+- `ascii` - terminal-safe fallback, such as `pass`, `approved`, and `no (dirty)`
 
 This is also available in config:
 
@@ -198,8 +239,10 @@ The table is compressed progressively, in order of least impact:
 3. **Author** name is trimmed
 4. **Mergeable?** reason is dropped (`"✅ (clean)"` → `"✅"`)
 5. **Checks** label is dropped (`"✅ pass"` → `"✅"`)
+5b. **Approved** label is dropped (`"✅ approved"` → `"✅"`)
 6. **Comments** header is shortened to `"Cmt"`
-7. Low-priority columns are dropped entirely: State, Commits, Files, +/-, Cmt, Age, Checks
+6b. **Approved** header is shortened to `"Apr"`
+7. Low-priority columns are dropped entirely: State, Commits, Files, +/-, Cmt, Age, Checks, Approved/Apr
 
 Auto-fit is a no-op when output is piped or redirected (not a TTY), so `--json` and scripting workflows are unaffected.
 

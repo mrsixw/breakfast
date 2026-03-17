@@ -551,6 +551,141 @@ def test_cli_json_excludes_checks_by_default(monkeypatch):
     assert "checks" not in data[0]
 
 
+def _make_pr_detail(number=1, owner="org", repo="repo", pr_id=1001):
+    return {
+        "base": {
+            "repo": {
+                "name": repo,
+                "owner": {"login": owner},
+            }
+        },
+        "head": {"sha": "abc123"},
+        "mergeable": True,
+        "mergeable_state": "clean",
+        "additions": 5,
+        "deletions": 2,
+        "title": "Test PR",
+        "user": {"login": "alice"},
+        "state": "open",
+        "changed_files": 1,
+        "commits": 1,
+        "review_comments": 0,
+        "created_at": "2026-01-10T00:00:00Z",
+        "updated_at": "2026-01-11T00:00:00Z",
+        "html_url": f"https://github.com/{owner}/{repo}/pull/{number}",
+        "number": number,
+        "id": pr_id,
+        "labels": [],
+        "requested_reviewers": [],
+        "draft": False,
+    }
+
+
+def test_cli_outputs_approvals_column(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    pr_detail = _make_pr_detail()
+
+    def fake_get_prs(_org, _repo_filter):
+        return ["https://github.com/org/repo/pull/1"]
+
+    def fake_api_request(path):
+        if "/reviews" in path:
+            return [{"user": {"login": "bob"}, "state": "APPROVED"}]
+        return pr_detail
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--approvals"])
+
+    assert result.exit_code == 0
+    assert "Approved" in result.output
+    assert "✅ approved" in result.output
+
+
+def test_cli_approvals_not_shown_by_default(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    pr_detail = _make_pr_detail()
+
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _path: pr_detail)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert "Approved" not in result.output
+
+
+def test_cli_json_includes_approval_when_enabled(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    pr_detail = _make_pr_detail()
+
+    def fake_api_request(path):
+        if "/reviews" in path:
+            return [{"user": {"login": "bob"}, "state": "CHANGES_REQUESTED"}]
+        return pr_detail
+
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--json", "--approvals"]
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.output[result.output.index("[") :])
+    assert data[0]["approval"] == "changes"
+
+
+def test_cli_json_excludes_approval_by_default(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    pr_detail = _make_pr_detail()
+
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _path: pr_detail)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.output[result.output.index("[") :])
+    assert "approval" not in data[0]
+
+
+def test_cli_approvals_config_file(tmp_path):
+    cfg_path = tmp_path / "breakfast.toml"
+    cfg_path.write_text(
+        'organization = "org"\nrepo-filter = "repo"\napprovals = true\n'
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--config", str(cfg_path), "--show-config"])
+
+    assert result.exit_code == 0
+    assert "approvals: True" in result.output
+
+
 def test_no_update_check_flag_skips_update(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])

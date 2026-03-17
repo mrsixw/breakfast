@@ -124,6 +124,37 @@ def get_authenticated_user_login():
     return login
 
 
+def get_approval_status(owner, repo, pr_number):
+    """Get the aggregate approval status for a PR.
+
+    Uses the most recent review per reviewer, mirroring GitHub's UI logic:
+    - ``approved``  — at least one APPROVED review, no CHANGES_REQUESTED
+    - ``changes``   — at least one reviewer has requested changes
+    - ``pending``   — no qualifying reviews yet
+    """
+    reviews = make_paginated_github_api_requst(
+        f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
+    )
+
+    if not reviews:
+        return "pending"
+
+    # Keep only the most recent qualifying review state per reviewer
+    latest_by_reviewer = {}
+    for review in reviews:
+        reviewer = review.get("user", {}).get("login")
+        state = review.get("state")
+        if reviewer and state in ("APPROVED", "CHANGES_REQUESTED"):
+            latest_by_reviewer[reviewer] = state
+
+    states = set(latest_by_reviewer.values())
+    if "CHANGES_REQUESTED" in states:
+        return "changes"
+    if "APPROVED" in states:
+        return "approved"
+    return "pending"
+
+
 def get_check_status(owner, repo, sha):
     # Check Runs API (GitHub Actions, newer CI integrations)
     cr_data = make_github_api_request(f"/repos/{owner}/{repo}/commits/{sha}/check-runs")

@@ -37,6 +37,26 @@ def test_format_check_status():
     assert "⚠️" not in result
 
 
+def test_format_approval_status_emoji():
+    assert "✅ approved" in ui.format_approval_status("approved")
+    assert "❌ changes" in ui.format_approval_status("changes")
+    assert "⏳ pending" in ui.format_approval_status("pending")
+
+
+def test_format_approval_status_ascii():
+    result = ui.format_approval_status("approved", style="ascii")
+    assert "approved" in result
+    assert "✅" not in result
+
+    result = ui.format_approval_status("changes", style="ascii")
+    assert "changes" in result
+    assert "❌" not in result
+
+    result = ui.format_approval_status("pending", style="ascii")
+    assert "pending" in result
+    assert "⏳" not in result
+
+
 def test_format_mergeable_status():
     assert ui.format_mergeable_status(True, "clean") == "✅ (clean)"
     assert ui.format_mergeable_status(False, "dirty") == "❌ (dirty)"

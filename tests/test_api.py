@@ -310,6 +310,126 @@ def test_get_check_status_commit_status_all_success(monkeypatch):
     assert api.get_check_status("org", "repo", "abc123") == "pass"
 
 
+def test_get_approval_status_approved(monkeypatch):
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+
+    reviews = [
+        {"user": {"login": "alice"}, "state": "APPROVED"},
+        {"user": {"login": "bob"}, "state": "COMMENTED"},
+    ]
+
+    def fake_get(url, headers):
+        class Resp:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return reviews
+
+        return Resp()
+
+    monkeypatch.setattr(api.requests, "get", fake_get)
+    assert api.get_approval_status("org", "repo", 1) == "approved"
+
+
+def test_get_approval_status_changes_requested(monkeypatch):
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+
+    reviews = [
+        {"user": {"login": "alice"}, "state": "APPROVED"},
+        {"user": {"login": "bob"}, "state": "CHANGES_REQUESTED"},
+    ]
+
+    def fake_get(url, headers):
+        class Resp:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return reviews
+
+        return Resp()
+
+    monkeypatch.setattr(api.requests, "get", fake_get)
+    assert api.get_approval_status("org", "repo", 1) == "changes"
+
+
+def test_get_approval_status_pending_no_reviews(monkeypatch):
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+
+    def fake_get(url, headers):
+        class Resp:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return []
+
+        return Resp()
+
+    monkeypatch.setattr(api.requests, "get", fake_get)
+    assert api.get_approval_status("org", "repo", 1) == "pending"
+
+
+def test_get_approval_status_latest_review_per_reviewer_wins(monkeypatch):
+    """If a reviewer approves then requests changes, changes_requested wins."""
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+
+    reviews = [
+        {"user": {"login": "alice"}, "state": "APPROVED"},
+        {"user": {"login": "alice"}, "state": "CHANGES_REQUESTED"},
+    ]
+
+    def fake_get(url, headers):
+        class Resp:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return reviews
+
+        return Resp()
+
+    monkeypatch.setattr(api.requests, "get", fake_get)
+    assert api.get_approval_status("org", "repo", 1) == "changes"
+
+
+def test_get_approval_status_pending_only_comments(monkeypatch):
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+
+    reviews = [
+        {"user": {"login": "alice"}, "state": "COMMENTED"},
+    ]
+
+    def fake_get(url, headers):
+        class Resp:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return reviews
+
+        return Resp()
+
+    monkeypatch.setattr(api.requests, "get", fake_get)
+    assert api.get_approval_status("org", "repo", 1) == "pending"
+
+
 def test_get_check_status_mixed_sources(monkeypatch):
     """Check runs pass but commit statuses fail — overall should be fail."""
 

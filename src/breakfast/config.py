@@ -70,6 +70,9 @@ def generate_default_config():
 # Always show CI/check status for each PR
 # checks = true
 
+# Always show review approval status for each PR
+# approvals = true
+
 # Render status cells using "emoji" (default) or "ascii"
 # status-style = "emoji"
 

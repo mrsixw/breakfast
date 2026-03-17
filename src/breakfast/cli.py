@@ -12,6 +12,7 @@ from tabulate import tabulate
 from .api import (
     SECRET_GITHUB_TOKEN,
     _fetch_pr_detail,
+    get_approval_status,
     get_authenticated_user_login,
     get_check_status,
     get_github_prs,
@@ -27,6 +28,7 @@ from .config import filter_pr_details, generate_default_config, load_config
 from .ui import (
     BREAKFAST_ITEMS,
     click_colour_grade_number,
+    format_approval_status,
     format_check_status,
     format_mergeable_status,
     generate_terminal_url_anchor,
@@ -34,7 +36,16 @@ from .ui import (
 from .updater import check_for_update
 
 # Columns dropped as last resort (least important first)
-_DROPPABLE_COLUMNS = ["State", "Commits", "Files", "+/-", "Cmt", "Age", "Checks"]
+_DROPPABLE_COLUMNS = [
+    "State",
+    "Commits",
+    "Files",
+    "+/-",
+    "Cmt",
+    "Age",
+    "Checks",
+    "Apr",
+]
 
 _ANSI_RE = re.compile(r"\x1b(?:\[[0-9;]*[mK]|\]8;;[^\x1b]*\x1b\\)")
 
@@ -131,10 +142,28 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     if fits():
         return pr_data
 
+    # 5b. Compress Approved: "✅ approved" → "✅", "⏳ pending" → "⏳"
+    if "Approved" in pr_data[0]:
+        pr_data = [
+            {**row, "Approved": _strip_ansi(row["Approved"]).split()[0]}
+            for row in pr_data
+        ]
+    if fits():
+        return pr_data
+
     # 6. Rename "Comments" → "Cmt" (shorter header)
     if "Comments" in pr_data[0]:
         pr_data = [
             {("Cmt" if k == "Comments" else k): v for k, v in row.items()}
+            for row in pr_data
+        ]
+    if fits():
+        return pr_data
+
+    # 6b. Rename "Approved" → "Apr" (shorter header)
+    if "Approved" in pr_data[0]:
+        pr_data = [
+            {("Apr" if k == "Approved" else k): v for k, v in row.items()}
             for row in pr_data
         ]
     if fits():
@@ -217,6 +246,11 @@ def get_pr_age_days(pr_detail, now=None):
     help="Include a checks column showing CI/check status for each PR.",
 )
 @click.option(
+    "--approvals/--no-approvals",
+    default=None,
+    help="Include an approvals column showing review approval status for each PR.",
+)
+@click.option(
     "--status-style",
     type=click.Choice(["emoji", "ascii"], case_sensitive=False),
     default=None,
@@ -284,6 +318,7 @@ def breakfast(
     age,
     json_output,
     checks,
+    approvals,
     status_style,
     limit,
     max_title_length,
@@ -313,6 +348,7 @@ def breakfast(
     if json_output is None:
         json_output = cfg.get("format") == "json"
     checks = checks if checks is not None else cfg.get("checks", False)
+    approvals = approvals if approvals is not None else cfg.get("approvals", False)
     if status_style is None:
         status_style = str(cfg.get("status-style", "emoji")).lower()
     max_title_length = (
@@ -342,6 +378,7 @@ def breakfast(
             "age": age,
             "json": json_output,
             "checks": checks,
+            "approvals": approvals,
             "status-style": status_style,
             "max-title-length": max_title_length,
             "cache-ttl": cache_ttl_seconds,
@@ -450,6 +487,25 @@ def breakfast(
             except requests.exceptions.RequestException:
                 check_statuses[pr_id] = "none"
 
+    approval_statuses = {}
+    if approvals and pr_details:
+        max_workers = min(8, len(pr_details))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            approval_futures = []
+            for pr_detail in pr_details:
+                owner = pr_detail["base"]["repo"]["owner"]["login"]
+                repo_name = pr_detail["base"]["repo"]["name"]
+                pr_number = pr_detail["number"]
+                future = executor.submit(
+                    get_approval_status, owner, repo_name, pr_number
+                )
+                approval_futures.append((pr_detail["id"], future))
+        for pr_id, future in approval_futures:
+            try:
+                approval_statuses[pr_id] = future.result()
+            except requests.exceptions.RequestException:
+                approval_statuses[pr_id] = "pending"
+
     if json_output:
         json_data = []
         for pr_detail in pr_details:
@@ -475,6 +531,8 @@ def breakfast(
             }
             if checks:
                 entry["checks"] = check_statuses.get(pr_detail["id"], "none")
+            if approvals:
+                entry["approval"] = approval_statuses.get(pr_detail["id"], "pending")
             json_data.append(entry)
         click.echo(json.dumps(json_data, indent=2))
         if not no_update_check:
@@ -502,6 +560,11 @@ def breakfast(
         if checks:
             row["Checks"] = format_check_status(
                 check_statuses.get(pr_detail["id"], "none"),
+                style=status_style,
+            )
+        if approvals:
+            row["Approved"] = format_approval_status(
+                approval_statuses.get(pr_detail["id"], "pending"),
                 style=status_style,
             )
         row["Mergeable?"] = format_mergeable_status(

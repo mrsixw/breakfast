@@ -374,39 +374,44 @@ $ breakfast --help
 Usage: breakfast [OPTIONS]
 
 Options:
-  --config TEXT                 Path to config file.
-  --show-config                 Print the resolved config and exit.
-  --init-config                 Generate a default config file and exit.
-  -o, --organization TEXT       One or multiple organizations to report on
-  -r, --repo-filter TEXT        Filter for specific repp(s)
-  --ignore-author TEXT          Ignore PRs raised by one or more authors
-                                (case-insensitive). Repeat for multiple
-                                authors, e.g. --ignore-author
-                                dependabot[bot].
-  --no-ignore-author            Clear config defaults for ignore-author.
-  --mine-only / --no-mine-only  Only include PRs authored by the currently
-                                authenticated GitHub user.
-  --age / --no-age              Include an age column showing PR age in days.
-  --json / --no-json            Output results as JSON instead of a table.
-                                Progress messages go to stderr.
-  --checks / --no-checks        Include a checks column showing CI/check
-                                status for each PR.
-  --status-style [emoji|ascii]  Render status cells with emoji (default) or
-                                ASCII labels.
-  --limit INTEGER               Cap the number of PRs shown. Unset means show
-                                all results.
-  --max-title-length INTEGER    Truncate PR titles to this many characters.
-                                Unset means no truncation.
-  --no-update-check             Disable the automatic update check.
-  --cache-ttl TEXT              How long to cache PR results (seconds, or
-                                suffix: 5m, 2h, 30s). Default: 300.
-  --no-cache                    Skip reading and writing the PR cache; always
-                                fetch fresh.
-  --refresh                     Ignore the cache for this run but write fresh
-                                results back to it.
-  --refresh-prs                 Re-fetch PR details using the cached repo list.
-                                Faster than --refresh when only PR state has
-                                changed.
-  --version                     Show the version and exit.
-  --help                        Show this message and exit.
+  --config TEXT                   Path to config file.
+  --show-config                   Print the resolved config and exit.
+  --init-config                   Generate a default config file and exit.
+  -o, --organization TEXT         One or multiple organizations to report on
+  -r, --repo-filter TEXT          Filter for specific repp(s)
+  --ignore-author TEXT            Ignore PRs raised by one or more authors
+                                  (case-insensitive). Repeat for multiple
+                                  authors, e.g. --ignore-author
+                                  dependabot[bot].
+  --no-ignore-author              Clear config defaults for ignore-author.
+  --mine-only / --no-mine-only    Only include PRs authored by the currently
+                                  authenticated GitHub user.
+  --age / --no-age                Include an age column showing PR age in days.
+  --json / --no-json              Output results as JSON instead of a table.
+                                  Progress messages go to stderr.
+  --checks / --no-checks          Include a checks column showing CI/check
+                                  status for each PR.
+  --approvals / --no-approvals    Include an approvals column showing review
+                                  approval status for each PR.
+  --status-style [emoji|ascii]    Render status cells with emoji (default) or
+                                  ASCII labels.
+  --limit INTEGER                 Cap the number of PRs shown. Unset means
+                                  show all results.
+  --max-title-length INTEGER      Truncate PR titles to this many characters.
+                                  Unset means no truncation.
+  --no-update-check               Disable the automatic update check.
+  --cache / --no-cache            Enable disk cache for PR results. Off by
+                                  default; use --cache or set cache = true in
+                                  config.
+  --cache-ttl TEXT                How long to cache PR results (seconds, or
+                                  suffix: 5m, 2h, 30s). Default: 300.
+  --refresh                       Ignore the cache for this run but write
+                                  fresh results back to it. Requires --cache
+                                  or cache = true in config.
+  --refresh-prs                   Re-fetch PR details using the cached repo
+                                  list. Faster than --refresh when only PR
+                                  state has changed. Requires --cache or
+                                  cache = true in config.
+  --version                       Show the version and exit.
+  --help                          Show this message and exit.
 ```

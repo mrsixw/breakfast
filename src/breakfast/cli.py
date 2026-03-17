@@ -459,7 +459,6 @@ def breakfast(
         if cache_enabled and not refresh:
             prs = read_graphql_cache(organization, repo_filter, cache_ttl_seconds)
 
-        graphql_cache_hit = prs is not None
         if prs is None:
             prs = get_github_prs(organization, repo_filter)
             if cache_enabled:
@@ -467,10 +466,7 @@ def breakfast(
 
         pr_details = []
         failed_urls = []
-        prefix = "⚡" if (refresh_prs and graphql_cache_hit) else ""
-        click.echo(
-            f"Processing {repo_filter} PRs...{prefix}", nl=False, err=json_output
-        )
+        click.echo(f"Processing {repo_filter} PRs...", nl=False, err=json_output)
         if prs:
             max_workers = min(8, len(prs))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:

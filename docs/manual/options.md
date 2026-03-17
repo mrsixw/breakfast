@@ -238,6 +238,7 @@ The table is compressed progressively, in order of least impact:
 2. **Repo** name is trimmed
 3. **Author** name is trimmed
 4. **Mergeable?** reason is dropped (`"✅ (clean)"` → `"✅"`)
+4b. **Mergeable?** header is shortened to `"Mrg"`
 5. **Checks** label is dropped (`"✅ pass"` → `"✅"`)
 5b. **Approved** label is dropped (`"✅ approved"` → `"✅"`)
 6. **Comments** header is shortened to `"Cmt"`

@@ -1074,6 +1074,16 @@ def test_auto_fit_compresses_mergeable_before_dropping(monkeypatch):
     assert "(clean)" not in result.output
 
 
+def test_auto_fit_renames_mergeable_to_mrg(monkeypatch):
+    rows = [{"Mergeable?": "✅", "PR Title": "x", "Repo": "r", "Author": "a"}]
+    # Set terminal width just narrow enough to trigger step 4b but not step 5+
+    width = cli._table_width(rows) - 1
+    result = cli._auto_fit(rows, width, explicit_max_title_length=None)
+    keys = list(result[0].keys())
+    assert "Mrg" in keys
+    assert "Mergeable?" not in keys
+
+
 def test_auto_fit_drops_columns_when_very_narrow(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])

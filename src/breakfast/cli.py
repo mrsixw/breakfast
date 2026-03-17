@@ -134,6 +134,15 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     if fits():
         return pr_data
 
+    # 4b. Rename "Mergeable?" → "Mrg" (shorter header)
+    if "Mergeable?" in pr_data[0]:
+        pr_data = [
+            {("Mrg" if k == "Mergeable?" else k): v for k, v in row.items()}
+            for row in pr_data
+        ]
+    if fits():
+        return pr_data
+
     # 5. Compress Checks: "✅ pass" → "✅", "pending" → "pending"
     if "Checks" in pr_data[0]:
         pr_data = [

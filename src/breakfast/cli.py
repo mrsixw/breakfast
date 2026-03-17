@@ -463,6 +463,8 @@ def breakfast(
             prs = get_github_prs(organization, repo_filter)
             if cache_enabled:
                 write_graphql_cache(organization, repo_filter, prs)
+        else:
+            click.echo(f"Fetching {organization} PRs...⚡...Done", err=json_output)
 
         pr_details = []
         failed_urls = []

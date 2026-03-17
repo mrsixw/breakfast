@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 from pathlib import Path
 
@@ -34,7 +35,7 @@ def _read_version_cache():
         if age > _CACHE_TTL_SECONDS:
             return None
         return data.get("latest_version")
-    except Exception:
+    except (OSError, json.JSONDecodeError, KeyError, ValueError):
         return None
 
 
@@ -50,7 +51,7 @@ def _write_version_cache(latest_version):
                 }
             )
         )
-    except Exception:
+    except OSError:
         pass
 
 
@@ -72,7 +73,7 @@ def get_latest_version():
         latest = tag.lstrip("v")
         _write_version_cache(latest)
         return latest
-    except Exception:
+    except requests.exceptions.RequestException:
         return None
 
 
@@ -96,5 +97,5 @@ def check_for_update():
                 f"— update at https://github.com/{_UPDATE_CHECK_REPO}/releases/latest"
             )
         return None
-    except Exception:
+    except PackageNotFoundError:
         return None

@@ -3,22 +3,32 @@ import random
 import re
 import shutil
 import sys
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import click
+import requests
 from tabulate import tabulate
 
 from .api import (
     SECRET_GITHUB_TOKEN,
     _fetch_pr_detail,
+    get_approval_status,
     get_authenticated_user_login,
     get_check_status,
     get_github_prs,
+)
+from .cache import (
+    parse_ttl,
+    read_graphql_cache,
+    read_pr_cache,
+    write_graphql_cache,
+    write_pr_cache,
 )
 from .config import filter_pr_details, generate_default_config, load_config
 from .ui import (
     BREAKFAST_ITEMS,
     click_colour_grade_number,
+    format_approval_status,
     format_check_status,
     format_mergeable_status,
     generate_terminal_url_anchor,
@@ -26,7 +36,16 @@ from .ui import (
 from .updater import check_for_update
 
 # Columns dropped as last resort (least important first)
-_DROPPABLE_COLUMNS = ["State", "Commits", "Files", "+/-", "Cmt", "Age", "Checks"]
+_DROPPABLE_COLUMNS = [
+    "State",
+    "Commits",
+    "Files",
+    "+/-",
+    "Cmt",
+    "Age",
+    "Checks",
+    "Apr",
+]
 
 _ANSI_RE = re.compile(r"\x1b(?:\[[0-9;]*[mK]|\]8;;[^\x1b]*\x1b\\)")
 
@@ -115,6 +134,15 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     if fits():
         return pr_data
 
+    # 4b. Rename "Mergeable?" → "Mrg" (shorter header)
+    if "Mergeable?" in pr_data[0]:
+        pr_data = [
+            {("Mrg" if k == "Mergeable?" else k): v for k, v in row.items()}
+            for row in pr_data
+        ]
+    if fits():
+        return pr_data
+
     # 5. Compress Checks: "✅ pass" → "✅", "pending" → "pending"
     if "Checks" in pr_data[0]:
         pr_data = [
@@ -123,10 +151,28 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     if fits():
         return pr_data
 
+    # 5b. Compress Approved: "✅ approved" → "✅", "⏳ pending" → "⏳"
+    if "Approved" in pr_data[0]:
+        pr_data = [
+            {**row, "Approved": _strip_ansi(row["Approved"]).split()[0]}
+            for row in pr_data
+        ]
+    if fits():
+        return pr_data
+
     # 6. Rename "Comments" → "Cmt" (shorter header)
     if "Comments" in pr_data[0]:
         pr_data = [
             {("Cmt" if k == "Comments" else k): v for k, v in row.items()}
+            for row in pr_data
+        ]
+    if fits():
+        return pr_data
+
+    # 6b. Rename "Approved" → "Apr" (shorter header)
+    if "Approved" in pr_data[0]:
+        pr_data = [
+            {("Apr" if k == "Approved" else k): v for k, v in row.items()}
             for row in pr_data
         ]
     if fits():
@@ -209,6 +255,11 @@ def get_pr_age_days(pr_detail, now=None):
     help="Include a checks column showing CI/check status for each PR.",
 )
 @click.option(
+    "--approvals/--no-approvals",
+    default=None,
+    help="Include an approvals column showing review approval status for each PR.",
+)
+@click.option(
     "--status-style",
     type=click.Choice(["emoji", "ascii"], case_sensitive=False),
     default=None,
@@ -233,6 +284,42 @@ def get_pr_age_days(pr_detail, now=None):
     envvar="BREAKFAST_NO_UPDATE_CHECK",
     help="Disable the automatic update check.",
 )
+@click.option(
+    "--cache-ttl",
+    type=str,
+    default=None,
+    help=(
+        "How long to cache PR results (seconds, or suffix: 5m, 2h, 30s)."
+        " Default: 300."
+    ),
+)
+@click.option(
+    "--cache/--no-cache",
+    default=None,
+    help=(
+        "Enable disk cache for PR results."
+        " Off by default; use --cache or set cache = true in config."
+    ),
+)
+@click.option(
+    "--refresh",
+    is_flag=True,
+    default=False,
+    help=(
+        "Ignore the cache for this run but write fresh results back to it."
+        " Requires --cache or cache = true in config."
+    ),
+)
+@click.option(
+    "--refresh-prs",
+    is_flag=True,
+    default=False,
+    help=(
+        "Re-fetch PR details using the cached repo list."
+        " Faster than --refresh when only PR state has changed."
+        " Requires --cache or cache = true in config."
+    ),
+)
 @click.version_option(package_name="breakfast")
 def breakfast(
     config,
@@ -246,10 +333,15 @@ def breakfast(
     age,
     json_output,
     checks,
+    approvals,
     status_style,
     limit,
     max_title_length,
     no_update_check,
+    cache_ttl,
+    cache,
+    refresh,
+    refresh_prs,
 ):
     if init_config:
         generate_default_config()
@@ -271,6 +363,7 @@ def breakfast(
     if json_output is None:
         json_output = cfg.get("format") == "json"
     checks = checks if checks is not None else cfg.get("checks", False)
+    approvals = approvals if approvals is not None else cfg.get("approvals", False)
     if status_style is None:
         status_style = str(cfg.get("status-style", "emoji")).lower()
     max_title_length = (
@@ -280,6 +373,39 @@ def breakfast(
     )
     if status_style not in {"emoji", "ascii"}:
         status_style = "emoji"
+
+    # Cache is opt-in: CLI flag > config > default off.
+    cache_enabled = cache if cache is not None else cfg.get("cache", False)
+
+    if refresh and not cache_enabled:
+        click.echo(
+            click.style(
+                "Error: --refresh requires the cache to be enabled."
+                " Pass --cache or set cache = true in config.",
+                fg="red",
+                bold=True,
+            )
+        )
+        sys.exit(1)
+    if refresh_prs and not cache_enabled:
+        click.echo(
+            click.style(
+                "Error: --refresh-prs requires the cache to be enabled."
+                " Pass --cache or set cache = true in config.",
+                fg="red",
+                bold=True,
+            )
+        )
+        sys.exit(1)
+
+    # Resolve effective cache TTL: CLI > config > default 300
+    raw_ttl = cache_ttl if cache_ttl is not None else cfg.get("cache-ttl", 300)
+    try:
+        cache_ttl_seconds = parse_ttl(raw_ttl)
+    except ValueError as exc:
+        msg = f"Error: invalid --cache-ttl value: {exc}"
+        click.echo(click.style(msg, fg="red", bold=True))
+        sys.exit(1)
 
     if show_config:
         click.echo("Resolved config:")
@@ -291,8 +417,13 @@ def breakfast(
             "age": age,
             "json": json_output,
             "checks": checks,
+            "approvals": approvals,
             "status-style": status_style,
             "max-title-length": max_title_length,
+            "cache": cache_enabled,
+            "cache-ttl": cache_ttl_seconds,
+            "refresh": refresh,
+            "refresh-prs": refresh_prs,
         }
         for k, v in resolved.items():
             click.echo(f"  {k}: {v}")
@@ -315,35 +446,68 @@ def breakfast(
         current_user_login = get_authenticated_user_login()
 
     # grab all the pull requests we are interested in
-    prs = get_github_prs(organization, repo_filter)
-
     pr_data = []
-    click.echo(f"Processing {repo_filter} PRs...", nl=False, err=json_output)
-    pr_details = []
-    failed_urls = []
-    if prs:
-        max_workers = min(8, len(prs))
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [(url, executor.submit(_fetch_pr_detail, url)) for url in prs]
-        for url, future in futures:
-            try:
-                pr_details.append(future.result())
-            except Exception:
-                failed_urls.append(url)
-    if failed_urls:
-        examples = ", ".join(failed_urls[:3])
-        suffix = " ..." if len(failed_urls) > 3 else ""
-        msg = (
-            f"\nWarning: {len(failed_urls)} PR(s) could not be fetched"
-            f" after retries: {examples}{suffix}"
-        )
-        click.echo(click.style(msg, fg="yellow"), err=True)
+
+    # --- Layer 1: full PR detail cache (skip on --refresh or --refresh-prs) ---
+    pr_details = None
+    if cache_enabled and not refresh and not refresh_prs:
+        pr_details = read_pr_cache(organization, repo_filter, cache_ttl_seconds)
+
+    if pr_details is None:
+        # --- Layer 2: GraphQL URL list cache (skip only on --refresh) ---
+        prs = None
+        if cache_enabled and not refresh:
+            prs = read_graphql_cache(organization, repo_filter, cache_ttl_seconds)
+
+        if prs is None:
+            prs = get_github_prs(organization, repo_filter)
+            if cache_enabled:
+                write_graphql_cache(organization, repo_filter, prs)
+        else:
+            click.echo(f"Fetching {organization} PRs...⚡...Done", err=json_output)
+
+        pr_details = []
+        failed_urls = []
+        click.echo(f"Processing {repo_filter} PRs...", nl=False, err=json_output)
+        if prs:
+            max_workers = min(8, len(prs))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_url = {
+                    executor.submit(_fetch_pr_detail, url): url for url in prs
+                }
+                for future in as_completed(future_to_url):
+                    url = future_to_url[future]
+                    try:
+                        pr_details.append(future.result())
+                        click.echo(
+                            random.choices(BREAKFAST_ITEMS)[0],
+                            nl=False,
+                            err=json_output,
+                        )
+                    except requests.exceptions.RequestException:
+                        failed_urls.append(url)
+        click.echo("...Done", err=json_output)
+        if failed_urls:
+            examples = ", ".join(failed_urls[:3])
+            suffix = " ..." if len(failed_urls) > 3 else ""
+            msg = (
+                f"Warning: {len(failed_urls)} PR(s) could not be fetched"
+                f" after retries: {examples}{suffix}"
+            )
+            click.echo(click.style(msg, fg="yellow"), err=True)
+        if cache_enabled:
+            write_pr_cache(organization, repo_filter, pr_details)
+            if refresh or refresh_prs:
+                click.echo("🔄 Cache refreshed.", err=json_output)
+    else:
+        click.echo(f"Processing {repo_filter} PRs...⚡...Done", err=json_output)
     pr_details = filter_pr_details(
         pr_details,
         ignore_author,
         mine_only=mine_only,
         current_user_login=current_user_login,
     )
+    pr_details.sort(key=lambda pr: pr["base"]["repo"]["name"])
     if limit is not None:
         pr_details = pr_details[:limit]
 
@@ -361,8 +525,27 @@ def breakfast(
         for pr_id, future in check_futures:
             try:
                 check_statuses[pr_id] = future.result()
-            except Exception:
+            except requests.exceptions.RequestException:
                 check_statuses[pr_id] = "none"
+
+    approval_statuses = {}
+    if approvals and pr_details:
+        max_workers = min(8, len(pr_details))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            approval_futures = []
+            for pr_detail in pr_details:
+                owner = pr_detail["base"]["repo"]["owner"]["login"]
+                repo_name = pr_detail["base"]["repo"]["name"]
+                pr_number = pr_detail["number"]
+                future = executor.submit(
+                    get_approval_status, owner, repo_name, pr_number
+                )
+                approval_futures.append((pr_detail["id"], future))
+        for pr_id, future in approval_futures:
+            try:
+                approval_statuses[pr_id] = future.result()
+            except requests.exceptions.RequestException:
+                approval_statuses[pr_id] = "pending"
 
     if json_output:
         json_data = []
@@ -389,9 +572,9 @@ def breakfast(
             }
             if checks:
                 entry["checks"] = check_statuses.get(pr_detail["id"], "none")
+            if approvals:
+                entry["approval"] = approval_statuses.get(pr_detail["id"], "pending")
             json_data.append(entry)
-            click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
-        click.echo("...Done", err=True)
         click.echo(json.dumps(json_data, indent=2))
         if not no_update_check:
             update_msg = check_for_update()
@@ -420,6 +603,11 @@ def breakfast(
                 check_statuses.get(pr_detail["id"], "none"),
                 style=status_style,
             )
+        if approvals:
+            row["Approved"] = format_approval_status(
+                approval_statuses.get(pr_detail["id"], "pending"),
+                style=status_style,
+            )
         row["Mergeable?"] = format_mergeable_status(
             pr_detail["mergeable"],
             pr_detail["mergeable_state"],
@@ -430,8 +618,6 @@ def breakfast(
             f"PR-{pr_detail['number']}",
         )
         pr_data.append(row)
-        click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False)
-    click.echo("...Done")
 
     # Apply explicit title truncation, then auto-fit to terminal if interactive
     if max_title_length:

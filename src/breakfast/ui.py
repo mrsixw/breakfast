@@ -79,6 +79,33 @@ def format_check_status(status, style="emoji"):
     return click.style(text, fg=colour, bold=True)
 
 
+def format_approval_status(status, style="emoji"):
+    """Return a colour-coded approval status label for table output.
+
+    Args:
+        status: Canonical approval status — ``approved``, ``changes``, or ``pending``.
+        style: Rendering style, either ``emoji`` or ``ascii``.
+
+    Returns:
+        A styled label in the requested style.
+    """
+    styles = {
+        "emoji": {
+            "approved": ("green", "✅ approved"),
+            "changes": ("red", "❌ changes"),
+            "pending": ("yellow", "⏳ pending"),
+        },
+        "ascii": {
+            "approved": ("green", "approved"),
+            "changes": ("red", "changes"),
+            "pending": ("yellow", "pending"),
+        },
+    }
+    style_map = styles.get(style, styles["emoji"])
+    colour, text = style_map.get(status, ("white", status))
+    return click.style(text, fg=colour, bold=True)
+
+
 def format_mergeable_status(is_mergeable, mergeable_state, style="emoji"):
     """Return a mergeability label for table output.
 

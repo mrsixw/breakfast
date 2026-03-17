@@ -36,11 +36,14 @@
 ## Testing
 - Tests use `pytest` with `monkeypatch` for mocking and `click.testing.CliRunner` for CLI tests.
 - Run `make test` before committing.
+- **Testing with Cache:** Since caching is implemented, all manual testing must be performed both *with* the cache enabled and *without* the cache (e.g., clearing the cache or disabling it).
+- **Real App Testing:** Always perform a real, end-to-end test of the CLI application in the terminal, not just unit tests.
 
 ## Work Items
 - This project uses GitHub issues (not Jira). Reference the GitHub issue number in branch names and PR titles.
 - Branch names should include the issue number and a short description (e.g., `issue-26_filter_pr_authors`).
 - **A GitHub issue MUST exist before any work begins.** If the user requests a change and no issue exists yet, create one (or ask the user to create one) before starting implementation. Every branch, commit, and PR must reference an issue number.
+- **Always use git worktrees.** Each issue gets its own worktree so branches stay fully isolated — especially important when multiple agents work in parallel. Create one with `git worktree add ../breakfast-issue-N issue-N_short_description`. Never do feature work directly in the main checkout.
 
 ## Commit Messages
 - Use Conventional Commits (e.g., `feat: ...`, `fix: ...`, `chore: ...`, `docs: ...`, `refactor: ...`, `test: ...`, `ci: ...`).
@@ -49,7 +52,7 @@
 ## Pull Requests
 - Include the issue number in PR titles (e.g., `#7: Split test deps and migrate to uv`).
 - Always include `Closes #N` in the PR body so the issue is automatically closed when the PR is merged.
-- Ensure CI is green before requesting review or merging PRs.
+- **After pushing to a branch with an open PR, wait for all CI checks to complete.** Use `gh pr checks` to monitor status. If any check fails, investigate and fix the root cause before proceeding — do not ignore failures or re-push without understanding them.
 
 ## mkver Usage
 - `git mkver patch` mutates the version file; avoid running it as part of routine local builds on feature branches.
@@ -66,6 +69,7 @@
 - Use `ruff` (lint + import sorting) and `black` (formatting).
 - Prefer running checks via CI and pre-commit hooks where possible.
 - Before committing and pushing changes, run `make test`, `make lint`, and `make format` locally.
+- **Never use bare `except Exception`.** Always catch the most specific exception type(s) possible (e.g. `requests.exceptions.RequestException`, `OSError`, `json.JSONDecodeError`, `KeyError`, `ValueError`, `PackageNotFoundError`). Bare `except Exception` hides bugs and swallows unexpected errors silently.
 
 ## Tone and Personality
 - This project is playful and fun. Embrace whimsy — emoji, breakfast theming, and a lighthearted tone are encouraged.

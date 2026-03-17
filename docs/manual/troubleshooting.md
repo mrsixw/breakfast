@@ -27,11 +27,13 @@ breakfast automatically retries REST API requests on transient server errors wit
 
 ## Slow performance
 
-PR details are fetched in parallel (up to 8 concurrent requests). If output is slow:
+PR details are fetched in parallel (up to 8 concurrent requests), and results are cached to disk for 5 minutes by default. If output is slow on the first run:
 
 - Use `--repo-filter` to narrow down the repos queried
 - Use `--ignore-author` to reduce the number of PRs processed
 - Large organizations with many repos will take longer on the initial GraphQL query
+
+Subsequent runs within the TTL window will be near-instant (served from the local cache). To force a fresh fetch, use `--no-cache`. To tune the cache window, use `--cache-ttl` (e.g. `--cache-ttl 10m`).
 
 ## Terminal hyperlinks not working
 

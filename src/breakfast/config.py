@@ -70,6 +70,9 @@ def generate_default_config():
 # Always show CI/check status for each PR
 # checks = true
 
+# Always show review approval status for each PR
+# approvals = true
+
 # Render status cells using "emoji" (default) or "ascii"
 # status-style = "emoji"
 
@@ -78,6 +81,12 @@ def generate_default_config():
 
 # Truncate PR titles to this many characters (unset = no truncation)
 # max-title-length = 72
+
+# Enable disk cache for PR results (off by default)
+# cache = true
+
+# How long to cache PR results (seconds, or use suffix: 5m, 2h)
+# cache-ttl = 300
 """
     config_path.write_text(default_content)
     click.echo(click.style(f"Created default config at {config_path}", fg="green"))

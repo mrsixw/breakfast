@@ -298,7 +298,7 @@ def get_pr_age_days(pr_detail, now=None):
     default=False,
     help=(
         "Ignore the cache for this run but write fresh results back to it."
-        " Implies --cache."
+        " Requires --cache or cache = true in config."
     ),
 )
 @click.option(
@@ -307,7 +307,8 @@ def get_pr_age_days(pr_detail, now=None):
     default=False,
     help=(
         "Re-fetch PR details using the cached repo list."
-        " Faster than --refresh when only PR state has changed. Implies --cache."
+        " Faster than --refresh when only PR state has changed."
+        " Requires --cache or cache = true in config."
     ),
 )
 @click.version_option(package_name="breakfast")
@@ -365,12 +366,28 @@ def breakfast(
         status_style = "emoji"
 
     # Cache is opt-in: CLI flag > config > default off.
-    # --refresh and --refresh-prs imply --cache.
-    cache_enabled = (
-        (cache if cache is not None else cfg.get("cache", False))
-        or refresh
-        or refresh_prs
-    )
+    cache_enabled = cache if cache is not None else cfg.get("cache", False)
+
+    if refresh and not cache_enabled:
+        click.echo(
+            click.style(
+                "Error: --refresh requires the cache to be enabled."
+                " Pass --cache or set cache = true in config.",
+                fg="red",
+                bold=True,
+            )
+        )
+        sys.exit(1)
+    if refresh_prs and not cache_enabled:
+        click.echo(
+            click.style(
+                "Error: --refresh-prs requires the cache to be enabled."
+                " Pass --cache or set cache = true in config.",
+                fg="red",
+                bold=True,
+            )
+        )
+        sys.exit(1)
 
     # Resolve effective cache TTL: CLI > config > default 300
     raw_ttl = cache_ttl if cache_ttl is not None else cfg.get("cache-ttl", 300)

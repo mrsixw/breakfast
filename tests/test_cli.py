@@ -1346,6 +1346,28 @@ def test_pr_results_grouped_by_repo(monkeypatch, tmp_path):
     assert alpha_pos < zebra_pos, "repos should appear in alphabetical order"
 
 
+def test_refresh_without_cache_exits_with_error(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh"])
+
+    assert result.exit_code == 1
+    assert "requires the cache to be enabled" in result.output
+    assert "--cache" in result.output
+
+
+def test_refresh_prs_without_cache_exits_with_error(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh-prs"])
+
+    assert result.exit_code == 1
+    assert "requires the cache to be enabled" in result.output
+    assert "--cache" in result.output
+
+
 def test_refresh_ignores_cache_and_writes_fresh(monkeypatch, tmp_path):
     """--refresh bypasses the cache read but still writes fresh data back."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
@@ -1368,7 +1390,9 @@ def test_refresh_ignores_cache_and_writes_fresh(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_detail(1))
 
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh"])
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--cache", "--refresh"]
+    )
 
     assert result.exit_code == 0
     assert len(api_called) == 1, "--refresh should always fetch fresh"
@@ -1396,7 +1420,9 @@ def test_refresh_does_not_use_cached_data(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_detail(1))
 
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh"])
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--cache", "--refresh"]
+    )
 
     assert result.exit_code == 0
     assert "PR number 99" not in result.output, "stale cached PR should not appear"
@@ -1427,7 +1453,9 @@ def test_refresh_prs_uses_graphql_cache_skips_pr_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_detail(1))
 
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh-prs"])
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--cache", "--refresh-prs"]
+    )
 
     assert result.exit_code == 0
     assert len(graphql_called) == 0, "--refresh-prs should use cached GraphQL result"
@@ -1453,7 +1481,9 @@ def test_refresh_prs_writes_fresh_pr_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_detail(1))
 
     runner = CliRunner()
-    runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh-prs"])
+    runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--cache", "--refresh-prs"]
+    )
 
     cached = cache.read_pr_cache("org", "repo", 300)
     assert cached is not None, "--refresh-prs should write fresh data to PR cache"

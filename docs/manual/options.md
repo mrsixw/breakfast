@@ -316,18 +316,18 @@ cache-ttl = "5m"
 
 ### `--refresh`
 
-Fetch fresh data and write it to the cache, ignoring whatever is already cached. Implies `--cache`. Subsequent runs within the TTL will be served from the freshly updated cache.
+Fetch fresh data and write it to the cache, ignoring whatever is already cached. Requires `--cache` (or `cache = true` in config) — exits with an error if the cache is not enabled. Subsequent runs within the TTL will be served from the freshly updated cache.
 
 ```bash
-breakfast -o my-org -r my-app --refresh
+breakfast -o my-org -r my-app --cache --refresh
 ```
 
 ### `--refresh-prs`
 
-Re-fetch PR details (comments, CI status, merge state) using the cached repo list, then write the fresh results back to the cache. Implies `--cache`. Faster than `--refresh` when you know the set of open PRs hasn't changed.
+Re-fetch PR details (comments, CI status, merge state) using the cached repo list, then write the fresh results back to the cache. Requires `--cache` (or `cache = true` in config) — exits with an error if the cache is not enabled. Faster than `--refresh` when you know the set of open PRs hasn't changed.
 
 ```bash
-breakfast -o my-org -r my-app --refresh-prs
+breakfast -o my-org -r my-app --cache --refresh-prs
 ```
 
 | Flag | Cache active? | GraphQL cache | PR detail cache |
@@ -336,8 +336,6 @@ breakfast -o my-org -r my-app --refresh-prs
 | `--cache` | yes | read | read |
 | `--cache --refresh-prs` | yes | read | skip, write fresh |
 | `--cache --refresh` | yes | skip, write fresh | skip, write fresh |
-| `--refresh-prs` | yes (implied) | read | skip, write fresh |
-| `--refresh` | yes (implied) | skip, write fresh | skip, write fresh |
 | `--no-cache` | no (override) | skip | skip |
 
 ## Update notifications

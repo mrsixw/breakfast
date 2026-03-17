@@ -27,19 +27,43 @@ breakfast -o my-org -r my-app --ignore-author dependabot[bot] --ignore-author re
 breakfast -o my-org -r my-app --mine-only
 breakfast -o my-org -r my-app --age
 breakfast -o my-org -r my-app --checks
+breakfast -o my-org -r my-app --approvals
 breakfast -o my-org -r my-app --checks --status-style ascii
 breakfast -o my-org -r my-app --json
+breakfast -o my-org -r my-app --cache
+breakfast -o my-org -r my-app --cache --refresh
+breakfast -o my-org -r my-app --cache --refresh-prs
 ```
 
 ## Options
+
+### Display
 - `--organization`, `-o`: Organization to query for PRs.
 - `--repo-filter`, `-r`: Filter repos by name substring.
-- `--ignore-author`: Exclude PRs by author (case-insensitive, repeatable).
-- `--mine-only`: Show only your own PRs.
 - `--age`: Add an age column (days since creation).
-- `--checks`: Add a checks column showing CI status (pass/fail/pending/none).
-- `--status-style`: Render status cells with emoji (default) or ASCII labels.
+- `--checks`: Add a checks column showing CI status (✅ pass / ❌ fail / ⚠️ pending).
+- `--approvals`: Add an approvals column showing review status (✅ approved / ❌ changes / ⏳ pending).
+- `--status-style`: Render status cells with `emoji` (default) or `ascii` labels.
 - `--json`: Output as JSON instead of a table.
+- `--limit`: Cap the number of PRs shown.
+- `--max-title-length`: Truncate PR titles to this many characters.
+
+### Filtering
+- `--ignore-author`: Exclude PRs by author (case-insensitive, repeatable).
+- `--no-ignore-author`: Clear `ignore-author` config defaults for this run.
+- `--mine-only`: Show only your own PRs.
+
+### Caching
+- `--cache` / `--no-cache`: Enable disk cache (off by default). Set `cache = true` in config to make it permanent.
+- `--cache-ttl`: How long to cache results (`300`, `5m`, `2h` etc). Default: 300s.
+- `--refresh`: Bypass cache read, fetch fresh, write back. Requires `--cache`.
+- `--refresh-prs`: Re-fetch PR details using cached repo list. Requires `--cache`.
+
+### Other
+- `--config`: Path to a config file.
+- `--show-config`: Print resolved config and exit.
+- `--init-config`: Generate a default config file.
+- `--no-update-check`: Disable the automatic update check.
 - `--version`: Show version.
 
 ## Documentation

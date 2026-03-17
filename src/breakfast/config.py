@@ -82,6 +82,9 @@ def generate_default_config():
 # Truncate PR titles to this many characters (unset = no truncation)
 # max-title-length = 72
 
+# Enable disk cache for PR results (off by default)
+# cache = true
+
 # How long to cache PR results (seconds, or use suffix: 5m, 2h)
 # cache-ttl = 300
 """

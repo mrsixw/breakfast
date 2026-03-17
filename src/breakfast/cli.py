@@ -285,16 +285,21 @@ def get_pr_age_days(pr_detail, now=None):
     ),
 )
 @click.option(
-    "--no-cache",
-    is_flag=True,
-    default=False,
-    help="Skip reading and writing the PR cache; always fetch fresh.",
+    "--cache/--no-cache",
+    default=None,
+    help=(
+        "Enable disk cache for PR results."
+        " Off by default; use --cache or set cache = true in config."
+    ),
 )
 @click.option(
     "--refresh",
     is_flag=True,
     default=False,
-    help="Ignore the cache for this run but write fresh results back to it.",
+    help=(
+        "Ignore the cache for this run but write fresh results back to it."
+        " Implies --cache."
+    ),
 )
 @click.option(
     "--refresh-prs",
@@ -302,7 +307,7 @@ def get_pr_age_days(pr_detail, now=None):
     default=False,
     help=(
         "Re-fetch PR details using the cached repo list."
-        " Faster than --refresh when only PR state has changed."
+        " Faster than --refresh when only PR state has changed. Implies --cache."
     ),
 )
 @click.version_option(package_name="breakfast")
@@ -324,7 +329,7 @@ def breakfast(
     max_title_length,
     no_update_check,
     cache_ttl,
-    no_cache,
+    cache,
     refresh,
     refresh_prs,
 ):
@@ -359,6 +364,14 @@ def breakfast(
     if status_style not in {"emoji", "ascii"}:
         status_style = "emoji"
 
+    # Cache is opt-in: CLI flag > config > default off.
+    # --refresh and --refresh-prs imply --cache.
+    cache_enabled = (
+        (cache if cache is not None else cfg.get("cache", False))
+        or refresh
+        or refresh_prs
+    )
+
     # Resolve effective cache TTL: CLI > config > default 300
     raw_ttl = cache_ttl if cache_ttl is not None else cfg.get("cache-ttl", 300)
     try:
@@ -381,8 +394,8 @@ def breakfast(
             "approvals": approvals,
             "status-style": status_style,
             "max-title-length": max_title_length,
+            "cache": cache_enabled,
             "cache-ttl": cache_ttl_seconds,
-            "no-cache": no_cache,
             "refresh": refresh,
             "refresh-prs": refresh_prs,
         }
@@ -411,18 +424,18 @@ def breakfast(
 
     # --- Layer 1: full PR detail cache (skip on --refresh or --refresh-prs) ---
     pr_details = None
-    if not no_cache and not refresh and not refresh_prs:
+    if cache_enabled and not refresh and not refresh_prs:
         pr_details = read_pr_cache(organization, repo_filter, cache_ttl_seconds)
 
     if pr_details is None:
         # --- Layer 2: GraphQL URL list cache (skip only on --refresh) ---
         prs = None
-        if not no_cache and not refresh:
+        if cache_enabled and not refresh:
             prs = read_graphql_cache(organization, repo_filter, cache_ttl_seconds)
 
         if prs is None:
             prs = get_github_prs(organization, repo_filter)
-            if not no_cache:
+            if cache_enabled:
                 write_graphql_cache(organization, repo_filter, prs)
 
         pr_details = []
@@ -454,7 +467,7 @@ def breakfast(
                 f" after retries: {examples}{suffix}"
             )
             click.echo(click.style(msg, fg="yellow"), err=True)
-        if not no_cache:
+        if cache_enabled:
             write_pr_cache(organization, repo_filter, pr_details)
             if refresh or refresh_prs:
                 click.echo("🔄 Cache refreshed.", err=json_output)

@@ -1196,7 +1196,7 @@ def test_cache_hit_skips_get_github_prs(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "get_github_prs", lambda *a: api_called.append(1) or [])
 
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--cache"])
 
     assert result.exit_code == 0
     assert len(api_called) == 0, "get_github_prs should not be called on a cache hit"
@@ -1268,8 +1268,10 @@ def test_config_cache_ttl_respected(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
 
-    # Simulate config returning cache-ttl = "5m"
-    monkeypatch.setattr(cli, "load_config", lambda _: {"cache-ttl": "5m"})
+    # Simulate config returning cache = true and cache-ttl = "5m"
+    monkeypatch.setattr(
+        cli, "load_config", lambda _: {"cache": True, "cache-ttl": "5m"}
+    )
 
     cache.write_pr_cache("org", "repo", [_make_pr_detail(7)])
 
@@ -1336,7 +1338,7 @@ def test_pr_results_grouped_by_repo(monkeypatch, tmp_path):
     cache.write_pr_cache("org", "svc", prs)
 
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "svc"])
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "svc", "--cache"])
 
     assert result.exit_code == 0
     alpha_pos = result.output.index("alpha-service")

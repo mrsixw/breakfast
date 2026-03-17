@@ -282,13 +282,30 @@ max-title-length = 72
 
 ## Caching options
 
-### `--cache-ttl`
+The disk cache is **off by default**. Enable it with `--cache` or `cache = true` in config. Once enabled, results are stored in `~/.cache/breakfast/` (or `$XDG_CACHE_HOME/breakfast/`) and reused until the TTL expires.
 
-How long PR results are cached on disk before a fresh fetch is made. Accepts a bare number of seconds or a human-friendly suffix: `30s`, `5m`, `2h`. Defaults to `300` (5 minutes).
+### `--cache` / `--no-cache`
+
+Enable or disable the disk cache. Off by default. Use `--cache` to turn it on for a single run, or set `cache = true` in config to make it permanent. `--no-cache` overrides `cache = true` in config for that run.
 
 ```bash
-breakfast -o my-org -r my-app --cache-ttl 10m   # cache for 10 minutes
-breakfast -o my-org -r my-app --cache-ttl 3600   # cache for 1 hour (in seconds)
+breakfast -o my-org -r my-app --cache       # enable cache for this run
+breakfast -o my-org -r my-app --no-cache    # disable cache even if set in config
+```
+
+Can also be set in the config file:
+
+```toml
+cache = true
+```
+
+### `--cache-ttl`
+
+How long cached PR results are considered fresh. Accepts a bare number of seconds or a human-friendly suffix: `30s`, `5m`, `2h`. Defaults to `300` (5 minutes). Only relevant when caching is enabled.
+
+```bash
+breakfast -o my-org -r my-app --cache --cache-ttl 10m   # cache for 10 minutes
+breakfast -o my-org -r my-app --cache --cache-ttl 3600   # cache for 1 hour
 ```
 
 Can also be set in the config file:
@@ -297,44 +314,31 @@ Can also be set in the config file:
 cache-ttl = "5m"
 ```
 
-The cache is stored in `~/.cache/breakfast/` (or `$XDG_CACHE_HOME/breakfast/`). Each `(organization, repo-filter)` pair gets its own cache file, keyed by a hash of those values.
-
-### `--no-cache`
-
-Skip reading and writing the disk cache entirely — always fetches fresh from the GitHub API.
-
-```bash
-breakfast -o my-org -r my-app --no-cache
-```
-
-Useful when you need up-to-the-minute data and don't want to wait for the TTL to expire. Note that CI check statuses (`--checks`) are always fetched fresh regardless of cache state.
-
 ### `--refresh`
 
-Ignore the current cache for this run, fetch fresh data, and write the results back to the cache. Subsequent runs within the TTL will be served from the freshly updated cache.
+Fetch fresh data and write it to the cache, ignoring whatever is already cached. Implies `--cache`. Subsequent runs within the TTL will be served from the freshly updated cache.
 
 ```bash
 breakfast -o my-org -r my-app --refresh
 ```
 
-Unlike `--no-cache`, the cache is still updated — so `--refresh` is the right choice when you know something has changed and want the next run to be fast again. Use `--no-cache` only when you want to bypass caching entirely.
-
 ### `--refresh-prs`
 
-Re-fetch PR details (comments, CI status, merge state) using the cached repo list, then write the fresh results back to the cache.
+Re-fetch PR details (comments, CI status, merge state) using the cached repo list, then write the fresh results back to the cache. Implies `--cache`. Faster than `--refresh` when you know the set of open PRs hasn't changed.
 
 ```bash
 breakfast -o my-org -r my-app --refresh-prs
 ```
 
-Faster than `--refresh` when you know the set of open PRs hasn't changed — for example, no PRs have been opened or closed, but you want to see updated review comments or merge status. The GraphQL discovery call is skipped; only the per-PR REST fetches are re-run.
-
-| Flag | GraphQL cache | PR detail cache |
-|---|---|---|
-| *(none)* | read | read |
-| `--refresh-prs` | read | skip, write fresh |
-| `--refresh` | skip, write fresh | skip, write fresh |
-| `--no-cache` | skip entirely | skip entirely |
+| Flag | Cache active? | GraphQL cache | PR detail cache |
+|---|---|---|---|
+| *(none)* | no | skip | skip |
+| `--cache` | yes | read | read |
+| `--cache --refresh-prs` | yes | read | skip, write fresh |
+| `--cache --refresh` | yes | skip, write fresh | skip, write fresh |
+| `--refresh-prs` | yes (implied) | read | skip, write fresh |
+| `--refresh` | yes (implied) | skip, write fresh | skip, write fresh |
+| `--no-cache` | no (override) | skip | skip |
 
 ## Update notifications
 

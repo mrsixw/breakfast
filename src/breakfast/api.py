@@ -43,10 +43,22 @@ def _fetch_pr_detail(pr_url):
 
 
 def make_paginated_github_api_requst(query_string, rate=100):
+    """Fetch a paginated GitHub REST resource.
+
+    Args:
+        query_string: API path relative to ``GITHUB_API_URL``.
+        rate: Number of items to request per page.
+
+    Returns:
+        list: Aggregated items from every page until a short page is returned.
+    """
     page, returned = 1, rate
     all_data = []
     while returned >= rate:
-        paginated_string = "{}&page={}&per_page={}".format(query_string, page, rate)
+        separator = "&" if "?" in query_string else "?"
+        paginated_string = "{}{}page={}&per_page={}".format(
+            query_string, separator, page, rate
+        )
         data = make_github_api_request(paginated_string)
         returned = len(data)
         page = page + 1

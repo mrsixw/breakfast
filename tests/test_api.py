@@ -218,6 +218,31 @@ def test_get_authenticated_user_login_missing_login(monkeypatch):
         api.get_authenticated_user_login()
 
 
+def test_make_paginated_github_api_request_adds_initial_query_separator(monkeypatch):
+    calls = []
+
+    def fake_api(path):
+        calls.append(path)
+        if path.endswith("page=1&per_page=2"):
+            return [{"id": 1}, {"id": 2}]
+        if path.endswith("page=2&per_page=2"):
+            return [{"id": 3}]
+        raise AssertionError(f"unexpected path: {path}")
+
+    monkeypatch.setattr(api, "make_github_api_request", fake_api)
+
+    result = api.make_paginated_github_api_requst(
+        "/repos/org/repo/pulls/1/reviews",
+        rate=2,
+    )
+
+    assert result == [{"id": 1}, {"id": 2}, {"id": 3}]
+    assert calls == [
+        "/repos/org/repo/pulls/1/reviews?page=1&per_page=2",
+        "/repos/org/repo/pulls/1/reviews?page=2&per_page=2",
+    ]
+
+
 def test_get_check_status_all_success(monkeypatch):
     def fake_api(path):
         if "check-runs" in path:

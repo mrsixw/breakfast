@@ -320,6 +320,24 @@ def get_pr_age_days(pr_detail, now=None):
         " Requires --cache or cache = true in config."
     ),
 )
+@click.option(
+    "--filter-state",
+    type=click.Choice(["open", "closed"], case_sensitive=False),
+    default=None,
+    help="Only show PRs with this state (open or closed).",
+)
+@click.option(
+    "--filter-check",
+    type=click.Choice(["pass", "fail", "pending", "none"], case_sensitive=False),
+    default=None,
+    help="Only show PRs with this CI check result. Implies --checks.",
+)
+@click.option(
+    "--filter-approval",
+    type=click.Choice(["approved", "pending", "changes"], case_sensitive=False),
+    default=None,
+    help="Only show PRs with this review approval status.",
+)
 @click.version_option(package_name="breakfast")
 def breakfast(
     config,
@@ -342,6 +360,9 @@ def breakfast(
     cache,
     refresh,
     refresh_prs,
+    filter_state,
+    filter_check,
+    filter_approval,
 ):
     if init_config:
         generate_default_config()
@@ -424,6 +445,9 @@ def breakfast(
             "cache-ttl": cache_ttl_seconds,
             "refresh": refresh,
             "refresh-prs": refresh_prs,
+            "filter-state": filter_state,
+            "filter-check": filter_check,
+            "filter-approval": filter_approval,
         }
         for k, v in resolved.items():
             click.echo(f"  {k}: {v}")
@@ -501,16 +525,13 @@ def breakfast(
                 click.echo("🔄 Cache refreshed.", err=json_output)
     else:
         click.echo(f"Processing {repo_filter} PRs...⚡...Done", err=json_output)
-    pr_details = filter_pr_details(
-        pr_details,
-        ignore_author,
-        mine_only=mine_only,
-        current_user_login=current_user_login,
-    )
-    pr_details.sort(key=lambda pr: pr["base"]["repo"]["name"])
-    if limit is not None:
-        pr_details = pr_details[:limit]
+    # --filter-check implies --checks (we need the data to filter on)
+    if filter_check is not None:
+        checks = True
 
+    # Fetch check statuses before filtering so --filter-check can use them.
+    # When --checks is enabled without --filter-check we still fetch here
+    # so the column is populated for the final display.
     check_statuses = {}
     if checks and pr_details:
         max_workers = min(8, len(pr_details))
@@ -527,6 +548,10 @@ def breakfast(
                 check_statuses[pr_id] = future.result()
             except requests.exceptions.RequestException:
                 check_statuses[pr_id] = "none"
+
+    # --filter-approval implies fetching approval data (same as --approvals)
+    if filter_approval is not None:
+        approvals = True
 
     approval_statuses = {}
     if approvals and pr_details:
@@ -546,6 +571,21 @@ def breakfast(
                 approval_statuses[pr_id] = future.result()
             except requests.exceptions.RequestException:
                 approval_statuses[pr_id] = "pending"
+
+    pr_details = filter_pr_details(
+        pr_details,
+        ignore_author,
+        mine_only=mine_only,
+        current_user_login=current_user_login,
+        filter_state=filter_state,
+        filter_check=filter_check,
+        filter_approval=filter_approval,
+        check_statuses=check_statuses,
+        approval_statuses=approval_statuses,
+    )
+    pr_details.sort(key=lambda pr: pr["base"]["repo"]["name"])
+    if limit is not None:
+        pr_details = pr_details[:limit]
 
     if json_output:
         json_data = []

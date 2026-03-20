@@ -53,25 +53,35 @@ def parse_ttl(value: str | int) -> int:
     return n
 
 
-def make_cache_key(org: str, repo_filter: str) -> str:
-    """Return a 16-hex-char key for (org, repo_filter), case-normalised."""
+def make_cache_key(org: str, repo_filter: str, extra: str = "") -> str:
+    """Return a 16-hex-char key for (org, repo_filter[, extra]), case-normalised.
+
+    ``extra`` is an optional discriminator for cases where the same (org,
+    repo_filter) pair is queried with different parameters (e.g. PR state).
+    Omitting it (or passing an empty string) reproduces the legacy key so
+    existing caches are not invalidated.
+    """
     raw = f"{org.lower()}:{repo_filter.lower()}"
+    if extra:
+        raw += f":{extra.lower()}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-def cache_path(org: str, repo_filter: str) -> Path:
-    key = make_cache_key(org, repo_filter)
+def cache_path(org: str, repo_filter: str, extra: str = "") -> Path:
+    key = make_cache_key(org, repo_filter, extra)
     return _CACHE_DIR / f"prs_{key}.json"
 
 
-def graphql_cache_path(org: str, repo_filter: str) -> Path:
-    key = make_cache_key(org, repo_filter)
+def graphql_cache_path(org: str, repo_filter: str, extra: str = "") -> Path:
+    key = make_cache_key(org, repo_filter, extra)
     return _CACHE_DIR / f"graphql_{key}.json"
 
 
-def read_graphql_cache(org: str, repo_filter: str, ttl: int) -> list | None:
+def read_graphql_cache(
+    org: str, repo_filter: str, ttl: int, extra: str = ""
+) -> list | None:
     """Return cached PR URL list if present and within TTL, else None."""
-    path = graphql_cache_path(org, repo_filter)
+    path = graphql_cache_path(org, repo_filter, extra)
     try:
         if not path.exists():
             return None
@@ -86,11 +96,13 @@ def read_graphql_cache(org: str, repo_filter: str, ttl: int) -> list | None:
         return None
 
 
-def write_graphql_cache(org: str, repo_filter: str, urls: list) -> None:
+def write_graphql_cache(
+    org: str, repo_filter: str, urls: list, extra: str = ""
+) -> None:
     """Write PR URL list to disk cache. Silently ignores write failures."""
     try:
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        path = graphql_cache_path(org, repo_filter)
+        path = graphql_cache_path(org, repo_filter, extra)
         payload = {
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "organization": org,
@@ -103,9 +115,9 @@ def write_graphql_cache(org: str, repo_filter: str, urls: list) -> None:
         print(f"Warning: failed to write GraphQL cache: {exc}", file=sys.stderr)
 
 
-def read_pr_cache(org: str, repo_filter: str, ttl: int) -> list | None:
+def read_pr_cache(org: str, repo_filter: str, ttl: int, extra: str = "") -> list | None:
     """Return cached pr_details if present and within TTL, else None."""
-    path = cache_path(org, repo_filter)
+    path = cache_path(org, repo_filter, extra)
     try:
         if not path.exists():
             return None
@@ -120,11 +132,13 @@ def read_pr_cache(org: str, repo_filter: str, ttl: int) -> list | None:
         return None
 
 
-def write_pr_cache(org: str, repo_filter: str, pr_details: list) -> None:
+def write_pr_cache(
+    org: str, repo_filter: str, pr_details: list, extra: str = ""
+) -> None:
     """Write pr_details to disk cache. Silently ignores write failures."""
     try:
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        path = cache_path(org, repo_filter)
+        path = cache_path(org, repo_filter, extra)
         payload = {
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "organization": org,

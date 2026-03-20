@@ -469,3 +469,57 @@ def test_get_check_status_mixed_sources(monkeypatch):
 
     monkeypatch.setattr(api, "make_github_api_request", fake_api)
     assert api.get_check_status("org", "repo", "abc123") == "fail"
+
+
+def test_get_review_status_approved(monkeypatch):
+    def fake_api(_path):
+        return [
+            {"state": "APPROVED", "user": {"login": "alice"}},
+        ]
+
+    monkeypatch.setattr(api, "make_github_api_request", fake_api)
+    assert api.get_review_status("org", "repo", 1) == "approved"
+
+
+def test_get_review_status_changes_requested(monkeypatch):
+    def fake_api(_path):
+        return [
+            {"state": "APPROVED", "user": {"login": "alice"}},
+            {"state": "CHANGES_REQUESTED", "user": {"login": "bob"}},
+        ]
+
+    monkeypatch.setattr(api, "make_github_api_request", fake_api)
+    assert api.get_review_status("org", "repo", 1) == "changes"
+
+
+def test_get_review_status_latest_review_wins(monkeypatch):
+    """If a reviewer approved then requested changes, changes_requested wins."""
+
+    def fake_api(_path):
+        return [
+            {"state": "APPROVED", "user": {"login": "alice"}},
+            {"state": "CHANGES_REQUESTED", "user": {"login": "alice"}},
+        ]
+
+    monkeypatch.setattr(api, "make_github_api_request", fake_api)
+    assert api.get_review_status("org", "repo", 1) == "changes"
+
+
+def test_get_review_status_pending_when_no_reviews(monkeypatch):
+    def fake_api(_path):
+        return []
+
+    monkeypatch.setattr(api, "make_github_api_request", fake_api)
+    assert api.get_review_status("org", "repo", 1) == "pending"
+
+
+def test_get_review_status_pending_when_only_comments(monkeypatch):
+    """COMMENTED reviews don't count as approval or changes."""
+
+    def fake_api(_path):
+        return [
+            {"state": "COMMENTED", "user": {"login": "alice"}},
+        ]
+
+    monkeypatch.setattr(api, "make_github_api_request", fake_api)
+    assert api.get_review_status("org", "repo", 1) == "pending"

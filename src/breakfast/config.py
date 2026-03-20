@@ -106,6 +106,11 @@ def filter_pr_details(
     ignore_authors,
     mine_only=False,
     current_user_login=None,
+    filter_state=None,
+    filter_check=None,
+    filter_approval=None,
+    check_statuses=None,
+    approval_statuses=None,
 ):
     ignore_set = normalize_ignore_authors(ignore_authors)
     current_user_login_normalized = (
@@ -113,14 +118,11 @@ def filter_pr_details(
         if mine_only and current_user_login and current_user_login.strip()
         else None
     )
-
-    if not ignore_set and not current_user_login_normalized:
-        return pr_details
-
     filtered = []
     for pr_detail in pr_details:
         author_login = pr_detail.get("user", {}).get("login", "")
         author_login_normalized = author_login.lower()
+
         if author_login_normalized in ignore_set:
             continue
         if (
@@ -128,5 +130,16 @@ def filter_pr_details(
             and author_login_normalized != current_user_login_normalized
         ):
             continue
+        if filter_state and pr_detail.get("state", "").lower() != filter_state.lower():
+            continue
+        if filter_check is not None and check_statuses is not None:
+            pr_check = check_statuses.get(pr_detail["id"], "none")
+            if pr_check != filter_check:
+                continue
+        if filter_approval is not None and approval_statuses is not None:
+            pr_approval = approval_statuses.get(pr_detail["id"], "pending")
+            if pr_approval != filter_approval:
+                continue
+
         filtered.append(pr_detail)
     return filtered

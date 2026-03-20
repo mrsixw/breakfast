@@ -21,8 +21,12 @@ breakfast --no-cache  # always fetches fresh
 any in-memory filtering. This means `--ignore-author` and `--mine-only` can vary
 between runs without re-fetching the underlying data.
 
-**Do not cache: CI check status** (`--checks`). Check run results are volatile
-and must always be fetched fresh regardless of cache state.
+**Also cache: CI check statuses and review approval statuses.**
+_(Added in [#113 — filter options](https://github.com/mrsixw/breakfast/issues/113))_
+When `--checks`, `--approvals`, or the corresponding filter flags are used, the
+fetched statuses are stored in the same cache file alongside the PR details.
+Subsequent runs within the TTL reuse the cached statuses without hitting the API
+again.
 
 ## Cache Key
 
@@ -51,6 +55,28 @@ and safe for any input, while still being one-file-per-query.
 
 `fetched_at` is an ISO-8601 UTC timestamp used to evaluate TTL. `pr_count` is
 redundant but useful for humans inspecting the file.
+
+### Extended format (added in #113)
+
+When check or approval statuses have been fetched, they are stored in the same
+file as optional top-level keys:
+
+```json
+{
+  "fetched_at": "2026-03-11T18:30:45+00:00",
+  "organization": "my-org",
+  "repo_filter": "platform",
+  "pr_count": 42,
+  "prs": [{}, {}],
+  "check_statuses": {"101": "pass", "102": "fail"},
+  "approval_statuses": {"101": "approved", "102": "pending"}
+}
+```
+
+`check_statuses` and `approval_statuses` are omitted when `--checks`/`--approvals`
+were not used in the run that wrote the cache. Older cache files without these
+fields are handled gracefully — the statuses are treated as uncached and fetched
+on demand. JSON requires string keys; they are converted back to `int` on read.
 
 ## Cache Location
 
@@ -93,7 +119,8 @@ setting defeats the purpose of having a cache.
 | `--no-cache` | Always fetch from API, never read/write cache |
 | Cache file corrupt or unreadable | Warning to stderr, fall back to live fetch |
 | Cache directory unwritable | Warning to stderr, proceed without caching |
-| `--checks` enabled | CI status always fetched fresh regardless of cache |
+| `--checks` / `--approvals` enabled, statuses cached | Statuses read from cache, no API call |
+| `--checks` / `--approvals` enabled, statuses not cached | Statuses fetched from API and written to cache |
 
 Cache failures are **never fatal** — a warning appears on stderr but results
 are always returned, either from cache or from a live fetch.

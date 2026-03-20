@@ -53,6 +53,36 @@ With `--ignore-author dependabot[bot]`, the bot PR is excluded:
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
 ```
 
+### `--filter-state`
+
+Only show PRs with a specific state. Accepted values: `open`, `closed`. Repeat the flag to match multiple states.
+
+```bash
+breakfast -o my-org -r my-app --filter-state open                          # open PRs only
+breakfast -o my-org -r my-app --filter-state open --filter-state closed    # both states
+```
+
+### `--filter-check`
+
+Only show PRs whose CI check result matches the given value. Accepted values: `pass`, `fail`, `pending`, `none`. Repeat the flag to match multiple results. Automatically enables the `--checks` column.
+
+```bash
+breakfast -o my-org -r my-app --filter-check fail                        # failing checks only
+breakfast -o my-org -r my-app --filter-check fail --filter-check pending  # failing or in-progress
+```
+
+### `--filter-approval`
+
+Only show PRs with a specific review approval status. Accepted values: `approved`, `pending`, `changes`. Repeat the flag to match multiple statuses.
+
+```bash
+breakfast -o my-org -r my-app --filter-approval approved                           # fully approved PRs
+breakfast -o my-org -r my-app --filter-approval changes                            # PRs with changes requested
+breakfast -o my-org -r my-app --filter-approval pending --filter-approval changes  # needs attention
+```
+
+> **Note:** Review and check statuses are cached alongside PR details, so repeated runs with these flags skip redundant API calls.
+
 ### `--mine-only`
 
 Show only PRs authored by the currently authenticated GitHub user (determined from `GITHUB_TOKEN`).

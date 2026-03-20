@@ -103,8 +103,14 @@ def write_graphql_cache(org: str, repo_filter: str, urls: list) -> None:
         print(f"Warning: failed to write GraphQL cache: {exc}", file=sys.stderr)
 
 
-def read_pr_cache(org: str, repo_filter: str, ttl: int) -> list | None:
-    """Return cached pr_details if present and within TTL, else None."""
+def read_pr_cache(org: str, repo_filter: str, ttl: int) -> dict | None:
+    """Return cached data if present and within TTL, else None.
+
+    On a hit, returns a dict with keys:
+      "prs"              – list of PR detail dicts
+      "check_statuses"   – dict[int, str] or None (absent from older caches)
+      "approval_statuses"– dict[int, str] or None (absent from older caches)
+    """
     path = cache_path(org, repo_filter)
     try:
         if not path.exists():
@@ -114,14 +120,35 @@ def read_pr_cache(org: str, repo_filter: str, ttl: int) -> list | None:
         age = (datetime.now(timezone.utc) - fetched_at).total_seconds()
         if age > ttl:
             return None
-        return data["prs"]
+        # JSON keys are always strings; convert back to int for PR IDs.
+        raw_checks = data.get("check_statuses")
+        raw_approvals = data.get("approval_statuses")
+        return {
+            "prs": data["prs"],
+            "check_statuses": (
+                {int(k): v for k, v in raw_checks.items()}
+                if raw_checks is not None
+                else None
+            ),
+            "approval_statuses": (
+                {int(k): v for k, v in raw_approvals.items()}
+                if raw_approvals is not None
+                else None
+            ),
+        }
     except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
         print(f"Warning: failed to read PR cache: {exc}", file=sys.stderr)
         return None
 
 
-def write_pr_cache(org: str, repo_filter: str, pr_details: list) -> None:
-    """Write pr_details to disk cache. Silently ignores write failures."""
+def write_pr_cache(
+    org: str,
+    repo_filter: str,
+    pr_details: list,
+    check_statuses: dict | None = None,
+    approval_statuses: dict | None = None,
+) -> None:
+    """Write pr_details (and optional statuses) to disk cache."""
     try:
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
         path = cache_path(org, repo_filter)
@@ -132,6 +159,13 @@ def write_pr_cache(org: str, repo_filter: str, pr_details: list) -> None:
             "pr_count": len(pr_details),
             "prs": pr_details,
         }
+        # Store with string keys (JSON requirement); restored to int on read.
+        if check_statuses is not None:
+            payload["check_statuses"] = {str(k): v for k, v in check_statuses.items()}
+        if approval_statuses is not None:
+            payload["approval_statuses"] = {
+                str(k): v for k, v in approval_statuses.items()
+            }
         path.write_text(json.dumps(payload))
     except OSError as exc:
         print(f"Warning: failed to write PR cache: {exc}", file=sys.stderr)

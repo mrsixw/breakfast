@@ -474,8 +474,15 @@ def breakfast(
 
     # --- Layer 1: full PR detail cache (skip on --refresh or --refresh-prs) ---
     pr_details = None
+    cached_check_statuses = None
+    cached_approval_statuses = None
+    needs_cache_write = False
     if cache_enabled and not refresh and not refresh_prs:
-        pr_details = read_pr_cache(organization, repo_filter, cache_ttl_seconds)
+        cache_result = read_pr_cache(organization, repo_filter, cache_ttl_seconds)
+        if cache_result is not None:
+            pr_details = cache_result["prs"]
+            cached_check_statuses = cache_result["check_statuses"]
+            cached_approval_statuses = cache_result["approval_statuses"]
 
     if pr_details is None:
         # --- Layer 2: GraphQL URL list cache (skip only on --refresh) ---
@@ -520,9 +527,7 @@ def breakfast(
             )
             click.echo(click.style(msg, fg="yellow"), err=True)
         if cache_enabled:
-            write_pr_cache(organization, repo_filter, pr_details)
-            if refresh or refresh_prs:
-                click.echo("🔄 Cache refreshed.", err=json_output)
+            needs_cache_write = True
     else:
         click.echo(f"Processing {repo_filter} PRs...⚡...Done", err=json_output)
     # --filter-check implies --checks (we need the data to filter on)
@@ -532,22 +537,27 @@ def breakfast(
     # Fetch check statuses before filtering so --filter-check can use them.
     # When --checks is enabled without --filter-check we still fetch here
     # so the column is populated for the final display.
+    # Use cached statuses when available to avoid redundant API calls.
     check_statuses = {}
     if checks and pr_details:
-        max_workers = min(8, len(pr_details))
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            check_futures = []
-            for pr_detail in pr_details:
-                owner = pr_detail["base"]["repo"]["owner"]["login"]
-                repo_name = pr_detail["base"]["repo"]["name"]
-                sha = pr_detail["head"]["sha"]
-                future = executor.submit(get_check_status, owner, repo_name, sha)
-                check_futures.append((pr_detail["id"], future))
-        for pr_id, future in check_futures:
-            try:
-                check_statuses[pr_id] = future.result()
-            except requests.exceptions.RequestException:
-                check_statuses[pr_id] = "none"
+        if cached_check_statuses is not None:
+            check_statuses = cached_check_statuses
+        else:
+            max_workers = min(8, len(pr_details))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                check_futures = []
+                for pr_detail in pr_details:
+                    owner = pr_detail["base"]["repo"]["owner"]["login"]
+                    repo_name = pr_detail["base"]["repo"]["name"]
+                    sha = pr_detail["head"]["sha"]
+                    future = executor.submit(get_check_status, owner, repo_name, sha)
+                    check_futures.append((pr_detail["id"], future))
+            for pr_id, future in check_futures:
+                try:
+                    check_statuses[pr_id] = future.result()
+                except requests.exceptions.RequestException:
+                    check_statuses[pr_id] = "none"
+            needs_cache_write = True
 
     # --filter-approval implies fetching approval data (same as --approvals)
     if filter_approval:
@@ -555,22 +565,37 @@ def breakfast(
 
     approval_statuses = {}
     if approvals and pr_details:
-        max_workers = min(8, len(pr_details))
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            approval_futures = []
-            for pr_detail in pr_details:
-                owner = pr_detail["base"]["repo"]["owner"]["login"]
-                repo_name = pr_detail["base"]["repo"]["name"]
-                pr_number = pr_detail["number"]
-                future = executor.submit(
-                    get_approval_status, owner, repo_name, pr_number
-                )
-                approval_futures.append((pr_detail["id"], future))
-        for pr_id, future in approval_futures:
-            try:
-                approval_statuses[pr_id] = future.result()
-            except requests.exceptions.RequestException:
-                approval_statuses[pr_id] = "pending"
+        if cached_approval_statuses is not None:
+            approval_statuses = cached_approval_statuses
+        else:
+            max_workers = min(8, len(pr_details))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                approval_futures = []
+                for pr_detail in pr_details:
+                    owner = pr_detail["base"]["repo"]["owner"]["login"]
+                    repo_name = pr_detail["base"]["repo"]["name"]
+                    pr_number = pr_detail["number"]
+                    future = executor.submit(
+                        get_approval_status, owner, repo_name, pr_number
+                    )
+                    approval_futures.append((pr_detail["id"], future))
+            for pr_id, future in approval_futures:
+                try:
+                    approval_statuses[pr_id] = future.result()
+                except requests.exceptions.RequestException:
+                    approval_statuses[pr_id] = "pending"
+            needs_cache_write = True
+
+    if needs_cache_write:
+        write_pr_cache(
+            organization,
+            repo_filter,
+            pr_details,
+            check_statuses=check_statuses or None,
+            approval_statuses=approval_statuses or None,
+        )
+        if refresh or refresh_prs:
+            click.echo("🔄 Cache refreshed.", err=json_output)
 
     pr_details = filter_pr_details(
         pr_details,

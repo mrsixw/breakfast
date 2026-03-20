@@ -104,7 +104,28 @@ def test_write_then_read_roundtrip(monkeypatch, tmp_path):
     pr_details = [{"number": 1, "title": "Hello"}]
     cache.write_pr_cache("org", "filter", pr_details)
     result = cache.read_pr_cache("org", "filter", 300)
-    assert result == pr_details
+    assert result is not None
+    assert result["prs"] == pr_details
+    assert result["check_statuses"] is None
+    assert result["approval_statuses"] is None
+
+
+def test_write_then_read_roundtrip_with_statuses(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    pr_details = [{"number": 1, "id": 101}]
+    check_statuses = {101: "pass"}
+    approval_statuses = {101: "approved"}
+    cache.write_pr_cache(
+        "org",
+        "filter",
+        pr_details,
+        check_statuses=check_statuses,
+        approval_statuses=approval_statuses,
+    )
+    result = cache.read_pr_cache("org", "filter", 300)
+    assert result["prs"] == pr_details
+    assert result["check_statuses"] == check_statuses
+    assert result["approval_statuses"] == approval_statuses
 
 
 def test_read_pr_cache_expired(monkeypatch, tmp_path):
@@ -128,6 +149,7 @@ def test_read_pr_cache_not_expired(monkeypatch, tmp_path):
     cache.write_pr_cache("org", "filter", pr_details)
     result = cache.read_pr_cache("org", "filter", 300)
     assert result is not None
+    assert result["prs"] == pr_details
 
 
 def test_read_pr_cache_corrupt_json(monkeypatch, tmp_path):

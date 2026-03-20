@@ -1410,7 +1410,7 @@ def test_refresh_ignores_cache_and_writes_fresh(monkeypatch, tmp_path):
     # Cache should now contain fresh data
     cached = cache.read_pr_cache("org", "repo", 300)
     assert cached is not None
-    assert cached[0]["number"] == 1
+    assert cached["prs"][0]["number"] == 1
 
 
 def test_refresh_does_not_use_cached_data(monkeypatch, tmp_path):

@@ -86,11 +86,11 @@ def test_filter_pr_details_filter_state():
         _make_pr(state="closed", pr_id=2),
     ]
 
-    result = config.filter_pr_details(pr_details, [], filter_state="open")
+    result = config.filter_pr_details(pr_details, [], filter_state=("open",))
     assert len(result) == 1
     assert result[0]["id"] == 1
 
-    result = config.filter_pr_details(pr_details, [], filter_state="closed")
+    result = config.filter_pr_details(pr_details, [], filter_state=("closed",))
     assert len(result) == 1
     assert result[0]["id"] == 2
 
@@ -100,7 +100,7 @@ def test_filter_pr_details_filter_check():
     check_statuses = {1: "pass", 2: "fail", 3: "pending"}
 
     result = config.filter_pr_details(
-        pr_details, [], filter_check="fail", check_statuses=check_statuses
+        pr_details, [], filter_check=("fail",), check_statuses=check_statuses
     )
     assert len(result) == 1
     assert result[0]["id"] == 2
@@ -111,7 +111,10 @@ def test_filter_pr_details_filter_approval():
     approval_statuses = {1: "approved", 2: "changes", 3: "pending"}
 
     result = config.filter_pr_details(
-        pr_details, [], filter_approval="approved", approval_statuses=approval_statuses
+        pr_details,
+        [],
+        filter_approval=("approved",),
+        approval_statuses=approval_statuses,
     )
     assert len(result) == 1
     assert result[0]["id"] == 1
@@ -128,8 +131,8 @@ def test_filter_pr_details_combined_filters():
     result = config.filter_pr_details(
         pr_details,
         [],
-        filter_state="open",
-        filter_check="pass",
+        filter_state=("open",),
+        filter_check=("pass",),
         check_statuses=check_statuses,
     )
     assert {r["id"] for r in result} == {1, 2}

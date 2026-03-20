@@ -323,20 +323,20 @@ def get_pr_age_days(pr_detail, now=None):
 @click.option(
     "--filter-state",
     type=click.Choice(["open", "closed"], case_sensitive=False),
-    default=None,
-    help="Only show PRs with this state (open or closed).",
+    multiple=True,
+    help="Only show PRs with this state. Repeat for multiple values.",
 )
 @click.option(
     "--filter-check",
     type=click.Choice(["pass", "fail", "pending", "none"], case_sensitive=False),
-    default=None,
-    help="Only show PRs with this CI check result. Implies --checks.",
+    multiple=True,
+    help="Only show PRs with this CI check result. Repeat for multiple values.",
 )
 @click.option(
     "--filter-approval",
     type=click.Choice(["approved", "pending", "changes"], case_sensitive=False),
-    default=None,
-    help="Only show PRs with this review approval status.",
+    multiple=True,
+    help="Only show PRs with this review approval status. Repeat for multiple values.",
 )
 @click.version_option(package_name="breakfast")
 def breakfast(
@@ -526,7 +526,7 @@ def breakfast(
     else:
         click.echo(f"Processing {repo_filter} PRs...⚡...Done", err=json_output)
     # --filter-check implies --checks (we need the data to filter on)
-    if filter_check is not None:
+    if filter_check:
         checks = True
 
     # Fetch check statuses before filtering so --filter-check can use them.
@@ -550,7 +550,7 @@ def breakfast(
                 check_statuses[pr_id] = "none"
 
     # --filter-approval implies fetching approval data (same as --approvals)
-    if filter_approval is not None:
+    if filter_approval:
         approvals = True
 
     approval_statuses = {}

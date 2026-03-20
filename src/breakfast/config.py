@@ -130,15 +130,17 @@ def filter_pr_details(
             and author_login_normalized != current_user_login_normalized
         ):
             continue
-        if filter_state and pr_detail.get("state", "").lower() != filter_state.lower():
+        if filter_state and pr_detail.get("state", "").lower() not in {
+            s.lower() for s in filter_state
+        }:
             continue
-        if filter_check is not None and check_statuses is not None:
+        if filter_check and check_statuses is not None:
             pr_check = check_statuses.get(pr_detail["id"], "none")
-            if pr_check != filter_check:
+            if pr_check not in filter_check:
                 continue
-        if filter_approval is not None and approval_statuses is not None:
+        if filter_approval and approval_statuses is not None:
             pr_approval = approval_statuses.get(pr_detail["id"], "pending")
-            if pr_approval != filter_approval:
+            if pr_approval not in filter_approval:
                 continue
 
         filtered.append(pr_detail)

@@ -29,6 +29,9 @@ breakfast -o my-org -r my-app --age
 breakfast -o my-org -r my-app --checks
 breakfast -o my-org -r my-app --approvals
 breakfast -o my-org -r my-app --checks --status-style ascii
+breakfast -o my-org -r my-app --filter-state open
+breakfast -o my-org -r my-app --filter-check fail --filter-check pending
+breakfast -o my-org -r my-app --filter-approval approved
 breakfast -o my-org -r my-app --json
 breakfast -o my-org -r my-app --cache
 breakfast -o my-org -r my-app --cache --refresh
@@ -52,6 +55,9 @@ breakfast -o my-org -r my-app --cache --refresh-prs
 - `--ignore-author`: Exclude PRs by author (case-insensitive, repeatable).
 - `--no-ignore-author`: Clear `ignore-author` config defaults for this run.
 - `--mine-only`: Show only your own PRs.
+- `--filter-state`: Only show PRs with this state (`open`, `closed`). Repeatable.
+- `--filter-check`: Only show PRs with this CI result (`pass`, `fail`, `pending`, `none`). Repeatable. Implies `--checks`.
+- `--filter-approval`: Only show PRs with this review status (`approved`, `pending`, `changes`). Repeatable.
 
 ### Caching
 - `--cache` / `--no-cache`: Enable disk cache (off by default). Set `cache = true` in config to make it permanent.

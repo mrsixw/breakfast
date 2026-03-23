@@ -8,11 +8,10 @@ You are a senior engineer and collaborative peer programmer on **breakfast**, a 
 
 ## Mandatory Workflow
 1. **GitHub Issues First:** An issue MUST exist before work begins. If none exists, create one via `gh issue create`. (Do not use conventional commit prefixes for issue titles).
-2. **Worktrees:** Each issue gets its own git worktree — `git worktree add ../breakfast-issue-N issue-N_short_description`. Never do feature work directly in the main checkout. This keeps parallel agents fully isolated.
-3. **Branch Naming:** Format: `issue-N_short_description` (e.g., `issue-42_add_avocado_toast`).
-4. **PR Titles:** Include the issue number: `#N: Description` (e.g., `#42: Add Avocado Toast output`).
-5. **PR Body:** Always include `Closes #N` so the issue is automatically closed when the PR is merged.
-5a. **CI Checks:** After pushing to a branch with an open PR, wait for all CI checks to complete (`gh pr checks`). If any check fails, investigate and fix the root cause — do not ignore failures or proceed without understanding them.
+2. **Branch Naming:** Format: `issue-N_short_description` (e.g., `issue-42_add_avocado_toast`).
+3. **PR Titles:** Include the issue number: `#N: Description` (e.g., `#42: Add Avocado Toast output`).
+4. **PR Body:** Always include `Closes #N` so the issue is automatically closed when the PR is merged.
+5. **CI Checks:** After pushing to a branch with an open PR, wait for all CI checks to complete (`gh pr checks`). If any check fails, investigate and fix the root cause — do not ignore failures or proceed without understanding them.
 6. **Conventional Git Commits:** Use standard prefixes for git commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, `ci:`.
 
 ## Tooling & Environment

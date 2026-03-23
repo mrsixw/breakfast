@@ -58,7 +58,11 @@ def _table_width(rows):
     """Return visual table width via the border line (ANSI-stripped for accuracy)."""
     plain_rows = [{k: _strip_ansi(v) for k, v in row.items()} for row in rows]
     table_str = tabulate(
-        plain_rows, headers="keys", showindex="always", tablefmt="outline"
+        plain_rows,
+        headers="keys",
+        showindex="always",
+        tablefmt="outline",
+        disable_numparse=True,
     )
     return len(table_str.splitlines()[0])
 
@@ -100,6 +104,16 @@ def _truncate_col(pr_data, key, terminal_width, min_len=8):
     ]
 
 
+def _compress_styled(styled_text):
+    """Compress styled text to its first visible word, preserving ANSI colour."""
+    plain = _strip_ansi(styled_text)
+    words = plain.split()
+    if len(words) <= 1:
+        return styled_text
+    first_word = words[0]
+    return styled_text.replace(plain, first_word, 1)
+
+
 def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     """Progressively compress the table to fit within terminal_width."""
     if not pr_data:
@@ -127,8 +141,16 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
 
     # 4. Compress Mergeable?: drop the reason suffix
     if "Mergeable?" in pr_data[0]:
+
+        def _compress_mergeable(val):
+            plain = _strip_ansi(val)
+            compressed = re.sub(r" \(.*\)$", "", plain)
+            if compressed != plain:
+                return val.replace(plain, compressed, 1)
+            return val
+
         pr_data = [
-            {**row, "Mergeable?": re.sub(r" \(.*\)$", "", row["Mergeable?"])}
+            {**row, "Mergeable?": _compress_mergeable(row["Mergeable?"])}
             for row in pr_data
         ]
     if fits():
@@ -143,19 +165,18 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     if fits():
         return pr_data
 
-    # 5. Compress Checks: "✅ pass" → "✅", "pending" → "pending"
+    # 5. Compress Checks: "✅ pass" → "✅" (preserving colour)
     if "Checks" in pr_data[0]:
         pr_data = [
-            {**row, "Checks": _strip_ansi(row["Checks"]).split()[0]} for row in pr_data
+            {**row, "Checks": _compress_styled(row["Checks"])} for row in pr_data
         ]
     if fits():
         return pr_data
 
-    # 5b. Compress Approved: "✅ approved" → "✅", "⏳ pending" → "⏳"
+    # 5b. Compress Approved: "✅ approved" → "✅" (preserving colour)
     if "Approved" in pr_data[0]:
         pr_data = [
-            {**row, "Approved": _strip_ansi(row["Approved"]).split()[0]}
-            for row in pr_data
+            {**row, "Approved": _compress_styled(row["Approved"])} for row in pr_data
         ]
     if fits():
         return pr_data
@@ -702,7 +723,14 @@ def breakfast(
         pr_data = _auto_fit(pr_data, terminal_width, max_title_length)
 
     click.echo(
-        tabulate(pr_data, headers="keys", showindex="always", tablefmt="outline")
+        tabulate(
+            pr_data,
+            headers="keys",
+            showindex="always",
+            tablefmt="outline",
+            disable_numparse=True,
+        ),
+        color=_stdout_is_tty(),
     )
 
     if not no_update_check:

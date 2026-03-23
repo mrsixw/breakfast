@@ -107,7 +107,7 @@ def format_approval_status(status, style="emoji"):
 
 
 def format_mergeable_status(is_mergeable, mergeable_state, style="emoji"):
-    """Return a mergeability label for table output.
+    """Return a colour-coded mergeability label for table output.
 
     Args:
         is_mergeable: Whether GitHub reports the PR as mergeable.
@@ -115,15 +115,18 @@ def format_mergeable_status(is_mergeable, mergeable_state, style="emoji"):
         style: Rendering style, either ``emoji`` or ``ascii``.
 
     Returns:
-        A label such as ``✅ (clean)`` or ``yes (clean)``.
+        A styled label such as ``✅ (clean)`` or ``yes (clean)``.
     """
+    colour = "green" if is_mergeable else "red"
     if style == "ascii":
         prefix = "yes" if is_mergeable else "no"
     else:
         prefix = "✅" if is_mergeable else "❌"
     if mergeable_state:
-        return f"{prefix} ({mergeable_state})"
-    return prefix
+        text = f"{prefix} ({mergeable_state})"
+    else:
+        text = prefix
+    return click.style(text, fg=colour, bold=True)
 
 
 def generate_terminal_url_anchor(url, url_text="Link"):

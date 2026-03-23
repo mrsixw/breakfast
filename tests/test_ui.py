@@ -58,6 +58,19 @@ def test_format_approval_status_ascii():
 
 
 def test_format_mergeable_status():
-    assert ui.format_mergeable_status(True, "clean") == "✅ (clean)"
-    assert ui.format_mergeable_status(False, "dirty") == "❌ (dirty)"
-    assert ui.format_mergeable_status(True, "clean", style="ascii") == "yes (clean)"
+    result = ui.format_mergeable_status(True, "clean")
+    assert "✅ (clean)" in result
+    assert "\x1b[" in result  # contains ANSI colour codes
+
+    result = ui.format_mergeable_status(False, "dirty")
+    assert "❌ (dirty)" in result
+    assert "\x1b[" in result
+
+    result = ui.format_mergeable_status(True, "clean", style="ascii")
+    assert "yes (clean)" in result
+
+    result = ui.format_mergeable_status(True, None)
+    assert "✅" in result
+
+    result = ui.format_mergeable_status(False, None)
+    assert "❌" in result

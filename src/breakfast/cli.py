@@ -750,7 +750,8 @@ def breakfast(
         pr_data = _auto_fit(pr_data, terminal_width, max_title_length)
 
     click.echo(
-        tabulate(pr_data, headers="keys", showindex="always", tablefmt="outline")
+        tabulate(pr_data, headers="keys", showindex="always", tablefmt="outline"),
+        color=_stdout_is_tty(),
     )
 
     if not no_update_check:

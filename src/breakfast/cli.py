@@ -233,6 +233,23 @@ def get_pr_age_days(pr_detail, now=None):
     return max((now - created_dt).days, 0)
 
 
+_LEGENDARY_COMMENT_THRESHOLD = 100
+_LEGENDARY_AGE_THRESHOLD_DAYS = 30
+_LEGENDARY_EMOJI = "⚔️"
+
+
+def is_legendary(pr_detail, now=None):
+    """Return True if a PR qualifies as legendary.
+
+    A PR is legendary if it has 100+ total comments AND has been open 30+ days.
+    """
+    total_comments = pr_detail.get("comments", 0) + pr_detail.get("review_comments", 0)
+    return (
+        total_comments >= _LEGENDARY_COMMENT_THRESHOLD
+        and get_pr_age_days(pr_detail, now=now) >= _LEGENDARY_AGE_THRESHOLD_DAYS
+    )
+
+
 @click.command()
 @click.option("--config", help="Path to config file.")
 @click.option("--show-config", is_flag=True, help="Print the resolved config and exit.")
@@ -359,6 +376,23 @@ def get_pr_age_days(pr_detail, now=None):
     multiple=True,
     help="Only show PRs with this review approval status. Repeat for multiple values.",
 )
+@click.option(
+    "--legendary/--no-legendary",
+    default=None,
+    help=(
+        "Append ⚔️ to the state of PRs with 100+ comments and open 30+ days."
+        " Off by default."
+    ),
+)
+@click.option(
+    "--legendary-only",
+    is_flag=True,
+    default=False,
+    help=(
+        "Show only legendary PRs (100+ comments and open 30+ days)."
+        " Implies --legendary."
+    ),
+)
 @click.version_option(package_name="breakfast")
 def breakfast(
     config,
@@ -384,6 +418,8 @@ def breakfast(
     filter_state,
     filter_check,
     filter_approval,
+    legendary,
+    legendary_only,
 ):
     if init_config:
         generate_default_config()
@@ -415,6 +451,10 @@ def breakfast(
     )
     if status_style not in {"emoji", "ascii"}:
         status_style = "emoji"
+    legendary = legendary if legendary is not None else cfg.get("legendary", False)
+    legendary_only = legendary_only or cfg.get("legendary-only", False)
+    if legendary_only:
+        legendary = True  # --legendary-only implies marking
 
     # Cache is opt-in: CLI flag > config > default off.
     cache_enabled = cache if cache is not None else cfg.get("cache", False)
@@ -469,6 +509,8 @@ def breakfast(
             "filter-state": filter_state,
             "filter-check": filter_check,
             "filter-approval": filter_approval,
+            "legendary": legendary,
+            "legendary-only": legendary_only,
         }
         for k, v in resolved.items():
             click.echo(f"  {k}: {v}")
@@ -630,6 +672,8 @@ def breakfast(
         approval_statuses=approval_statuses,
     )
     pr_details.sort(key=lambda pr: pr["base"]["repo"]["name"])
+    if legendary_only:
+        pr_details = [pr for pr in pr_details if is_legendary(pr)]
     if limit is not None:
         pr_details = pr_details[:limit]
 
@@ -672,11 +716,15 @@ def breakfast(
         adds = click.style("+" + str(pr_detail["additions"]), fg="green", bold=True)
         subs = click.style("-" + str(pr_detail["deletions"]), fg="red", bold=True)
 
+        state_value = pr_detail["state"]
+        if legendary and is_legendary(pr_detail):
+            state_value = state_value + " " + _LEGENDARY_EMOJI
+
         row = {
             "Repo": pr_detail["base"]["repo"]["name"],
             "PR Title": pr_detail["title"],
             "Author": pr_detail["user"]["login"],
-            "State": pr_detail["state"],
+            "State": state_value,
             "Files": click_colour_grade_number(pr_detail["changed_files"]),
             "Commits": click_colour_grade_number(pr_detail["commits"]),
             "+/-": f"{adds}/{subs}",

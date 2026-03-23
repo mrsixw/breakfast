@@ -258,6 +258,50 @@ This is also available in config:
 status-style = "ascii"
 ```
 
+### `--legendary`
+
+Mark legendary PRs with a ⚔️ appended to their **State** column. A PR earns legendary status if it meets **both** of these criteria:
+
+- **100 or more total comments** (PR-level comments + inline review comments combined)
+- **Open for 30 or more days**
+
+Off by default. Enable with `--legendary`:
+
+```bash
+breakfast -o my-org -r platform --legendary
+```
+
+Example output with a legendary PR:
+
+```
++---------+----------------+---------------------------+--------+-----------+-------+---------+----------+----------+--------------+--------+
+|         | Repo           | PR Title                  | Author | State     | Files | Commits |   +/-    | Comments | Mergeable?   | Link   |
++---------+----------------+---------------------------+--------+-----------+-------+---------+----------+----------+--------------+--------+
+|       0 | platform-api   | Add user search           | alice  | open      |   3   |    1    | +42/-10  |    0     | ✅ (clean)   | PR-142 |
+|       1 | platform-api   | The PR that time forgot   | bob    | open ⚔️   |  28   |   17    | +980/-40 |   134    | ✅ (clean)   | PR-41  |
++---------+----------------+---------------------------+--------+-----------+-------+---------+----------+----------+--------------+--------+
+```
+
+Can also be set in the config file to always highlight legends:
+
+```toml
+legendary = true
+```
+
+### `--legendary-only`
+
+Show **only** legendary PRs — those with 100+ comments **and** open 30+ days. Non-legendary PRs are filtered out entirely. Implies `--legendary` (the ⚔️ marker is always shown when this filter is active).
+
+```bash
+breakfast -o my-org -r platform --legendary-only
+```
+
+Can also be set in the config file:
+
+```toml
+legendary-only = true
+```
+
 ### Auto-fit to terminal width
 
 When writing to an interactive terminal, breakfast automatically fits the table to the available width. No flags required — it just works.
@@ -443,6 +487,10 @@ Options:
                                   list. Faster than --refresh when only PR
                                   state has changed. Requires --cache or
                                   cache = true in config.
+  --legendary / --no-legendary    Append ⚔️ to the state of PRs with 100+
+                                  comments or open 30+ days. Off by default.
+  --legendary-only                Show only legendary PRs (100+ comments or
+                                  open 30+ days). Implies --legendary.
   --version                       Show the version and exit.
   --help                          Show this message and exit.
 ```

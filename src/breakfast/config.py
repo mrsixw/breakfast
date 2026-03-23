@@ -4,6 +4,8 @@ from pathlib import Path
 
 import click
 
+from .logger import logger
+
 
 def get_config_dir():
     """Get the XDG-compliant configuration directory."""
@@ -32,6 +34,7 @@ def load_config(config_path=None):
                 try:
                     data = tomllib.load(f)
                 except Exception as e:
+                    logger.warning("config_parse_error path=%s error=%r", path, str(e))
                     msg = f"Warning: Failed to parse config {path}: {e}"
                     click.echo(click.style(msg, fg="yellow"), err=True)
                     continue

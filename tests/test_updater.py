@@ -83,6 +83,8 @@ def test_get_latest_version_expired_cache_fetches(monkeypatch, tmp_path):
     )
 
     class FakeResp:
+        status_code = 200
+
         def raise_for_status(self):
             pass
 

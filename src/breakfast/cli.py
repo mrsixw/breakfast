@@ -3,6 +3,7 @@ import random
 import re
 import shutil
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import click
@@ -225,6 +226,7 @@ def get_pr_age_days(pr_detail, now=None):
     try:
         created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
     except ValueError:
+        logger.debug("get_pr_age_days invalid_date created_at=%r", created_at)
         return 0
 
     if created_dt.tzinfo is None:
@@ -489,6 +491,7 @@ def breakfast(
     try:
         cache_ttl_seconds = parse_ttl(raw_ttl)
     except ValueError as exc:
+        logger.error("invalid_cache_ttl value=%r error=%s", raw_ttl, exc)
         msg = f"Error: invalid --cache-ttl value: {exc}"
         click.echo(click.style(msg, fg="red", bold=True))
         sys.exit(1)
@@ -566,6 +569,7 @@ def breakfast(
 
     # grab all the pull requests we are interested in
     pr_data = []
+    t_acquire = time.monotonic()
 
     # --- Layer 1: full PR detail cache (skip on --refresh or --refresh-prs) ---
     pr_details = None
@@ -610,7 +614,10 @@ def breakfast(
                             nl=False,
                             err=json_output,
                         )
-                    except requests.exceptions.RequestException:
+                    except requests.exceptions.RequestException as exc:
+                        logger.warning(
+                            "pr_detail_fetch_failed url=%s error=%r", url, str(exc)
+                        )
                         failed_urls.append(url)
         click.echo("...Done", err=json_output)
         if failed_urls:
@@ -650,7 +657,12 @@ def breakfast(
             for pr_id, future in check_futures:
                 try:
                     check_statuses[pr_id] = future.result()
-                except requests.exceptions.RequestException:
+                except requests.exceptions.RequestException as exc:
+                    logger.warning(
+                        "check_status_fetch_failed pr_id=%s error=%r",
+                        pr_id,
+                        str(exc),
+                    )
                     check_statuses[pr_id] = "none"
             needs_cache_write = True
 
@@ -677,9 +689,20 @@ def breakfast(
             for pr_id, future in approval_futures:
                 try:
                     approval_statuses[pr_id] = future.result()
-                except requests.exceptions.RequestException:
+                except requests.exceptions.RequestException as exc:
+                    logger.warning(
+                        "approval_status_fetch_failed pr_id=%s error=%r",
+                        pr_id,
+                        str(exc),
+                    )
                     approval_statuses[pr_id] = "pending"
             needs_cache_write = True
+
+    logger.info(
+        "data_acquired pr_count=%d elapsed_ms=%d",
+        len(pr_details),
+        int((time.monotonic() - t_acquire) * 1000),
+    )
 
     if needs_cache_write:
         write_pr_cache(
@@ -720,6 +743,7 @@ def breakfast(
         "json" if json_output else "table",
         len(pr_details),
     )
+    t_render = time.monotonic()
 
     if json_output:
         json_data = []
@@ -750,9 +774,13 @@ def breakfast(
                 entry["approval"] = approval_statuses.get(pr_detail["id"], "pending")
             json_data.append(entry)
         click.echo(json.dumps(json_data, indent=2))
+        logger.info(
+            "render_complete elapsed_ms=%d", int((time.monotonic() - t_render) * 1000)
+        )
         if not no_update_check:
             update_msg = check_for_update()
             if update_msg:
+                logger.info("update_available msg=%r", update_msg)
                 click.echo(click.style(update_msg, fg="cyan", bold=True), err=True)
         return
 
@@ -825,9 +853,14 @@ def breakfast(
         color=_stdout_is_tty(),
     )
 
+    logger.info(
+        "render_complete elapsed_ms=%d", int((time.monotonic() - t_render) * 1000)
+    )
+
     if not no_update_check:
         update_msg = check_for_update()
         if update_msg:
+            logger.info("update_available msg=%r", update_msg)
             click.echo(click.style(update_msg, fg="cyan", bold=True), err=True)
 
 

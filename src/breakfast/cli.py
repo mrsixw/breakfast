@@ -25,6 +25,8 @@ from .cache import (
     write_pr_cache,
 )
 from .config import filter_pr_details, generate_default_config, load_config
+from .logger import configure as configure_logging
+from .logger import logger
 from .ui import (
     BREAKFAST_ITEMS,
     click_colour_grade_number,
@@ -421,6 +423,8 @@ def breakfast(
     legendary,
     legendary_only,
 ):
+    configure_logging()
+
     if init_config:
         generate_default_config()
         sys.exit(0)
@@ -515,6 +519,34 @@ def breakfast(
         for k, v in resolved.items():
             click.echo(f"  {k}: {v}")
         sys.exit(0)
+
+    logger.info(
+        "startup org=%s repo_filter=%r mine_only=%s ignore_author=%r"
+        " cache_enabled=%s cache_ttl=%ss refresh=%s refresh_prs=%s"
+        " checks=%s approvals=%s age=%s legendary=%s legendary_only=%s"
+        " limit=%s max_title_length=%s status_style=%s json=%s"
+        " filter_state=%r filter_check=%r filter_approval=%r",
+        organization,
+        repo_filter,
+        mine_only,
+        ignore_author,
+        cache_enabled,
+        cache_ttl_seconds,
+        refresh,
+        refresh_prs,
+        checks,
+        approvals,
+        age,
+        legendary,
+        legendary_only,
+        limit,
+        max_title_length,
+        status_style,
+        json_output,
+        filter_state,
+        filter_check,
+        filter_approval,
+    )
 
     if not organization:
         message = (
@@ -660,6 +692,7 @@ def breakfast(
         if refresh or refresh_prs:
             click.echo("🔄 Cache refreshed.", err=json_output)
 
+    before_filter = len(pr_details)
     pr_details = filter_pr_details(
         pr_details,
         ignore_author,
@@ -671,11 +704,22 @@ def breakfast(
         check_statuses=check_statuses,
         approval_statuses=approval_statuses,
     )
+    logger.info(
+        "filter_result before=%d after=%d",
+        before_filter,
+        len(pr_details),
+    )
     pr_details.sort(key=lambda pr: pr["base"]["repo"]["name"])
     if legendary_only:
         pr_details = [pr for pr in pr_details if is_legendary(pr)]
     if limit is not None:
         pr_details = pr_details[:limit]
+
+    logger.info(
+        "render format=%s row_count=%d",
+        "json" if json_output else "table",
+        len(pr_details),
+    )
 
     if json_output:
         json_data = []

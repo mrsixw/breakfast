@@ -5,6 +5,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .logger import logger
+
 
 def _get_cache_dir() -> Path:
     """Get the XDG-compliant cache directory."""
@@ -74,14 +76,30 @@ def read_graphql_cache(org: str, repo_filter: str, ttl: int) -> list | None:
     path = graphql_cache_path(org, repo_filter)
     try:
         if not path.exists():
+            logger.debug("cache_miss layer=graphql path=%s reason=file_not_found", path)
             return None
         data = json.loads(path.read_text())
         fetched_at = datetime.fromisoformat(data["fetched_at"])
         age = (datetime.now(timezone.utc) - fetched_at).total_seconds()
         if age > ttl:
+            logger.debug(
+                "cache_miss layer=graphql path=%s reason=expired age=%.0fs ttl=%ss",
+                path,
+                age,
+                ttl,
+            )
             return None
+        logger.debug(
+            "cache_hit layer=graphql path=%s age=%.0fs url_count=%d",
+            path,
+            age,
+            len(data["urls"]),
+        )
         return data["urls"]
     except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
+        logger.warning(
+            "cache_read_error layer=graphql path=%s error=%r", path, str(exc)
+        )
         print(f"Warning: failed to read GraphQL cache: {exc}", file=sys.stderr)
         return None
 
@@ -99,7 +117,13 @@ def write_graphql_cache(org: str, repo_filter: str, urls: list) -> None:
             "urls": urls,
         }
         path.write_text(json.dumps(payload))
+        logger.debug("cache_write layer=graphql path=%s url_count=%d", path, len(urls))
     except OSError as exc:
+        logger.warning(
+            "cache_write_error layer=graphql path=%s error=%r",
+            graphql_cache_path(org, repo_filter),
+            str(exc),
+        )
         print(f"Warning: failed to write GraphQL cache: {exc}", file=sys.stderr)
 
 
@@ -114,15 +138,31 @@ def read_pr_cache(org: str, repo_filter: str, ttl: int) -> dict | None:
     path = cache_path(org, repo_filter)
     try:
         if not path.exists():
+            logger.debug(
+                "cache_miss layer=pr_detail path=%s reason=file_not_found", path
+            )
             return None
         data = json.loads(path.read_text())
         fetched_at = datetime.fromisoformat(data["fetched_at"])
         age = (datetime.now(timezone.utc) - fetched_at).total_seconds()
         if age > ttl:
+            logger.debug(
+                "cache_miss layer=pr_detail path=%s reason=expired age=%.0fs ttl=%ss",
+                path,
+                age,
+                ttl,
+            )
             return None
         # JSON keys are always strings; convert back to int for PR IDs.
         raw_checks = data.get("check_statuses")
         raw_approvals = data.get("approval_statuses")
+        pr_count = len(data["prs"])
+        logger.debug(
+            "cache_hit layer=pr_detail path=%s age=%.0fs pr_count=%d",
+            path,
+            age,
+            pr_count,
+        )
         return {
             "prs": data["prs"],
             "check_statuses": (
@@ -137,6 +177,9 @@ def read_pr_cache(org: str, repo_filter: str, ttl: int) -> dict | None:
             ),
         }
     except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
+        logger.warning(
+            "cache_read_error layer=pr_detail path=%s error=%r", path, str(exc)
+        )
         print(f"Warning: failed to read PR cache: {exc}", file=sys.stderr)
         return None
 
@@ -167,5 +210,13 @@ def write_pr_cache(
                 str(k): v for k, v in approval_statuses.items()
             }
         path.write_text(json.dumps(payload))
+        logger.debug(
+            "cache_write layer=pr_detail path=%s pr_count=%d", path, len(pr_details)
+        )
     except OSError as exc:
+        logger.warning(
+            "cache_write_error layer=pr_detail path=%s error=%r",
+            cache_path(org, repo_filter),
+            str(exc),
+        )
         print(f"Warning: failed to write PR cache: {exc}", file=sys.stderr)

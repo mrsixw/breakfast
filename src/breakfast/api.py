@@ -5,6 +5,7 @@ import time
 import click
 import requests
 
+from .logger import logger
 from .ui import BREAKFAST_ITEMS
 
 GITHUB_API_URL = "https://api.github.com"
@@ -25,12 +26,37 @@ def make_github_api_request(query_string):
         if attempt:
             time.sleep(2 ** (attempt - 1) + random.uniform(0, 0.5))
         try:
+            t0 = time.monotonic()
             req = requests.get(url, headers=headers)
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
             if req.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES:
+                logger.debug(
+                    "api_call type=rest url=%s status=%d"
+                    " elapsed_ms=%d attempt=%d retrying",
+                    url,
+                    req.status_code,
+                    elapsed_ms,
+                    attempt + 1,
+                )
                 continue
             req.raise_for_status()
+            logger.debug(
+                "api_call type=rest url=%s status=%d elapsed_ms=%d",
+                url,
+                req.status_code,
+                elapsed_ms,
+            )
             return req.json()
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+        except (
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+        ) as exc:
+            logger.warning(
+                "api_call type=rest url=%s error=%r attempt=%d",
+                url,
+                str(exc),
+                attempt + 1,
+            )
             if attempt == _MAX_RETRIES:
                 raise
 
@@ -73,13 +99,26 @@ def make_github_graphql_request(query, variables={}):
         "Content-Type": "application/json",
     }
     payload = {"query": query, "variables": variables or {}}
+    t0 = time.monotonic()
     response = requests.post(GITHUB_GRAPHQL_URL, json=payload, headers=headers)
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
     response.raise_for_status()
 
     resp_json = response.json()
     if "errors" in resp_json:
+        logger.warning(
+            "api_call type=graphql status=%d elapsed_ms=%d errors=%r",
+            response.status_code,
+            elapsed_ms,
+            resp_json["errors"],
+        )
         raise ValueError(f"GraphQL request failed: {resp_json['errors']}")
 
+    logger.debug(
+        "api_call type=graphql status=%d elapsed_ms=%d",
+        response.status_code,
+        elapsed_ms,
+    )
     return response.json()
 
 

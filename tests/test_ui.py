@@ -9,7 +9,7 @@ from breakfast import ui
     [
         (5, "green"),
         (15, "yellow"),
-        (30, (255, 165, 0)),
+        (30, 208),
         (60, "red"),
     ],
 )

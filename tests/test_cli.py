@@ -1504,8 +1504,21 @@ def test_refresh_prs_writes_fresh_pr_cache(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_is_legendary_high_comment_count():
-    """A PR with 100+ total comments (comments + review_comments) is legendary."""
+def test_is_legendary_meets_both_conditions():
+    """A PR with 100+ comments AND open 30+ days is legendary."""
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 2, 15, tzinfo=timezone.utc)
+    pr = {
+        "comments": 80,
+        "review_comments": 20,
+        "created_at": "2026-01-01T00:00:00Z",  # 45 days old
+    }
+    assert cli.is_legendary(pr, now=now)
+
+
+def test_is_not_legendary_high_comments_but_fresh():
+    """100+ comments alone is not enough — must also be 30+ days old."""
     from datetime import datetime, timezone
 
     now = datetime(2026, 1, 15, tzinfo=timezone.utc)
@@ -1514,11 +1527,11 @@ def test_is_legendary_high_comment_count():
         "review_comments": 20,
         "created_at": "2026-01-14T00:00:00Z",  # only 1 day old
     }
-    assert cli.is_legendary(pr, now=now)
+    assert not cli.is_legendary(pr, now=now)
 
 
-def test_is_legendary_old_pr():
-    """A PR open for 30+ days is legendary regardless of comment count."""
+def test_is_not_legendary_old_but_few_comments():
+    """30+ days open alone is not enough — must also have 100+ comments."""
     from datetime import datetime, timezone
 
     now = datetime(2026, 2, 15, tzinfo=timezone.utc)
@@ -1527,7 +1540,7 @@ def test_is_legendary_old_pr():
         "review_comments": 0,
         "created_at": "2026-01-01T00:00:00Z",  # 45 days old
     }
-    assert cli.is_legendary(pr, now=now)
+    assert not cli.is_legendary(pr, now=now)
 
 
 def test_is_not_legendary_fresh_few_comments():
@@ -1543,27 +1556,14 @@ def test_is_not_legendary_fresh_few_comments():
     assert not cli.is_legendary(pr, now=now)
 
 
-def test_is_legendary_exactly_at_comment_threshold():
-    """Exactly 100 total comments triggers legendary."""
-    from datetime import datetime, timezone
-
-    now = datetime(2026, 1, 15, tzinfo=timezone.utc)
-    pr = {
-        "comments": 60,
-        "review_comments": 40,
-        "created_at": "2026-01-14T00:00:00Z",
-    }
-    assert cli.is_legendary(pr, now=now)
-
-
-def test_is_legendary_exactly_at_age_threshold():
-    """Exactly 30 days old triggers legendary."""
+def test_is_legendary_exactly_at_both_thresholds():
+    """Exactly 100 comments AND exactly 30 days old triggers legendary."""
     from datetime import datetime, timezone
 
     now = datetime(2026, 2, 9, tzinfo=timezone.utc)
     pr = {
-        "comments": 0,
-        "review_comments": 0,
+        "comments": 60,
+        "review_comments": 40,
         "created_at": "2026-01-10T00:00:00Z",  # exactly 30 days
     }
     assert cli.is_legendary(pr, now=now)
@@ -1575,12 +1575,12 @@ def test_cli_legendary_flag_annotates_state(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
 
-    # A PR that qualifies as legendary (very old)
+    # A PR that qualifies as legendary (very old AND many comments)
     legendary_pr = {
         **_make_pr_detail(1),
         "title": "Ancient PR",
-        "comments": 0,
-        "review_comments": 0,
+        "comments": 60,
+        "review_comments": 40,
         "created_at": "2025-01-01T00:00:00Z",
     }
 
@@ -1659,8 +1659,8 @@ def test_cli_legendary_only_implies_legendary_marking(monkeypatch):
     legendary_pr = {
         **_make_pr_detail(1),
         "title": "Ancient PR",
-        "comments": 0,
-        "review_comments": 0,
+        "comments": 60,
+        "review_comments": 40,
         "created_at": "2025-01-01T00:00:00Z",
     }
 

@@ -220,14 +220,13 @@ _LEGENDARY_EMOJI = "⚔️"
 def is_legendary(pr_detail, now=None):
     """Return True if a PR qualifies as legendary.
 
-    A PR is legendary if it has 100+ total comments or has been open 30+ days.
+    A PR is legendary if it has 100+ total comments AND has been open 30+ days.
     """
     total_comments = pr_detail.get("comments", 0) + pr_detail.get("review_comments", 0)
-    if total_comments >= _LEGENDARY_COMMENT_THRESHOLD:
-        return True
-    if get_pr_age_days(pr_detail, now=now) >= _LEGENDARY_AGE_THRESHOLD_DAYS:
-        return True
-    return False
+    return (
+        total_comments >= _LEGENDARY_COMMENT_THRESHOLD
+        and get_pr_age_days(pr_detail, now=now) >= _LEGENDARY_AGE_THRESHOLD_DAYS
+    )
 
 
 @click.command()
@@ -360,7 +359,7 @@ def is_legendary(pr_detail, now=None):
     "--legendary/--no-legendary",
     default=None,
     help=(
-        "Append ⚔️ to the state of PRs with 100+ comments or open 30+ days."
+        "Append ⚔️ to the state of PRs with 100+ comments and open 30+ days."
         " Off by default."
     ),
 )
@@ -369,7 +368,7 @@ def is_legendary(pr_detail, now=None):
     is_flag=True,
     default=False,
     help=(
-        "Show only legendary PRs (100+ comments or open 30+ days)."
+        "Show only legendary PRs (100+ comments and open 30+ days)."
         " Implies --legendary."
     ),
 )

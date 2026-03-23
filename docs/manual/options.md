@@ -260,7 +260,7 @@ status-style = "ascii"
 
 ### `--legendary`
 
-Mark legendary PRs with a ⚔️ appended to their **State** column. A PR earns legendary status if it meets **either** of these criteria:
+Mark legendary PRs with a ⚔️ appended to their **State** column. A PR earns legendary status if it meets **both** of these criteria:
 
 - **100 or more total comments** (PR-level comments + inline review comments combined)
 - **Open for 30 or more days**
@@ -290,7 +290,7 @@ legendary = true
 
 ### `--legendary-only`
 
-Show **only** legendary PRs — those with 100+ comments or open 30+ days. Non-legendary PRs are filtered out entirely. Implies `--legendary` (the ⚔️ marker is always shown when this filter is active).
+Show **only** legendary PRs — those with 100+ comments **and** open 30+ days. Non-legendary PRs are filtered out entirely. Implies `--legendary` (the ⚔️ marker is always shown when this filter is active).
 
 ```bash
 breakfast -o my-org -r platform --legendary-only

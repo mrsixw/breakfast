@@ -46,7 +46,7 @@ def click_colour_grade_number(num):
     elif num < 20:
         colour = "yellow"
     elif num < 50:
-        colour = (255, 165, 0)  # orange
+        colour = 208  # orange (256-colour)
     return click.style(str(num), fg=colour, bold=True)
 
 
@@ -72,6 +72,33 @@ def format_check_status(status, style="emoji"):
             "fail": ("red", "fail"),
             "pending": ("yellow", "pending"),
             "none": ("white", "none"),
+        },
+    }
+    style_map = styles.get(style, styles["emoji"])
+    colour, text = style_map.get(status, ("white", status))
+    return click.style(text, fg=colour, bold=True)
+
+
+def format_approval_status(status, style="emoji"):
+    """Return a colour-coded approval status label for table output.
+
+    Args:
+        status: Canonical approval status — ``approved``, ``changes``, or ``pending``.
+        style: Rendering style, either ``emoji`` or ``ascii``.
+
+    Returns:
+        A styled label in the requested style.
+    """
+    styles = {
+        "emoji": {
+            "approved": ("green", "✅ approved"),
+            "changes": ("red", "❌ changes"),
+            "pending": ("yellow", "⏳ pending"),
+        },
+        "ascii": {
+            "approved": ("green", "approved"),
+            "changes": ("red", "changes"),
+            "pending": ("yellow", "pending"),
         },
     }
     style_map = styles.get(style, styles["emoji"])

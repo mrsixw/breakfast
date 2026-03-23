@@ -43,10 +43,22 @@ def _fetch_pr_detail(pr_url):
 
 
 def make_paginated_github_api_requst(query_string, rate=100):
+    """Fetch a paginated GitHub REST resource.
+
+    Args:
+        query_string: API path relative to ``GITHUB_API_URL``.
+        rate: Number of items to request per page.
+
+    Returns:
+        list: Aggregated items from every page until a short page is returned.
+    """
     page, returned = 1, rate
     all_data = []
     while returned >= rate:
-        paginated_string = "{}&page={}&per_page={}".format(query_string, page, rate)
+        separator = "&" if "?" in query_string else "?"
+        paginated_string = "{}{}page={}&per_page={}".format(
+            query_string, separator, page, rate
+        )
         data = make_github_api_request(paginated_string)
         returned = len(data)
         page = page + 1
@@ -122,6 +134,37 @@ def get_authenticated_user_login():
     if not login:
         raise ValueError("Unable to determine authenticated GitHub user login.")
     return login
+
+
+def get_approval_status(owner, repo, pr_number):
+    """Get the aggregate approval status for a PR.
+
+    Uses the most recent review per reviewer, mirroring GitHub's UI logic:
+    - ``approved``  — at least one APPROVED review, no CHANGES_REQUESTED
+    - ``changes``   — at least one reviewer has requested changes
+    - ``pending``   — no qualifying reviews yet
+    """
+    reviews = make_paginated_github_api_requst(
+        f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
+    )
+
+    if not reviews:
+        return "pending"
+
+    # Keep only the most recent qualifying review state per reviewer
+    latest_by_reviewer = {}
+    for review in reviews:
+        reviewer = review.get("user", {}).get("login")
+        state = review.get("state")
+        if reviewer and state in ("APPROVED", "CHANGES_REQUESTED"):
+            latest_by_reviewer[reviewer] = state
+
+    states = set(latest_by_reviewer.values())
+    if "CHANGES_REQUESTED" in states:
+        return "changes"
+    if "APPROVED" in states:
+        return "approved"
+    return "pending"
 
 
 def get_check_status(owner, repo, sha):

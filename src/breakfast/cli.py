@@ -12,6 +12,7 @@ from tabulate import tabulate
 from .api import (
     SECRET_GITHUB_TOKEN,
     _fetch_pr_detail,
+    get_approval_status,
     get_authenticated_user_login,
     get_check_status,
     get_github_prs,
@@ -27,6 +28,7 @@ from .config import filter_pr_details, generate_default_config, load_config
 from .ui import (
     BREAKFAST_ITEMS,
     click_colour_grade_number,
+    format_approval_status,
     format_check_status,
     format_mergeable_status,
     generate_terminal_url_anchor,
@@ -34,7 +36,16 @@ from .ui import (
 from .updater import check_for_update
 
 # Columns dropped as last resort (least important first)
-_DROPPABLE_COLUMNS = ["State", "Commits", "Files", "+/-", "Cmt", "Age", "Checks"]
+_DROPPABLE_COLUMNS = [
+    "State",
+    "Commits",
+    "Files",
+    "+/-",
+    "Cmt",
+    "Age",
+    "Checks",
+    "Apr",
+]
 
 _ANSI_RE = re.compile(r"\x1b(?:\[[0-9;]*[mK]|\]8;;[^\x1b]*\x1b\\)")
 
@@ -123,6 +134,15 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     if fits():
         return pr_data
 
+    # 4b. Rename "Mergeable?" → "Mrg" (shorter header)
+    if "Mergeable?" in pr_data[0]:
+        pr_data = [
+            {("Mrg" if k == "Mergeable?" else k): v for k, v in row.items()}
+            for row in pr_data
+        ]
+    if fits():
+        return pr_data
+
     # 5. Compress Checks: "✅ pass" → "✅", "pending" → "pending"
     if "Checks" in pr_data[0]:
         pr_data = [
@@ -131,10 +151,28 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     if fits():
         return pr_data
 
+    # 5b. Compress Approved: "✅ approved" → "✅", "⏳ pending" → "⏳"
+    if "Approved" in pr_data[0]:
+        pr_data = [
+            {**row, "Approved": _strip_ansi(row["Approved"]).split()[0]}
+            for row in pr_data
+        ]
+    if fits():
+        return pr_data
+
     # 6. Rename "Comments" → "Cmt" (shorter header)
     if "Comments" in pr_data[0]:
         pr_data = [
             {("Cmt" if k == "Comments" else k): v for k, v in row.items()}
+            for row in pr_data
+        ]
+    if fits():
+        return pr_data
+
+    # 6b. Rename "Approved" → "Apr" (shorter header)
+    if "Approved" in pr_data[0]:
+        pr_data = [
+            {("Apr" if k == "Approved" else k): v for k, v in row.items()}
             for row in pr_data
         ]
     if fits():
@@ -235,6 +273,11 @@ def is_legendary(pr_detail, now=None):
     help="Include a checks column showing CI/check status for each PR.",
 )
 @click.option(
+    "--approvals/--no-approvals",
+    default=None,
+    help="Include an approvals column showing review approval status for each PR.",
+)
+@click.option(
     "--status-style",
     type=click.Choice(["emoji", "ascii"], case_sensitive=False),
     default=None,
@@ -269,16 +312,21 @@ def is_legendary(pr_detail, now=None):
     ),
 )
 @click.option(
-    "--no-cache",
-    is_flag=True,
-    default=False,
-    help="Skip reading and writing the PR cache; always fetch fresh.",
+    "--cache/--no-cache",
+    default=None,
+    help=(
+        "Enable disk cache for PR results."
+        " Off by default; use --cache or set cache = true in config."
+    ),
 )
 @click.option(
     "--refresh",
     is_flag=True,
     default=False,
-    help="Ignore the cache for this run but write fresh results back to it.",
+    help=(
+        "Ignore the cache for this run but write fresh results back to it."
+        " Requires --cache or cache = true in config."
+    ),
 )
 @click.option(
     "--refresh-prs",
@@ -287,7 +335,26 @@ def is_legendary(pr_detail, now=None):
     help=(
         "Re-fetch PR details using the cached repo list."
         " Faster than --refresh when only PR state has changed."
+        " Requires --cache or cache = true in config."
     ),
+)
+@click.option(
+    "--filter-state",
+    type=click.Choice(["open", "closed"], case_sensitive=False),
+    multiple=True,
+    help="Only show PRs with this state. Repeat for multiple values.",
+)
+@click.option(
+    "--filter-check",
+    type=click.Choice(["pass", "fail", "pending", "none"], case_sensitive=False),
+    multiple=True,
+    help="Only show PRs with this CI check result. Repeat for multiple values.",
+)
+@click.option(
+    "--filter-approval",
+    type=click.Choice(["approved", "pending", "changes"], case_sensitive=False),
+    multiple=True,
+    help="Only show PRs with this review approval status. Repeat for multiple values.",
 )
 @click.option(
     "--legendary/--no-legendary",
@@ -319,14 +386,18 @@ def breakfast(
     age,
     json_output,
     checks,
+    approvals,
     status_style,
     limit,
     max_title_length,
     no_update_check,
     cache_ttl,
-    no_cache,
+    cache,
     refresh,
     refresh_prs,
+    filter_state,
+    filter_check,
+    filter_approval,
     legendary,
     legendary_only,
 ):
@@ -350,6 +421,7 @@ def breakfast(
     if json_output is None:
         json_output = cfg.get("format") == "json"
     checks = checks if checks is not None else cfg.get("checks", False)
+    approvals = approvals if approvals is not None else cfg.get("approvals", False)
     if status_style is None:
         status_style = str(cfg.get("status-style", "emoji")).lower()
     max_title_length = (
@@ -363,6 +435,30 @@ def breakfast(
     legendary_only = legendary_only or cfg.get("legendary-only", False)
     if legendary_only:
         legendary = True  # --legendary-only implies marking
+
+    # Cache is opt-in: CLI flag > config > default off.
+    cache_enabled = cache if cache is not None else cfg.get("cache", False)
+
+    if refresh and not cache_enabled:
+        click.echo(
+            click.style(
+                "Error: --refresh requires the cache to be enabled."
+                " Pass --cache or set cache = true in config.",
+                fg="red",
+                bold=True,
+            )
+        )
+        sys.exit(1)
+    if refresh_prs and not cache_enabled:
+        click.echo(
+            click.style(
+                "Error: --refresh-prs requires the cache to be enabled."
+                " Pass --cache or set cache = true in config.",
+                fg="red",
+                bold=True,
+            )
+        )
+        sys.exit(1)
 
     # Resolve effective cache TTL: CLI > config > default 300
     raw_ttl = cache_ttl if cache_ttl is not None else cfg.get("cache-ttl", 300)
@@ -383,12 +479,16 @@ def breakfast(
             "age": age,
             "json": json_output,
             "checks": checks,
+            "approvals": approvals,
             "status-style": status_style,
             "max-title-length": max_title_length,
+            "cache": cache_enabled,
             "cache-ttl": cache_ttl_seconds,
-            "no-cache": no_cache,
             "refresh": refresh,
             "refresh-prs": refresh_prs,
+            "filter-state": filter_state,
+            "filter-check": filter_check,
+            "filter-approval": filter_approval,
             "legendary": legendary,
             "legendary-only": legendary_only,
         }
@@ -417,19 +517,28 @@ def breakfast(
 
     # --- Layer 1: full PR detail cache (skip on --refresh or --refresh-prs) ---
     pr_details = None
-    if not no_cache and not refresh and not refresh_prs:
-        pr_details = read_pr_cache(organization, repo_filter, cache_ttl_seconds)
+    cached_check_statuses = None
+    cached_approval_statuses = None
+    needs_cache_write = False
+    if cache_enabled and not refresh and not refresh_prs:
+        cache_result = read_pr_cache(organization, repo_filter, cache_ttl_seconds)
+        if cache_result is not None:
+            pr_details = cache_result["prs"]
+            cached_check_statuses = cache_result["check_statuses"]
+            cached_approval_statuses = cache_result["approval_statuses"]
 
     if pr_details is None:
         # --- Layer 2: GraphQL URL list cache (skip only on --refresh) ---
         prs = None
-        if not no_cache and not refresh:
+        if cache_enabled and not refresh:
             prs = read_graphql_cache(organization, repo_filter, cache_ttl_seconds)
 
         if prs is None:
             prs = get_github_prs(organization, repo_filter)
-            if not no_cache:
+            if cache_enabled:
                 write_graphql_cache(organization, repo_filter, prs)
+        else:
+            click.echo(f"Fetching {organization} PRs...⚡...Done", err=json_output)
 
         pr_details = []
         failed_urls = []
@@ -460,40 +569,93 @@ def breakfast(
                 f" after retries: {examples}{suffix}"
             )
             click.echo(click.style(msg, fg="yellow"), err=True)
-        if not no_cache:
-            write_pr_cache(organization, repo_filter, pr_details)
-            if refresh or refresh_prs:
-                click.echo("🔄 Cache refreshed.", err=json_output)
+        if cache_enabled:
+            needs_cache_write = True
     else:
         click.echo(f"Processing {repo_filter} PRs...⚡...Done", err=json_output)
+    # --filter-check implies --checks (we need the data to filter on)
+    if filter_check:
+        checks = True
+
+    # Fetch check statuses before filtering so --filter-check can use them.
+    # When --checks is enabled without --filter-check we still fetch here
+    # so the column is populated for the final display.
+    # Use cached statuses when available to avoid redundant API calls.
+    check_statuses = {}
+    if checks and pr_details:
+        if cached_check_statuses is not None:
+            check_statuses = cached_check_statuses
+        else:
+            max_workers = min(8, len(pr_details))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                check_futures = []
+                for pr_detail in pr_details:
+                    owner = pr_detail["base"]["repo"]["owner"]["login"]
+                    repo_name = pr_detail["base"]["repo"]["name"]
+                    sha = pr_detail["head"]["sha"]
+                    future = executor.submit(get_check_status, owner, repo_name, sha)
+                    check_futures.append((pr_detail["id"], future))
+            for pr_id, future in check_futures:
+                try:
+                    check_statuses[pr_id] = future.result()
+                except requests.exceptions.RequestException:
+                    check_statuses[pr_id] = "none"
+            needs_cache_write = True
+
+    # --filter-approval implies fetching approval data (same as --approvals)
+    if filter_approval:
+        approvals = True
+
+    approval_statuses = {}
+    if approvals and pr_details:
+        if cached_approval_statuses is not None:
+            approval_statuses = cached_approval_statuses
+        else:
+            max_workers = min(8, len(pr_details))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                approval_futures = []
+                for pr_detail in pr_details:
+                    owner = pr_detail["base"]["repo"]["owner"]["login"]
+                    repo_name = pr_detail["base"]["repo"]["name"]
+                    pr_number = pr_detail["number"]
+                    future = executor.submit(
+                        get_approval_status, owner, repo_name, pr_number
+                    )
+                    approval_futures.append((pr_detail["id"], future))
+            for pr_id, future in approval_futures:
+                try:
+                    approval_statuses[pr_id] = future.result()
+                except requests.exceptions.RequestException:
+                    approval_statuses[pr_id] = "pending"
+            needs_cache_write = True
+
+    if needs_cache_write:
+        write_pr_cache(
+            organization,
+            repo_filter,
+            pr_details,
+            check_statuses=check_statuses or None,
+            approval_statuses=approval_statuses or None,
+        )
+        if refresh or refresh_prs:
+            click.echo("🔄 Cache refreshed.", err=json_output)
+
     pr_details = filter_pr_details(
         pr_details,
         ignore_author,
         mine_only=mine_only,
         current_user_login=current_user_login,
+        filter_state=filter_state,
+        filter_check=filter_check,
+        filter_approval=filter_approval,
+        check_statuses=check_statuses,
+        approval_statuses=approval_statuses,
     )
     pr_details.sort(key=lambda pr: pr["base"]["repo"]["name"])
     if legendary_only:
         pr_details = [pr for pr in pr_details if is_legendary(pr)]
     if limit is not None:
         pr_details = pr_details[:limit]
-
-    check_statuses = {}
-    if checks and pr_details:
-        max_workers = min(8, len(pr_details))
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            check_futures = []
-            for pr_detail in pr_details:
-                owner = pr_detail["base"]["repo"]["owner"]["login"]
-                repo_name = pr_detail["base"]["repo"]["name"]
-                sha = pr_detail["head"]["sha"]
-                future = executor.submit(get_check_status, owner, repo_name, sha)
-                check_futures.append((pr_detail["id"], future))
-        for pr_id, future in check_futures:
-            try:
-                check_statuses[pr_id] = future.result()
-            except requests.exceptions.RequestException:
-                check_statuses[pr_id] = "none"
 
     if json_output:
         json_data = []
@@ -520,6 +682,8 @@ def breakfast(
             }
             if checks:
                 entry["checks"] = check_statuses.get(pr_detail["id"], "none")
+            if approvals:
+                entry["approval"] = approval_statuses.get(pr_detail["id"], "pending")
             json_data.append(entry)
         click.echo(json.dumps(json_data, indent=2))
         if not no_update_check:
@@ -551,6 +715,11 @@ def breakfast(
         if checks:
             row["Checks"] = format_check_status(
                 check_statuses.get(pr_detail["id"], "none"),
+                style=status_style,
+            )
+        if approvals:
+            row["Approved"] = format_approval_status(
+                approval_statuses.get(pr_detail["id"], "pending"),
                 style=status_style,
             )
         row["Mergeable?"] = format_mergeable_status(

@@ -551,6 +551,141 @@ def test_cli_json_excludes_checks_by_default(monkeypatch):
     assert "checks" not in data[0]
 
 
+def _make_pr_detail(number=1, owner="org", repo="repo", pr_id=1001):
+    return {
+        "base": {
+            "repo": {
+                "name": repo,
+                "owner": {"login": owner},
+            }
+        },
+        "head": {"sha": "abc123"},
+        "mergeable": True,
+        "mergeable_state": "clean",
+        "additions": 5,
+        "deletions": 2,
+        "title": "Test PR",
+        "user": {"login": "alice"},
+        "state": "open",
+        "changed_files": 1,
+        "commits": 1,
+        "review_comments": 0,
+        "created_at": "2026-01-10T00:00:00Z",
+        "updated_at": "2026-01-11T00:00:00Z",
+        "html_url": f"https://github.com/{owner}/{repo}/pull/{number}",
+        "number": number,
+        "id": pr_id,
+        "labels": [],
+        "requested_reviewers": [],
+        "draft": False,
+    }
+
+
+def test_cli_outputs_approvals_column(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    pr_detail = _make_pr_detail()
+
+    def fake_get_prs(_org, _repo_filter):
+        return ["https://github.com/org/repo/pull/1"]
+
+    def fake_api_request(path):
+        if "/reviews" in path:
+            return [{"user": {"login": "bob"}, "state": "APPROVED"}]
+        return pr_detail
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--approvals"])
+
+    assert result.exit_code == 0
+    assert "Approved" in result.output
+    assert "✅ approved" in result.output
+
+
+def test_cli_approvals_not_shown_by_default(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    pr_detail = _make_pr_detail()
+
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _path: pr_detail)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert "Approved" not in result.output
+
+
+def test_cli_json_includes_approval_when_enabled(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    pr_detail = _make_pr_detail()
+
+    def fake_api_request(path):
+        if "/reviews" in path:
+            return [{"user": {"login": "bob"}, "state": "CHANGES_REQUESTED"}]
+        return pr_detail
+
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--json", "--approvals"]
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.output[result.output.index("[") :])
+    assert data[0]["approval"] == "changes"
+
+
+def test_cli_json_excludes_approval_by_default(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    pr_detail = _make_pr_detail()
+
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _path: pr_detail)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.output[result.output.index("[") :])
+    assert "approval" not in data[0]
+
+
+def test_cli_approvals_config_file(tmp_path):
+    cfg_path = tmp_path / "breakfast.toml"
+    cfg_path.write_text(
+        'organization = "org"\nrepo-filter = "repo"\napprovals = true\n'
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--config", str(cfg_path), "--show-config"])
+
+    assert result.exit_code == 0
+    assert "approvals: True" in result.output
+
+
 def test_no_update_check_flag_skips_update(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
@@ -939,6 +1074,16 @@ def test_auto_fit_compresses_mergeable_before_dropping(monkeypatch):
     assert "(clean)" not in result.output
 
 
+def test_auto_fit_renames_mergeable_to_mrg(monkeypatch):
+    rows = [{"Mergeable?": "✅", "PR Title": "x", "Repo": "r", "Author": "a"}]
+    # Set terminal width just narrow enough to trigger step 4b but not step 5+
+    width = cli._table_width(rows) - 1
+    result = cli._auto_fit(rows, width, explicit_max_title_length=None)
+    keys = list(result[0].keys())
+    assert "Mrg" in keys
+    assert "Mergeable?" not in keys
+
+
 def test_auto_fit_drops_columns_when_very_narrow(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
@@ -1061,7 +1206,7 @@ def test_cache_hit_skips_get_github_prs(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "get_github_prs", lambda *a: api_called.append(1) or [])
 
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--cache"])
 
     assert result.exit_code == 0
     assert len(api_called) == 0, "get_github_prs should not be called on a cache hit"
@@ -1133,8 +1278,10 @@ def test_config_cache_ttl_respected(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
 
-    # Simulate config returning cache-ttl = "5m"
-    monkeypatch.setattr(cli, "load_config", lambda _: {"cache-ttl": "5m"})
+    # Simulate config returning cache = true and cache-ttl = "5m"
+    monkeypatch.setattr(
+        cli, "load_config", lambda _: {"cache": True, "cache-ttl": "5m"}
+    )
 
     cache.write_pr_cache("org", "repo", [_make_pr_detail(7)])
 
@@ -1201,12 +1348,34 @@ def test_pr_results_grouped_by_repo(monkeypatch, tmp_path):
     cache.write_pr_cache("org", "svc", prs)
 
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "svc"])
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "svc", "--cache"])
 
     assert result.exit_code == 0
     alpha_pos = result.output.index("alpha-service")
     zebra_pos = result.output.index("zebra-service")
     assert alpha_pos < zebra_pos, "repos should appear in alphabetical order"
+
+
+def test_refresh_without_cache_exits_with_error(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh"])
+
+    assert result.exit_code == 1
+    assert "requires the cache to be enabled" in result.output
+    assert "--cache" in result.output
+
+
+def test_refresh_prs_without_cache_exits_with_error(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh-prs"])
+
+    assert result.exit_code == 1
+    assert "requires the cache to be enabled" in result.output
+    assert "--cache" in result.output
 
 
 def test_refresh_ignores_cache_and_writes_fresh(monkeypatch, tmp_path):
@@ -1231,7 +1400,9 @@ def test_refresh_ignores_cache_and_writes_fresh(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_detail(1))
 
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh"])
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--cache", "--refresh"]
+    )
 
     assert result.exit_code == 0
     assert len(api_called) == 1, "--refresh should always fetch fresh"
@@ -1239,7 +1410,7 @@ def test_refresh_ignores_cache_and_writes_fresh(monkeypatch, tmp_path):
     # Cache should now contain fresh data
     cached = cache.read_pr_cache("org", "repo", 300)
     assert cached is not None
-    assert cached[0]["number"] == 1
+    assert cached["prs"][0]["number"] == 1
 
 
 def test_refresh_does_not_use_cached_data(monkeypatch, tmp_path):
@@ -1259,7 +1430,9 @@ def test_refresh_does_not_use_cached_data(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_detail(1))
 
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh"])
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--cache", "--refresh"]
+    )
 
     assert result.exit_code == 0
     assert "PR number 99" not in result.output, "stale cached PR should not appear"
@@ -1290,7 +1463,9 @@ def test_refresh_prs_uses_graphql_cache_skips_pr_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_detail(1))
 
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh-prs"])
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--cache", "--refresh-prs"]
+    )
 
     assert result.exit_code == 0
     assert len(graphql_called) == 0, "--refresh-prs should use cached GraphQL result"
@@ -1316,7 +1491,9 @@ def test_refresh_prs_writes_fresh_pr_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_detail(1))
 
     runner = CliRunner()
-    runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh-prs"])
+    runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--cache", "--refresh-prs"]
+    )
 
     cached = cache.read_pr_cache("org", "repo", 300)
     assert cached is not None, "--refresh-prs should write fresh data to PR cache"

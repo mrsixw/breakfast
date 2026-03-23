@@ -53,6 +53,36 @@ With `--ignore-author dependabot[bot]`, the bot PR is excluded:
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
 ```
 
+### `--filter-state`
+
+Only show PRs with a specific state. Accepted values: `open`, `closed`. Repeat the flag to match multiple states.
+
+```bash
+breakfast -o my-org -r my-app --filter-state open                          # open PRs only
+breakfast -o my-org -r my-app --filter-state open --filter-state closed    # both states
+```
+
+### `--filter-check`
+
+Only show PRs whose CI check result matches the given value. Accepted values: `pass`, `fail`, `pending`, `none`. Repeat the flag to match multiple results. Automatically enables the `--checks` column.
+
+```bash
+breakfast -o my-org -r my-app --filter-check fail                        # failing checks only
+breakfast -o my-org -r my-app --filter-check fail --filter-check pending  # failing or in-progress
+```
+
+### `--filter-approval`
+
+Only show PRs with a specific review approval status. Accepted values: `approved`, `pending`, `changes`. Repeat the flag to match multiple statuses.
+
+```bash
+breakfast -o my-org -r my-app --filter-approval approved                           # fully approved PRs
+breakfast -o my-org -r my-app --filter-approval changes                            # PRs with changes requested
+breakfast -o my-org -r my-app --filter-approval pending --filter-approval changes  # needs attention
+```
+
+> **Note:** Review and check statuses are cached alongside PR details, so repeated runs with these flags skip redundant API calls.
+
 ### `--mine-only`
 
 Show only PRs authored by the currently authenticated GitHub user (determined from `GITHUB_TOKEN`).
@@ -169,17 +199,58 @@ With `--json --checks`, a `"checks"` field is included in each PR object:
 }
 ```
 
+### `--approvals`
+
+Show review approval status for each PR. This is opt-in because it requires an additional API call per PR.
+
+```
+$ breakfast -o my-org -r platform --approvals
+Fetching my-org PRs...🥐...Done
+Processing platform PRs...🍩🧇...Done
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------------+--------+
+|         | Repo           | PR Title        | Author | State   | Files | Commits |    +/-     | Comments | Approved     | Mergeable?   | Link   |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------------+--------+
+|       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | ✅ approved  | ✅ (clean)   | PR-142 |
+|       1 | platform-api   | Fix login bug   | bob    | open    |   1   |    1    |  +5/-2     |    3     | ❌ changes   | ✅ (clean)   | PR-138 |
+|       2 | platform-ui    | Update nav bar  | carol  | open    |  12   |    4    |  +280/-95  |    1     | ⏳ pending   | ❌ (dirty)   | PR-87  |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------------+--------+
+```
+
+Approval values:
+- **✅ approved** (green) — at least one reviewer has approved and no changes are requested
+- **❌ changes** (red) — at least one reviewer has requested changes
+- **⏳ pending** (yellow) — no qualifying reviews yet
+
+The most recent review per reviewer is used, mirroring GitHub's own UI logic.
+
+Can also be set in the config file:
+
+```toml
+approvals = true
+```
+
+With `--json --approvals`, an `"approval"` field is included in each PR object:
+
+```json
+{
+  "repo": "platform-api",
+  "title": "Add user search",
+  "approval": "approved",
+  ...
+}
+```
+
 ### `--status-style`
 
-Choose how the `Checks` and `Mergeable?` columns are rendered in table output.
+Choose how the `Checks`, `Approved`, and `Mergeable?` columns are rendered in table output.
 
 ```bash
 breakfast -o my-org -r platform --checks --status-style ascii
 ```
 
 Supported values:
-- `emoji` - default whimsical output, such as `✅ pass` and `❌ (dirty)`
-- `ascii` - terminal-safe fallback, such as `pass` and `no (dirty)`
+- `emoji` - default whimsical output, such as `✅ pass`, `✅ approved`, and `❌ (dirty)`
+- `ascii` - terminal-safe fallback, such as `pass`, `approved`, and `no (dirty)`
 
 This is also available in config:
 
@@ -241,9 +312,12 @@ The table is compressed progressively, in order of least impact:
 2. **Repo** name is trimmed
 3. **Author** name is trimmed
 4. **Mergeable?** reason is dropped (`"✅ (clean)"` → `"✅"`)
+4b. **Mergeable?** header is shortened to `"Mrg"`
 5. **Checks** label is dropped (`"✅ pass"` → `"✅"`)
+5b. **Approved** label is dropped (`"✅ approved"` → `"✅"`)
 6. **Comments** header is shortened to `"Cmt"`
-7. Low-priority columns are dropped entirely: State, Commits, Files, +/-, Cmt, Age, Checks
+6b. **Approved** header is shortened to `"Apr"`
+7. Low-priority columns are dropped entirely: State, Commits, Files, +/-, Cmt, Age, Checks, Approved/Apr
 
 Auto-fit is a no-op when output is piped or redirected (not a TTY), so `--json` and scripting workflows are unaffected.
 
@@ -283,13 +357,30 @@ max-title-length = 72
 
 ## Caching options
 
-### `--cache-ttl`
+The disk cache is **off by default**. Enable it with `--cache` or `cache = true` in config. Once enabled, results are stored in `~/.cache/breakfast/` (or `$XDG_CACHE_HOME/breakfast/`) and reused until the TTL expires.
 
-How long PR results are cached on disk before a fresh fetch is made. Accepts a bare number of seconds or a human-friendly suffix: `30s`, `5m`, `2h`. Defaults to `300` (5 minutes).
+### `--cache` / `--no-cache`
+
+Enable or disable the disk cache. Off by default. Use `--cache` to turn it on for a single run, or set `cache = true` in config to make it permanent. `--no-cache` overrides `cache = true` in config for that run.
 
 ```bash
-breakfast -o my-org -r my-app --cache-ttl 10m   # cache for 10 minutes
-breakfast -o my-org -r my-app --cache-ttl 3600   # cache for 1 hour (in seconds)
+breakfast -o my-org -r my-app --cache       # enable cache for this run
+breakfast -o my-org -r my-app --no-cache    # disable cache even if set in config
+```
+
+Can also be set in the config file:
+
+```toml
+cache = true
+```
+
+### `--cache-ttl`
+
+How long cached PR results are considered fresh. Accepts a bare number of seconds or a human-friendly suffix: `30s`, `5m`, `2h`. Defaults to `300` (5 minutes). Only relevant when caching is enabled.
+
+```bash
+breakfast -o my-org -r my-app --cache --cache-ttl 10m   # cache for 10 minutes
+breakfast -o my-org -r my-app --cache --cache-ttl 3600   # cache for 1 hour
 ```
 
 Can also be set in the config file:
@@ -298,44 +389,29 @@ Can also be set in the config file:
 cache-ttl = "5m"
 ```
 
-The cache is stored in `~/.cache/breakfast/` (or `$XDG_CACHE_HOME/breakfast/`). Each `(organization, repo-filter)` pair gets its own cache file, keyed by a hash of those values.
-
-### `--no-cache`
-
-Skip reading and writing the disk cache entirely — always fetches fresh from the GitHub API.
-
-```bash
-breakfast -o my-org -r my-app --no-cache
-```
-
-Useful when you need up-to-the-minute data and don't want to wait for the TTL to expire. Note that CI check statuses (`--checks`) are always fetched fresh regardless of cache state.
-
 ### `--refresh`
 
-Ignore the current cache for this run, fetch fresh data, and write the results back to the cache. Subsequent runs within the TTL will be served from the freshly updated cache.
+Fetch fresh data and write it to the cache, ignoring whatever is already cached. Requires `--cache` (or `cache = true` in config) — exits with an error if the cache is not enabled. Subsequent runs within the TTL will be served from the freshly updated cache.
 
 ```bash
-breakfast -o my-org -r my-app --refresh
+breakfast -o my-org -r my-app --cache --refresh
 ```
-
-Unlike `--no-cache`, the cache is still updated — so `--refresh` is the right choice when you know something has changed and want the next run to be fast again. Use `--no-cache` only when you want to bypass caching entirely.
 
 ### `--refresh-prs`
 
-Re-fetch PR details (comments, CI status, merge state) using the cached repo list, then write the fresh results back to the cache.
+Re-fetch PR details (comments, CI status, merge state) using the cached repo list, then write the fresh results back to the cache. Requires `--cache` (or `cache = true` in config) — exits with an error if the cache is not enabled. Faster than `--refresh` when you know the set of open PRs hasn't changed.
 
 ```bash
-breakfast -o my-org -r my-app --refresh-prs
+breakfast -o my-org -r my-app --cache --refresh-prs
 ```
 
-Faster than `--refresh` when you know the set of open PRs hasn't changed — for example, no PRs have been opened or closed, but you want to see updated review comments or merge status. The GraphQL discovery call is skipped; only the per-PR REST fetches are re-run.
-
-| Flag | GraphQL cache | PR detail cache |
-|---|---|---|
-| *(none)* | read | read |
-| `--refresh-prs` | read | skip, write fresh |
-| `--refresh` | skip, write fresh | skip, write fresh |
-| `--no-cache` | skip entirely | skip entirely |
+| Flag | Cache active? | GraphQL cache | PR detail cache |
+|---|---|---|---|
+| *(none)* | no | skip | skip |
+| `--cache` | yes | read | read |
+| `--cache --refresh-prs` | yes | read | skip, write fresh |
+| `--cache --refresh` | yes | skip, write fresh | skip, write fresh |
+| `--no-cache` | no (override) | skip | skip |
 
 ## Update notifications
 
@@ -373,43 +449,48 @@ $ breakfast --help
 Usage: breakfast [OPTIONS]
 
 Options:
-  --config TEXT                 Path to config file.
-  --show-config                 Print the resolved config and exit.
-  --init-config                 Generate a default config file and exit.
-  -o, --organization TEXT       One or multiple organizations to report on
-  -r, --repo-filter TEXT        Filter for specific repp(s)
-  --ignore-author TEXT          Ignore PRs raised by one or more authors
-                                (case-insensitive). Repeat for multiple
-                                authors, e.g. --ignore-author
-                                dependabot[bot].
-  --no-ignore-author            Clear config defaults for ignore-author.
-  --mine-only / --no-mine-only  Only include PRs authored by the currently
-                                authenticated GitHub user.
-  --age / --no-age              Include an age column showing PR age in days.
-  --json / --no-json            Output results as JSON instead of a table.
-                                Progress messages go to stderr.
-  --checks / --no-checks        Include a checks column showing CI/check
-                                status for each PR.
-  --status-style [emoji|ascii]  Render status cells with emoji (default) or
-                                ASCII labels.
-  --limit INTEGER               Cap the number of PRs shown. Unset means show
-                                all results.
-  --max-title-length INTEGER    Truncate PR titles to this many characters.
-                                Unset means no truncation.
-  --no-update-check             Disable the automatic update check.
-  --cache-ttl TEXT              How long to cache PR results (seconds, or
-                                suffix: 5m, 2h, 30s). Default: 300.
-  --no-cache                    Skip reading and writing the PR cache; always
-                                fetch fresh.
-  --refresh                     Ignore the cache for this run but write fresh
-                                results back to it.
-  --refresh-prs                 Re-fetch PR details using the cached repo list.
-                                Faster than --refresh when only PR state has
-                                changed.
-  --legendary / --no-legendary  Append ⚔️ to the state of PRs with 100+
-                                comments or open 30+ days. Off by default.
-  --legendary-only              Show only legendary PRs (100+ comments or open
-                                30+ days). Implies --legendary.
-  --version                     Show the version and exit.
-  --help                        Show this message and exit.
+  --config TEXT                   Path to config file.
+  --show-config                   Print the resolved config and exit.
+  --init-config                   Generate a default config file and exit.
+  -o, --organization TEXT         One or multiple organizations to report on
+  -r, --repo-filter TEXT          Filter for specific repp(s)
+  --ignore-author TEXT            Ignore PRs raised by one or more authors
+                                  (case-insensitive). Repeat for multiple
+                                  authors, e.g. --ignore-author
+                                  dependabot[bot].
+  --no-ignore-author              Clear config defaults for ignore-author.
+  --mine-only / --no-mine-only    Only include PRs authored by the currently
+                                  authenticated GitHub user.
+  --age / --no-age                Include an age column showing PR age in days.
+  --json / --no-json              Output results as JSON instead of a table.
+                                  Progress messages go to stderr.
+  --checks / --no-checks          Include a checks column showing CI/check
+                                  status for each PR.
+  --approvals / --no-approvals    Include an approvals column showing review
+                                  approval status for each PR.
+  --status-style [emoji|ascii]    Render status cells with emoji (default) or
+                                  ASCII labels.
+  --limit INTEGER                 Cap the number of PRs shown. Unset means
+                                  show all results.
+  --max-title-length INTEGER      Truncate PR titles to this many characters.
+                                  Unset means no truncation.
+  --no-update-check               Disable the automatic update check.
+  --cache / --no-cache            Enable disk cache for PR results. Off by
+                                  default; use --cache or set cache = true in
+                                  config.
+  --cache-ttl TEXT                How long to cache PR results (seconds, or
+                                  suffix: 5m, 2h, 30s). Default: 300.
+  --refresh                       Ignore the cache for this run but write
+                                  fresh results back to it. Requires --cache
+                                  or cache = true in config.
+  --refresh-prs                   Re-fetch PR details using the cached repo
+                                  list. Faster than --refresh when only PR
+                                  state has changed. Requires --cache or
+                                  cache = true in config.
+  --legendary / --no-legendary    Append ⚔️ to the state of PRs with 100+
+                                  comments or open 30+ days. Off by default.
+  --legendary-only                Show only legendary PRs (100+ comments or
+                                  open 30+ days). Implies --legendary.
+  --version                       Show the version and exit.
+  --help                          Show this message and exit.
 ```

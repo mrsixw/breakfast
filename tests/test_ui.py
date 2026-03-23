@@ -9,7 +9,7 @@ from breakfast import ui
     [
         (5, "green"),
         (15, "yellow"),
-        (30, (255, 165, 0)),
+        (30, 208),
         (60, "red"),
     ],
 )
@@ -35,6 +35,26 @@ def test_format_check_status():
     result = ui.format_check_status("pending", style="ascii")
     assert "pending" in result
     assert "⚠️" not in result
+
+
+def test_format_approval_status_emoji():
+    assert "✅ approved" in ui.format_approval_status("approved")
+    assert "❌ changes" in ui.format_approval_status("changes")
+    assert "⏳ pending" in ui.format_approval_status("pending")
+
+
+def test_format_approval_status_ascii():
+    result = ui.format_approval_status("approved", style="ascii")
+    assert "approved" in result
+    assert "✅" not in result
+
+    result = ui.format_approval_status("changes", style="ascii")
+    assert "changes" in result
+    assert "❌" not in result
+
+    result = ui.format_approval_status("pending", style="ascii")
+    assert "pending" in result
+    assert "⏳" not in result
 
 
 def test_format_mergeable_status():

@@ -70,6 +70,74 @@ def test_generate_default_config(tmp_path, monkeypatch):
     assert result2 is False
 
 
+def _make_pr(user="alice", state="open", repo="platform-api", pr_id=1):
+    return {
+        "id": pr_id,
+        "user": {"login": user},
+        "state": state,
+        "base": {"repo": {"name": repo}},
+        "number": pr_id,
+    }
+
+
+def test_filter_pr_details_filter_state():
+    pr_details = [
+        _make_pr(state="open", pr_id=1),
+        _make_pr(state="closed", pr_id=2),
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_state=("open",))
+    assert len(result) == 1
+    assert result[0]["id"] == 1
+
+    result = config.filter_pr_details(pr_details, [], filter_state=("closed",))
+    assert len(result) == 1
+    assert result[0]["id"] == 2
+
+
+def test_filter_pr_details_filter_check():
+    pr_details = [_make_pr(pr_id=1), _make_pr(pr_id=2), _make_pr(pr_id=3)]
+    check_statuses = {1: "pass", 2: "fail", 3: "pending"}
+
+    result = config.filter_pr_details(
+        pr_details, [], filter_check=("fail",), check_statuses=check_statuses
+    )
+    assert len(result) == 1
+    assert result[0]["id"] == 2
+
+
+def test_filter_pr_details_filter_approval():
+    pr_details = [_make_pr(pr_id=1), _make_pr(pr_id=2), _make_pr(pr_id=3)]
+    approval_statuses = {1: "approved", 2: "changes", 3: "pending"}
+
+    result = config.filter_pr_details(
+        pr_details,
+        [],
+        filter_approval=("approved",),
+        approval_statuses=approval_statuses,
+    )
+    assert len(result) == 1
+    assert result[0]["id"] == 1
+
+
+def test_filter_pr_details_combined_filters():
+    pr_details = [
+        _make_pr(user="alice", state="open", repo="api", pr_id=1),
+        _make_pr(user="bob", state="open", repo="api", pr_id=2),
+        _make_pr(user="alice", state="closed", repo="api", pr_id=3),
+    ]
+    check_statuses = {1: "pass", 2: "pass", 3: "pass"}
+
+    result = config.filter_pr_details(
+        pr_details,
+        [],
+        filter_state=("open",),
+        filter_check=("pass",),
+        check_statuses=check_statuses,
+    )
+    assert {r["id"] for r in result} == {1, 2}
+
+
 def test_get_config_dir_xdg(tmp_path, monkeypatch):
     custom_path = tmp_path / "custom-xdg"
     monkeypatch.setenv("XDG_CONFIG_HOME", str(custom_path))

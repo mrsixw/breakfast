@@ -46,7 +46,7 @@ def click_colour_grade_number(num):
     elif num < 20:
         colour = "yellow"
     elif num < 50:
-        colour = (255, 165, 0)  # orange
+        colour = 208  # orange (256-colour)
     return click.style(str(num), fg=colour, bold=True)
 
 

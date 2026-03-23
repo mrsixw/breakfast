@@ -1497,3 +1497,54 @@ def test_refresh_prs_writes_fresh_pr_cache(monkeypatch, tmp_path):
 
     cached = cache.read_pr_cache("org", "repo", 300)
     assert cached is not None, "--refresh-prs should write fresh data to PR cache"
+
+
+def test_compress_styled_preserves_ansi_colour():
+    import click
+
+    styled = click.style("✅ pass", fg="green", bold=True)
+    compressed = cli._compress_styled(styled)
+    # Should keep the emoji but drop " pass"
+    assert "✅" in cli._strip_ansi(compressed)
+    assert "pass" not in cli._strip_ansi(compressed)
+    # ANSI colour codes should be preserved
+    assert "\x1b[" in compressed
+
+
+def test_compress_styled_noop_for_single_word():
+    import click
+
+    styled = click.style("✅", fg="green", bold=True)
+    assert cli._compress_styled(styled) == styled
+
+
+def test_compress_styled_plain_text():
+    assert cli._compress_styled("hello world") == "hello"
+    assert cli._compress_styled("single") == "single"
+
+
+def test_auto_fit_preserves_checks_colour(monkeypatch):
+    import click
+
+    styled_checks = click.style("✅ pass", fg="green", bold=True)
+    rows = [
+        {
+            "Repo": "myrepo",
+            "PR Title": "Some title",
+            "Author": "alice",
+            "State": "open",
+            "Files": "1",
+            "Commits": "1",
+            "+/-": "+1/-0",
+            "Comments": "0",
+            "Checks": styled_checks,
+            "Mergeable?": click.style("✅ (clean)", fg="green", bold=True),
+            "Link": "PR-1",
+        }
+    ]
+    # Very narrow width to force all compression steps
+    result = cli._auto_fit(rows, 80, explicit_max_title_length=None)
+    checks_key = "Checks" if "Checks" in result[0] else None
+    if checks_key:
+        # Colour should be preserved even after compression
+        assert "\x1b[" in result[0][checks_key]

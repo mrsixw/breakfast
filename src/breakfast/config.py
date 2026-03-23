@@ -81,6 +81,12 @@ def generate_default_config():
 
 # How long to cache PR results (seconds, or use suffix: 5m, 2h)
 # cache-ttl = 300
+
+# Highlight legendary PRs (100+ comments or open 30+ days) with ⚔️
+# legendary = false
+
+# Show only legendary PRs (implies legendary = true)
+# legendary-only = false
 """
     config_path.write_text(default_content)
     click.echo(click.style(f"Created default config at {config_path}", fg="green"))

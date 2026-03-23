@@ -117,6 +117,20 @@ breakfast -o my-org -r my-app \
 breakfast -o my-org -r platform --checks --status-style ascii
 ```
 
+### Spot legendary PRs at a glance
+
+Highlight PRs that have been open for 30+ days or have 100+ comments with a ⚔️:
+
+```bash
+breakfast -o my-org -r platform --legendary
+```
+
+Filter to show only legendary PRs:
+
+```bash
+breakfast -o my-org -r platform --legendary-only
+```
+
 ### Speed up repeated runs with caching
 
 PR results are cached to disk for 5 minutes by default. The second run is near-instant:

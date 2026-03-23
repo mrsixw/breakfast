@@ -1320,3 +1320,182 @@ def test_refresh_prs_writes_fresh_pr_cache(monkeypatch, tmp_path):
 
     cached = cache.read_pr_cache("org", "repo", 300)
     assert cached is not None, "--refresh-prs should write fresh data to PR cache"
+
+
+# ---------------------------------------------------------------------------
+# Legendary PR tests
+# ---------------------------------------------------------------------------
+
+
+def test_is_legendary_high_comment_count():
+    """A PR with 100+ total comments (comments + review_comments) is legendary."""
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 1, 15, tzinfo=timezone.utc)
+    pr = {
+        "comments": 80,
+        "review_comments": 20,
+        "created_at": "2026-01-14T00:00:00Z",  # only 1 day old
+    }
+    assert cli.is_legendary(pr, now=now)
+
+
+def test_is_legendary_old_pr():
+    """A PR open for 30+ days is legendary regardless of comment count."""
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 2, 15, tzinfo=timezone.utc)
+    pr = {
+        "comments": 0,
+        "review_comments": 0,
+        "created_at": "2026-01-01T00:00:00Z",  # 45 days old
+    }
+    assert cli.is_legendary(pr, now=now)
+
+
+def test_is_not_legendary_fresh_few_comments():
+    """A recent PR with few comments is not legendary."""
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 1, 15, tzinfo=timezone.utc)
+    pr = {
+        "comments": 5,
+        "review_comments": 3,
+        "created_at": "2026-01-10T00:00:00Z",  # 5 days old
+    }
+    assert not cli.is_legendary(pr, now=now)
+
+
+def test_is_legendary_exactly_at_comment_threshold():
+    """Exactly 100 total comments triggers legendary."""
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 1, 15, tzinfo=timezone.utc)
+    pr = {
+        "comments": 60,
+        "review_comments": 40,
+        "created_at": "2026-01-14T00:00:00Z",
+    }
+    assert cli.is_legendary(pr, now=now)
+
+
+def test_is_legendary_exactly_at_age_threshold():
+    """Exactly 30 days old triggers legendary."""
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 2, 9, tzinfo=timezone.utc)
+    pr = {
+        "comments": 0,
+        "review_comments": 0,
+        "created_at": "2026-01-10T00:00:00Z",  # exactly 30 days
+    }
+    assert cli.is_legendary(pr, now=now)
+
+
+def test_cli_legendary_flag_annotates_state(monkeypatch):
+    """--legendary appends ⚔️ to the State of qualifying PRs."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    # A PR that qualifies as legendary (very old)
+    legendary_pr = {
+        **_make_pr_detail(1),
+        "title": "Ancient PR",
+        "comments": 0,
+        "review_comments": 0,
+        "created_at": "2025-01-01T00:00:00Z",
+    }
+
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *a: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _: legendary_pr)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--legendary"])
+
+    assert result.exit_code == 0
+    assert "⚔️" in result.output, "legendary PR should have sword emoji in State"
+
+
+def test_cli_legendary_off_by_default(monkeypatch):
+    """Without --legendary, no sword emoji appears even for qualifying PRs."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    old_pr = {
+        **_make_pr_detail(1),
+        "comments": 0,
+        "review_comments": 0,
+        "created_at": "2020-01-01T00:00:00Z",
+    }
+
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *a: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _: old_pr)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert "⚔️" not in result.output
+
+
+def test_cli_legendary_only_filters_non_legendary(monkeypatch):
+    """--legendary-only shows only PRs that qualify as legendary."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    # A fresh PR — should be filtered out
+    fresh_pr = {
+        **_make_pr_detail(1),
+        "title": "Fresh PR",
+        "comments": 0,
+        "review_comments": 0,
+        "created_at": "2026-03-22T00:00:00Z",
+    }
+
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *a: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _: fresh_pr)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--legendary-only"]
+    )
+
+    assert result.exit_code == 0
+    assert "Fresh PR" not in result.output
+
+
+def test_cli_legendary_only_implies_legendary_marking(monkeypatch):
+    """--legendary-only implies --legendary so the ⚔️ marker is applied."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    legendary_pr = {
+        **_make_pr_detail(1),
+        "title": "Ancient PR",
+        "comments": 0,
+        "review_comments": 0,
+        "created_at": "2025-01-01T00:00:00Z",
+    }
+
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *a: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _: legendary_pr)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--legendary-only"]
+    )
+
+    assert result.exit_code == 0
+    assert "⚔️" in result.output

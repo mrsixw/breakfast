@@ -61,6 +61,33 @@ Or set it once in config:
 status-style = "ascii"
 ```
 
+## Debugging with the trace log
+
+breakfast writes a trace log on every invocation to:
+
+```
+~/.cache/breakfast/breakfast.log
+```
+
+(or `$XDG_CACHE_HOME/breakfast/breakfast.log` if `XDG_CACHE_HOME` is set.)
+
+The log is **overwritten on each run**, so it always reflects the most recent execution. It captures resolved options, cache hits/misses, API calls with timing, filter counts, and the final render. Use it to diagnose unexpected behaviour:
+
+```bash
+cat ~/.cache/breakfast/breakfast.log
+```
+
+Example output:
+
+```
+2026-03-23 08:00:01 INFO    startup org=acme repo_filter='' mine_only=False ...
+2026-03-23 08:00:01 DEBUG   cache_miss layer=graphql path=~/.cache/breakfast/graphql_abc123.json reason=file_not_found
+2026-03-23 08:00:02 DEBUG   api_call type=graphql status=200 elapsed_ms=812
+2026-03-23 08:00:04 DEBUG   api_call type=rest url=https://api.github.com/repos/acme/foo/pulls/7 status=200 elapsed_ms=134
+2026-03-23 08:00:05 INFO    filter_result before=42 after=38
+2026-03-23 08:00:05 INFO    render format=table row_count=38
+```
+
 ## "GraphQL request failed" errors
 
 This typically means the organization name is incorrect or your token doesn't have access to the organization. Verify:

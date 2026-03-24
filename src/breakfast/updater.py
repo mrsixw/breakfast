@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
@@ -8,6 +9,7 @@ from pathlib import Path
 import requests
 
 from .api import SECRET_GITHUB_TOKEN
+from .logger import logger
 
 _UPDATE_CHECK_REPO = "mrsixw/breakfast"
 
@@ -35,7 +37,8 @@ def _read_version_cache():
         if age > _CACHE_TTL_SECONDS:
             return None
         return data.get("latest_version")
-    except (OSError, json.JSONDecodeError, KeyError, ValueError):
+    except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
+        logger.debug("version_cache_read_error error=%r", str(exc))
         return None
 
 
@@ -51,8 +54,8 @@ def _write_version_cache(latest_version):
                 }
             )
         )
-    except OSError:
-        pass
+    except OSError as exc:
+        logger.debug("version_cache_write_error error=%r", str(exc))
 
 
 def get_latest_version():
@@ -63,24 +66,40 @@ def get_latest_version():
         headers = {"Accept": "application/vnd.github.v3+json"}
         if SECRET_GITHUB_TOKEN:
             headers["Authorization"] = f"token {SECRET_GITHUB_TOKEN}"
+        logger.debug(
+            "update_check_request url=%s",
+            f"https://api.github.com/repos/{_UPDATE_CHECK_REPO}/releases/latest",
+        )
+        t0 = time.monotonic()
         resp = requests.get(
             f"https://api.github.com/repos/{_UPDATE_CHECK_REPO}/releases/latest",
             headers=headers,
             timeout=5,
         )
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
         resp.raise_for_status()
         tag = resp.json().get("tag_name", "")
         latest = tag.lstrip("v")
+        logger.debug(
+            "update_check_response status=%d elapsed_ms=%d latest=%s",
+            resp.status_code,
+            elapsed_ms,
+            latest,
+        )
         _write_version_cache(latest)
         return latest
-    except requests.exceptions.RequestException:
+    except requests.exceptions.RequestException as exc:
+        logger.debug("update_check_request_failed error=%r", str(exc))
         return None
 
 
 def _parse_version_tuple(version_str):
     try:
         return tuple(int(x) for x in version_str.split("."))
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError) as exc:
+        logger.debug(
+            "parse_version_failed version_str=%r error=%r", version_str, str(exc)
+        )
         return ()
 
 
@@ -97,5 +116,6 @@ def check_for_update():
                 f"— update at https://github.com/{_UPDATE_CHECK_REPO}/releases/latest"
             )
         return None
-    except PackageNotFoundError:
+    except PackageNotFoundError as exc:
+        logger.debug("package_not_found error=%r", str(exc))
         return None

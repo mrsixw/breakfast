@@ -3,6 +3,7 @@ import random
 import re
 import shutil
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import click
@@ -25,6 +26,8 @@ from .cache import (
     write_pr_cache,
 )
 from .config import filter_pr_details, generate_default_config, load_config
+from .logger import configure as configure_logging
+from .logger import logger
 from .ui import (
     BREAKFAST_ITEMS,
     click_colour_grade_number,
@@ -223,6 +226,7 @@ def get_pr_age_days(pr_detail, now=None):
     try:
         created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
     except ValueError:
+        logger.debug("get_pr_age_days invalid_date created_at=%r", created_at)
         return 0
 
     if created_dt.tzinfo is None:
@@ -421,6 +425,8 @@ def breakfast(
     legendary,
     legendary_only,
 ):
+    configure_logging()
+
     if init_config:
         generate_default_config()
         sys.exit(0)
@@ -485,6 +491,7 @@ def breakfast(
     try:
         cache_ttl_seconds = parse_ttl(raw_ttl)
     except ValueError as exc:
+        logger.error("invalid_cache_ttl value=%r error=%s", raw_ttl, exc)
         msg = f"Error: invalid --cache-ttl value: {exc}"
         click.echo(click.style(msg, fg="red", bold=True))
         sys.exit(1)
@@ -516,6 +523,34 @@ def breakfast(
             click.echo(f"  {k}: {v}")
         sys.exit(0)
 
+    logger.info(
+        "startup org=%s repo_filter=%r mine_only=%s ignore_author=%r"
+        " cache_enabled=%s cache_ttl=%ss refresh=%s refresh_prs=%s"
+        " checks=%s approvals=%s age=%s legendary=%s legendary_only=%s"
+        " limit=%s max_title_length=%s status_style=%s json=%s"
+        " filter_state=%r filter_check=%r filter_approval=%r",
+        organization,
+        repo_filter,
+        mine_only,
+        ignore_author,
+        cache_enabled,
+        cache_ttl_seconds,
+        refresh,
+        refresh_prs,
+        checks,
+        approvals,
+        age,
+        legendary,
+        legendary_only,
+        limit,
+        max_title_length,
+        status_style,
+        json_output,
+        filter_state,
+        filter_check,
+        filter_approval,
+    )
+
     if not organization:
         message = (
             "Organization must be provided via CLI (-o) "
@@ -534,6 +569,7 @@ def breakfast(
 
     # grab all the pull requests we are interested in
     pr_data = []
+    t_acquire = time.monotonic()
 
     # --- Layer 1: full PR detail cache (skip on --refresh or --refresh-prs) ---
     pr_details = None
@@ -578,7 +614,10 @@ def breakfast(
                             nl=False,
                             err=json_output,
                         )
-                    except requests.exceptions.RequestException:
+                    except requests.exceptions.RequestException as exc:
+                        logger.warning(
+                            "pr_detail_fetch_failed url=%s error=%r", url, str(exc)
+                        )
                         failed_urls.append(url)
         click.echo("...Done", err=json_output)
         if failed_urls:
@@ -618,7 +657,12 @@ def breakfast(
             for pr_id, future in check_futures:
                 try:
                     check_statuses[pr_id] = future.result()
-                except requests.exceptions.RequestException:
+                except requests.exceptions.RequestException as exc:
+                    logger.warning(
+                        "check_status_fetch_failed pr_id=%s error=%r",
+                        pr_id,
+                        str(exc),
+                    )
                     check_statuses[pr_id] = "none"
             needs_cache_write = True
 
@@ -645,9 +689,20 @@ def breakfast(
             for pr_id, future in approval_futures:
                 try:
                     approval_statuses[pr_id] = future.result()
-                except requests.exceptions.RequestException:
+                except requests.exceptions.RequestException as exc:
+                    logger.warning(
+                        "approval_status_fetch_failed pr_id=%s error=%r",
+                        pr_id,
+                        str(exc),
+                    )
                     approval_statuses[pr_id] = "pending"
             needs_cache_write = True
+
+    logger.info(
+        "data_acquired pr_count=%d elapsed_ms=%d",
+        len(pr_details),
+        int((time.monotonic() - t_acquire) * 1000),
+    )
 
     if needs_cache_write:
         write_pr_cache(
@@ -660,6 +715,7 @@ def breakfast(
         if refresh or refresh_prs:
             click.echo("🔄 Cache refreshed.", err=json_output)
 
+    before_filter = len(pr_details)
     pr_details = filter_pr_details(
         pr_details,
         ignore_author,
@@ -671,11 +727,23 @@ def breakfast(
         check_statuses=check_statuses,
         approval_statuses=approval_statuses,
     )
+    logger.info(
+        "filter_result before=%d after=%d",
+        before_filter,
+        len(pr_details),
+    )
     pr_details.sort(key=lambda pr: pr["base"]["repo"]["name"])
     if legendary_only:
         pr_details = [pr for pr in pr_details if is_legendary(pr)]
     if limit is not None:
         pr_details = pr_details[:limit]
+
+    logger.info(
+        "render format=%s row_count=%d",
+        "json" if json_output else "table",
+        len(pr_details),
+    )
+    t_render = time.monotonic()
 
     if json_output:
         json_data = []
@@ -706,9 +774,13 @@ def breakfast(
                 entry["approval"] = approval_statuses.get(pr_detail["id"], "pending")
             json_data.append(entry)
         click.echo(json.dumps(json_data, indent=2))
+        logger.info(
+            "render_complete elapsed_ms=%d", int((time.monotonic() - t_render) * 1000)
+        )
         if not no_update_check:
             update_msg = check_for_update()
             if update_msg:
+                logger.info("update_available msg=%r", update_msg)
                 click.echo(click.style(update_msg, fg="cyan", bold=True), err=True)
         return
 
@@ -781,9 +853,14 @@ def breakfast(
         color=_stdout_is_tty(),
     )
 
+    logger.info(
+        "render_complete elapsed_ms=%d", int((time.monotonic() - t_render) * 1000)
+    )
+
     if not no_update_check:
         update_msg = check_for_update()
         if update_msg:
+            logger.info("update_available msg=%r", update_msg)
             click.echo(click.style(update_msg, fg="cyan", bold=True), err=True)
 
 

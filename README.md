@@ -36,6 +36,8 @@ breakfast -o my-org -r my-app --json
 breakfast -o my-org -r my-app --cache
 breakfast -o my-org -r my-app --cache --refresh
 breakfast -o my-org -r my-app --cache --refresh-prs
+breakfast -o my-org -r my-app --legendary
+breakfast -o my-org -r my-app --legendary-only
 ```
 
 ## Options
@@ -64,6 +66,10 @@ breakfast -o my-org -r my-app --cache --refresh-prs
 - `--cache-ttl`: How long to cache results (`300`, `5m`, `2h` etc). Default: 300s.
 - `--refresh`: Bypass cache read, fetch fresh, write back. Requires `--cache`.
 - `--refresh-prs`: Re-fetch PR details using cached repo list. Requires `--cache`.
+
+### Legendary PRs ⚔️
+- `--legendary` / `--no-legendary`: Append ⚔️ to the state of PRs with 100+ comments and open 30+ days.
+- `--legendary-only`: Show only legendary PRs. Implies `--legendary`.
 
 ### Other
 - `--config`: Path to a config file.

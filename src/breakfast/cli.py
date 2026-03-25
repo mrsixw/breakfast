@@ -590,7 +590,25 @@ def breakfast(
             prs = read_graphql_cache(organization, repo_filter, cache_ttl_seconds)
 
         if prs is None:
-            prs = get_github_prs(organization, repo_filter)
+            try:
+                prs = get_github_prs(organization, repo_filter)
+            except (
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+            ) as exc:
+                logger.exception(
+                    "graphql_fetch_failed org=%s repo_filter=%r error=%r",
+                    organization,
+                    repo_filter,
+                    str(exc),
+                )
+                msg = (
+                    "🥞 Couldn't reach GitHub — "
+                    "check your network connection and try again.\n"
+                    f"  ({type(exc).__name__}: {exc})"
+                )
+                click.echo(click.style(msg, fg="red", bold=True), err=True)
+                sys.exit(1)
             if cache_enabled:
                 write_graphql_cache(organization, repo_filter, prs)
         else:

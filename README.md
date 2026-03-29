@@ -17,3 +17,14 @@ Simple tool for pulling PRs you might be interested in.
 - `--ignore-author`: Ignore PRs raised by one or more authors (case-insensitive). Repeat for multiple authors.
 - `--mine-only`: Only include PRs authored by the currently authenticated GitHub user.
 - `--age`: Add an `Age` column (days since PR creation) between `Comments` and `Mergeable?`.
+- `--json`: Output results as machine-readable JSON instead of a table.
+
+## Output
+
+The table includes a **State** column showing PR status with colour coding:
+
+| Value | Meaning |
+|-------|---------|
+| `open` (green) | Ready-for-review PR |
+| `open (draft)` (yellow) | Draft PR — not yet ready for review |
+| `closed` (red) | Closed PR |

@@ -413,7 +413,7 @@ def test_cli_shows_draft_indicator_for_draft_prs(monkeypatch):
     result = runner.invoke(breakfast.breakfast, ["-o", "org", "-r", "repo"])
 
     assert result.exit_code == 0
-    assert "DRAFT" in result.output
+    assert "open (draft)" in result.output
 
 
 def test_cli_shows_open_state_for_non_draft_prs(monkeypatch):
@@ -450,7 +450,29 @@ def test_cli_shows_open_state_for_non_draft_prs(monkeypatch):
 
     assert result.exit_code == 0
     assert "open" in result.output
-    assert "DRAFT" not in result.output
+    assert "open (draft)" not in result.output
+
+
+def test_format_pr_state_open_draft():
+    result = breakfast.format_pr_state("open", is_draft=True)
+    assert "open (draft)" in result
+
+
+def test_format_pr_state_open_draft_compact():
+    result = breakfast.format_pr_state("open", is_draft=True, compact=True)
+    assert "open*" in result
+    assert "draft" not in result
+
+
+def test_format_pr_state_open():
+    result = breakfast.format_pr_state("open", is_draft=False)
+    assert "open" in result
+    assert "draft" not in result
+
+
+def test_format_pr_state_closed():
+    result = breakfast.format_pr_state("closed")
+    assert "closed" in result
 
 
 def test_cli_outputs_json(monkeypatch):

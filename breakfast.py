@@ -210,6 +210,23 @@ def filter_pr_details(
     return filtered
 
 
+def format_pr_state(state, is_draft=False, compact=False):
+    """Return a styled state string for display in the PR table.
+
+    Full form:  'open (draft)' / 'open' / 'closed'
+    Compact form (compact=True): 'open*' / 'open' / 'closed'
+    """
+    state_lower = state.lower()
+    if state_lower == "open":
+        if is_draft:
+            label = "open*" if compact else "open (draft)"
+            return click.style(label, fg="yellow", bold=True)
+        return click.style("open", fg="green", bold=True)
+    if state_lower == "closed":
+        return click.style("closed", fg="red", bold=True)
+    return state
+
+
 def click_colour_grade_number(num):
     colour = "red"
     if num < 10:
@@ -358,11 +375,7 @@ def breakfast(organization, repo_filter, ignore_author, mine_only, age, json_out
             "Repo": pr_detail["base"]["repo"]["name"],
             "PR Title": pr_detail["title"],
             "Author": pr_detail["user"]["login"],
-            "State": (
-                click.style("DRAFT", fg="yellow", bold=True)
-                if pr_detail.get("draft")
-                else pr_detail["state"]
-            ),
+            "State": format_pr_state(pr_detail["state"], pr_detail.get("draft", False)),
             "Files": click_colour_grade_number(pr_detail["changed_files"]),
             "Commits": click_colour_grade_number(pr_detail["commits"]),
             "+/-": f"{adds}/{subs}",

@@ -358,7 +358,11 @@ def breakfast(organization, repo_filter, ignore_author, mine_only, age, json_out
             "Repo": pr_detail["base"]["repo"]["name"],
             "PR Title": pr_detail["title"],
             "Author": pr_detail["user"]["login"],
-            "State": pr_detail["state"],
+            "State": (
+                click.style("DRAFT", fg="yellow", bold=True)
+                if pr_detail.get("draft")
+                else pr_detail["state"]
+            ),
             "Files": click_colour_grade_number(pr_detail["changed_files"]),
             "Commits": click_colour_grade_number(pr_detail["commits"]),
             "+/-": f"{adds}/{subs}",

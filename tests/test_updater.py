@@ -4,7 +4,7 @@ from importlib.metadata import PackageNotFoundError
 
 import requests
 
-from breakfast import updater
+from breakfast import updater, xdg
 
 
 def test_parse_version_tuple():
@@ -122,5 +122,5 @@ def test_get_cache_dir_xdg(tmp_path, monkeypatch):
     custom_path = tmp_path / "custom-cache"
     monkeypatch.setenv("XDG_CACHE_HOME", str(custom_path))
 
-    cache_dir = updater._get_cache_dir()
+    cache_dir = xdg.get_cache_dir()
     assert cache_dir == custom_path / "breakfast"

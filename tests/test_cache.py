@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from breakfast import cache
+from breakfast import cache, xdg
 
 # ---------------------------------------------------------------------------
 # parse_ttl
@@ -193,13 +193,13 @@ def test_write_pr_cache_silent_on_failure(monkeypatch, tmp_path):
 
 def test_get_cache_dir_uses_xdg(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-    result = cache._get_cache_dir()
+    result = xdg.get_cache_dir()
     assert result == tmp_path / "breakfast"
 
 
 def test_get_cache_dir_default_without_xdg(monkeypatch):
     monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
-    result = cache._get_cache_dir()
+    result = xdg.get_cache_dir()
     assert result == Path.home() / ".cache" / "breakfast"
 
 

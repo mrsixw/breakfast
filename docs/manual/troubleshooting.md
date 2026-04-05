@@ -66,15 +66,15 @@ status-style = "ascii"
 breakfast writes a trace log on every invocation to:
 
 ```
-~/.cache/breakfast/breakfast.log
+~/.local/state/breakfast/breakfast.log
 ```
 
-(or `$XDG_CACHE_HOME/breakfast/breakfast.log` if `XDG_CACHE_HOME` is set.)
+(or `$XDG_STATE_HOME/breakfast/breakfast.log` if `XDG_STATE_HOME` is set.)
 
 The log is **overwritten on each run**, so it always reflects the most recent execution. It captures resolved options, cache hits/misses, API calls with timing, filter counts, and the final render. Use it to diagnose unexpected behaviour:
 
 ```bash
-cat ~/.cache/breakfast/breakfast.log
+cat ~/.local/state/breakfast/breakfast.log
 ```
 
 Example output:

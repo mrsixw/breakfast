@@ -1,15 +1,13 @@
 import logging
-import os
 from pathlib import Path
+
+from .xdg import get_state_dir
 
 _LOG_FILENAME = "breakfast.log"
 
 
 def _get_log_path() -> Path:
-    xdg_cache = os.getenv("XDG_CACHE_HOME")
-    if xdg_cache:
-        return Path(xdg_cache) / "breakfast" / _LOG_FILENAME
-    return Path.home() / ".cache" / "breakfast" / _LOG_FILENAME
+    return get_state_dir() / _LOG_FILENAME
 
 
 logger = logging.getLogger("breakfast")

@@ -1,28 +1,18 @@
 import json
-import os
 import time
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
-from pathlib import Path
 
 import requests
 
 from .api import SECRET_GITHUB_TOKEN
 from .logger import logger
+from .xdg import get_cache_dir
 
 _UPDATE_CHECK_REPO = "mrsixw/breakfast"
 
-
-def _get_cache_dir():
-    """Get the XDG-compliant cache directory."""
-    xdg_cache = os.getenv("XDG_CACHE_HOME")
-    if xdg_cache:
-        return Path(xdg_cache) / "breakfast"
-    return Path.home() / ".cache" / "breakfast"
-
-
-_CACHE_DIR = _get_cache_dir()
+_CACHE_DIR = get_cache_dir()
 _CACHE_TTL_SECONDS = 86400  # 24 hours
 
 

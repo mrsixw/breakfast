@@ -1,22 +1,13 @@
 import hashlib
 import json
-import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .logger import logger
+from .xdg import get_cache_dir
 
-
-def _get_cache_dir() -> Path:
-    """Get the XDG-compliant cache directory."""
-    xdg_cache = os.getenv("XDG_CACHE_HOME")
-    if xdg_cache:
-        return Path(xdg_cache) / "breakfast"
-    return Path.home() / ".cache" / "breakfast"
-
-
-_CACHE_DIR = _get_cache_dir()
+_CACHE_DIR = get_cache_dir()
 
 _SUFFIX_MAP = {"s": 1, "m": 60, "h": 3600}
 

@@ -1,18 +1,10 @@
-import os
 import tomllib
 from pathlib import Path
 
 import click
 
 from .logger import logger
-
-
-def get_config_dir():
-    """Get the XDG-compliant configuration directory."""
-    xdg_config = os.getenv("XDG_CONFIG_HOME")
-    if xdg_config:
-        return Path(xdg_config) / "breakfast"
-    return Path.home() / ".config" / "breakfast"
+from .xdg import get_config_dir
 
 
 def load_config(config_path=None):

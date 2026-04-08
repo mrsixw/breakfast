@@ -469,3 +469,97 @@ def test_get_check_status_mixed_sources(monkeypatch):
 
     monkeypatch.setattr(api, "make_github_api_request", fake_api)
     assert api.get_check_status("org", "repo", "abc123") == "fail"
+
+
+def test_make_github_graphql_request_retries_on_connection_error(monkeypatch):
+    """TLS reset / connection reset by peer is retried and eventually succeeds."""
+    attempts = []
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+    monkeypatch.setattr(api.random, "uniform", lambda _a, _b: 0)
+
+    class GoodResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"data": {"ok": True}}
+
+    def fake_post(url, json, headers):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise requests.exceptions.ConnectionError(
+                "[Errno 54] Connection reset by peer"
+            )
+        return GoodResponse()
+
+    monkeypatch.setattr(api.requests, "post", fake_post)
+
+    result = api.make_github_graphql_request("{ viewer { login } }")
+
+    assert result == {"data": {"ok": True}}
+    assert len(attempts) == 3
+
+
+def test_make_github_graphql_request_retries_on_dns_failure(monkeypatch):
+    """DNS resolution failure (nodename nor servname provided) is retried."""
+    attempts = []
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+    monkeypatch.setattr(api.random, "uniform", lambda _a, _b: 0)
+
+    class GoodResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"data": {"ok": True}}
+
+    def fake_post(url, json, headers):
+        attempts.append(1)
+        if len(attempts) < 2:
+            raise requests.exceptions.ConnectionError(
+                "NameResolutionError: [Errno 8] nodename nor servname provided"
+            )
+        return GoodResponse()
+
+    monkeypatch.setattr(api.requests, "post", fake_post)
+
+    result = api.make_github_graphql_request("{ viewer { login } }")
+
+    assert result == {"data": {"ok": True}}
+    assert len(attempts) == 2
+
+
+def test_make_github_graphql_request_raises_after_max_retries(monkeypatch):
+    """Persistent connection errors exhaust retries and re-raise."""
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+    monkeypatch.setattr(api.random, "uniform", lambda _a, _b: 0)
+
+    def fake_post(url, json, headers):
+        raise requests.exceptions.ConnectionError("[Errno 54] Connection reset by peer")
+
+    monkeypatch.setattr(api.requests, "post", fake_post)
+
+    with pytest.raises(requests.exceptions.ConnectionError):
+        api.make_github_graphql_request("{ viewer { login } }")
+
+
+def test_make_github_graphql_request_raises_on_persistent_timeout(monkeypatch):
+    """Persistent timeout exhausts retries and re-raises."""
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+    monkeypatch.setattr(api.random, "uniform", lambda _a, _b: 0)
+
+    def fake_post(url, json, headers):
+        raise requests.exceptions.Timeout("timed out")
+
+    monkeypatch.setattr(api.requests, "post", fake_post)
+
+    with pytest.raises(requests.exceptions.Timeout):
+        api.make_github_graphql_request("{ viewer { login } }")

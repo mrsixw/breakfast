@@ -177,6 +177,9 @@ def generate_default_config():
 # Only relevant when cache = true.
 # Equivalent to: --cache-ttl <value>
 # cache-ttl = "5m"
+
+# Exclude draft PRs from results
+# no-drafts = true
 """
     config_path.write_text(default_content)
     click.echo(click.style(f"Created default config at {config_path}", fg="green"))
@@ -196,6 +199,8 @@ def filter_pr_details(
     ignore_authors,
     mine_only=False,
     current_user_login=None,
+    no_drafts=False,
+    drafts_only=False,
     filter_state=None,
     filter_check=None,
     filter_approval=None,
@@ -219,6 +224,11 @@ def filter_pr_details(
             current_user_login_normalized
             and author_login_normalized != current_user_login_normalized
         ):
+            continue
+        is_draft = pr_detail.get("draft", False)
+        if no_drafts and is_draft:
+            continue
+        if drafts_only and not is_draft:
             continue
         if filter_state and pr_detail.get("state", "").lower() not in {
             s.lower() for s in filter_state

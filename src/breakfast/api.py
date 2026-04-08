@@ -99,27 +99,49 @@ def make_github_graphql_request(query, variables={}):
         "Content-Type": "application/json",
     }
     payload = {"query": query, "variables": variables or {}}
-    t0 = time.monotonic()
-    response = requests.post(GITHUB_GRAPHQL_URL, json=payload, headers=headers)
-    elapsed_ms = int((time.monotonic() - t0) * 1000)
-    response.raise_for_status()
-
-    resp_json = response.json()
-    if "errors" in resp_json:
-        logger.warning(
-            "api_call type=graphql status=%d elapsed_ms=%d errors=%r",
-            response.status_code,
-            elapsed_ms,
-            resp_json["errors"],
-        )
-        raise ValueError(f"GraphQL request failed: {resp_json['errors']}")
-
-    logger.debug(
-        "api_call type=graphql status=%d elapsed_ms=%d",
-        response.status_code,
-        elapsed_ms,
-    )
-    return response.json()
+    for attempt in range(_MAX_RETRIES + 1):
+        if attempt:
+            time.sleep(2 ** (attempt - 1) + random.uniform(0, 0.5))
+        try:
+            t0 = time.monotonic()
+            response = requests.post(GITHUB_GRAPHQL_URL, json=payload, headers=headers)
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
+            if response.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES:
+                logger.debug(
+                    "api_call type=graphql status=%d elapsed_ms=%d attempt=%d retrying",
+                    response.status_code,
+                    elapsed_ms,
+                    attempt + 1,
+                )
+                continue
+            response.raise_for_status()
+            resp_json = response.json()
+            if "errors" in resp_json:
+                logger.warning(
+                    "api_call type=graphql status=%d elapsed_ms=%d errors=%r",
+                    response.status_code,
+                    elapsed_ms,
+                    resp_json["errors"],
+                )
+                raise ValueError(f"GraphQL request failed: {resp_json['errors']}")
+            logger.debug(
+                "api_call type=graphql status=%d elapsed_ms=%d",
+                response.status_code,
+                elapsed_ms,
+            )
+            return response.json()
+        except (
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+        ) as exc:
+            logger.warning(
+                "api_call type=graphql url=%s error=%r attempt=%d",
+                GITHUB_GRAPHQL_URL,
+                str(exc),
+                attempt + 1,
+            )
+            if attempt == _MAX_RETRIES:
+                raise
 
 
 def get_github_prs(organization, repo_filter):

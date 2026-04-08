@@ -230,10 +230,16 @@ def filter_pr_details(
             continue
         if drafts_only and not is_draft:
             continue
-        if filter_state and pr_detail.get("state", "").lower() not in {
-            s.lower() for s in filter_state
-        }:
-            continue
+        if filter_state:
+            filter_state_lower = {s.lower() for s in filter_state}
+            want_draft = "draft" in filter_state_lower
+            github_states = filter_state_lower - {"draft"}
+            pr_state = pr_detail.get("state", "").lower()
+            is_draft = pr_detail.get("draft", False)
+            state_match = pr_state in github_states if github_states else False
+            draft_match = want_draft and is_draft
+            if not (state_match or draft_match):
+                continue
         if filter_check and check_statuses is not None:
             pr_check = check_statuses.get(pr_detail["id"], "none")
             if pr_check not in filter_check:

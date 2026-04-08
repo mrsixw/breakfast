@@ -131,6 +131,22 @@ Filter to show only legendary PRs:
 breakfast -o my-org -r platform --legendary-only
 ```
 
+### Filter draft PRs
+
+Show only draft (work-in-progress) PRs:
+
+```bash
+breakfast --drafts-only
+# or equivalently:
+breakfast --filter-state draft
+```
+
+Hide draft PRs and show only review-ready work:
+
+```bash
+breakfast --no-drafts
+```
+
 ### Speed up repeated runs with caching
 
 PR results are cached to disk for 5 minutes by default. The second run is near-instant:

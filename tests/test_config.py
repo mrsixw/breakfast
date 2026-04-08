@@ -109,11 +109,12 @@ def test_generate_default_config(tmp_path, monkeypatch):
     assert result2 is False
 
 
-def _make_pr(user="alice", state="open", repo="platform-api", pr_id=1):
+def _make_pr(user="alice", state="open", repo="platform-api", pr_id=1, draft=False):
     return {
         "id": pr_id,
         "user": {"login": user},
         "state": state,
+        "draft": draft,
         "base": {"repo": {"name": repo}},
         "number": pr_id,
     }
@@ -132,6 +133,26 @@ def test_filter_pr_details_filter_state():
     result = config.filter_pr_details(pr_details, [], filter_state=("closed",))
     assert len(result) == 1
     assert result[0]["id"] == 2
+
+
+def test_filter_pr_details_filter_state_draft():
+    pr_details = [
+        _make_pr(state="open", draft=False, pr_id=1),  # non-draft open
+        _make_pr(state="open", draft=True, pr_id=2),  # draft (state="open" in API)
+        _make_pr(state="closed", draft=False, pr_id=3),
+    ]
+
+    # --filter-state draft returns only draft PRs
+    result = config.filter_pr_details(pr_details, [], filter_state=("draft",))
+    assert [pr["id"] for pr in result] == [2]
+
+    # --filter-state open includes draft and non-draft open PRs (both have state="open")
+    result = config.filter_pr_details(pr_details, [], filter_state=("open",))
+    assert [pr["id"] for pr in result] == [1, 2]
+
+    # --filter-state open --filter-state draft: OR logic, no duplicates
+    result = config.filter_pr_details(pr_details, [], filter_state=("open", "draft"))
+    assert [pr["id"] for pr in result] == [1, 2]
 
 
 def test_filter_pr_details_filter_check():

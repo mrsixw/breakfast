@@ -376,7 +376,7 @@ def is_legendary(pr_detail, now=None):
 )
 @click.option(
     "--filter-state",
-    type=click.Choice(["open", "closed"], case_sensitive=False),
+    type=click.Choice(["open", "closed", "draft"], case_sensitive=False),
     multiple=True,
     help="Only show PRs with this state. Repeat for multiple values.",
 )

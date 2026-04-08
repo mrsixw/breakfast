@@ -1732,3 +1732,13 @@ def test_auto_fit_preserves_checks_colour(monkeypatch):
     if checks_key:
         # Colour should be preserved even after compression
         assert "\x1b[" in result[0][checks_key]
+
+
+def test_no_drafts_and_drafts_only_are_mutually_exclusive(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "--no-drafts", "--drafts-only"])
+
+    assert result.exit_code == 1
+    assert "mutually exclusive" in result.output.lower()

@@ -32,6 +32,45 @@ def test_filter_pr_details_mine_only():
     assert filtered == [{"user": {"login": "alice"}}]
 
 
+def test_filter_pr_details_no_drafts():
+    pr_details = [
+        {"user": {"login": "alice"}, "draft": False},
+        {"user": {"login": "bob"}, "draft": True},
+        {"user": {"login": "carol"}, "draft": False},
+    ]
+
+    filtered = config.filter_pr_details(pr_details, ignore_authors=[], no_drafts=True)
+
+    assert filtered == [
+        {"user": {"login": "alice"}, "draft": False},
+        {"user": {"login": "carol"}, "draft": False},
+    ]
+
+
+def test_filter_pr_details_drafts_only():
+    pr_details = [
+        {"user": {"login": "alice"}, "draft": False},
+        {"user": {"login": "bob"}, "draft": True},
+        {"user": {"login": "carol"}, "draft": False},
+    ]
+
+    filtered = config.filter_pr_details(pr_details, ignore_authors=[], drafts_only=True)
+
+    assert filtered == [{"user": {"login": "bob"}, "draft": True}]
+
+
+def test_filter_pr_details_draft_field_missing():
+    """PRs without a draft field should be treated as non-draft."""
+    pr_details = [
+        {"user": {"login": "alice"}},
+        {"user": {"login": "bob"}, "draft": True},
+    ]
+
+    filtered = config.filter_pr_details(pr_details, ignore_authors=[], no_drafts=True)
+
+    assert filtered == [{"user": {"login": "alice"}}]
+
+
 def test_normalize_ignore_authors_multiple():
     ignore_authors = [" Dependabot[Bot] ", "", "ALICE", "alice", None, "bob"]
 

@@ -281,6 +281,18 @@ def is_legendary(pr_detail, now=None):
     help="Only include PRs authored by the currently authenticated GitHub user.",
 )
 @click.option(
+    "--no-drafts",
+    is_flag=True,
+    default=False,
+    help="Exclude draft PRs from results.",
+)
+@click.option(
+    "--drafts-only",
+    is_flag=True,
+    default=False,
+    help="Show only draft PRs.",
+)
+@click.option(
     "--age/--no-age",
     default=None,
     help="Include an age column showing PR age in days.",
@@ -407,6 +419,8 @@ def breakfast(
     ignore_author,
     no_ignore_author,
     mine_only,
+    no_drafts,
+    drafts_only,
     age,
     json_output,
     checks,
@@ -443,6 +457,8 @@ def breakfast(
     ignore_author = merged_ignore_authors
 
     mine_only = mine_only if mine_only is not None else cfg.get("mine-only", False)
+    no_drafts = no_drafts or cfg.get("no-drafts", False)
+    drafts_only = drafts_only or cfg.get("drafts-only", False)
     age = age if age is not None else cfg.get("age", False)
     if json_output is None:
         json_output = cfg.get("format") == "json"
@@ -503,6 +519,8 @@ def breakfast(
             "repo-filter": repo_filter,
             "ignore-author": ignore_author,
             "mine-only": mine_only,
+            "no-drafts": no_drafts,
+            "drafts-only": drafts_only,
             "age": age,
             "json": json_output,
             "checks": checks,
@@ -550,6 +568,16 @@ def breakfast(
         filter_check,
         filter_approval,
     )
+
+    if no_drafts and drafts_only:
+        click.echo(
+            click.style(
+                "Error: --no-drafts and --drafts-only are mutually exclusive.",
+                fg="red",
+                bold=True,
+            )
+        )
+        sys.exit(1)
 
     if not organization:
         message = (
@@ -721,6 +749,8 @@ def breakfast(
         ignore_author,
         mine_only=mine_only,
         current_user_login=current_user_login,
+        no_drafts=no_drafts,
+        drafts_only=drafts_only,
         filter_state=filter_state,
         filter_check=filter_check,
         filter_approval=filter_approval,

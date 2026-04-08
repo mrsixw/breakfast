@@ -98,6 +98,30 @@ Processing platform PRs...🍳...Done
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
 ```
 
+### `--no-drafts`
+
+Exclude draft PRs from results. Useful when you only want to review PRs that are ready for review.
+
+```bash
+breakfast -o my-org -r platform --no-drafts
+```
+
+Can also be set in the config file:
+
+```toml
+no-drafts = true
+```
+
+### `--drafts-only`
+
+Show only draft PRs. Useful for checking what's still in progress across your org.
+
+```bash
+breakfast -o my-org -r platform --drafts-only
+```
+
+`--no-drafts` and `--drafts-only` are mutually exclusive — using both together is an error.
+
 ## Display options
 
 ### `--age`
@@ -461,6 +485,8 @@ Options:
   --no-ignore-author              Clear config defaults for ignore-author.
   --mine-only / --no-mine-only    Only include PRs authored by the currently
                                   authenticated GitHub user.
+  --no-drafts                     Exclude draft PRs from results.
+  --drafts-only                   Show only draft PRs.
   --age / --no-age                Include an age column showing PR age in days.
   --json / --no-json              Output results as JSON instead of a table.
                                   Progress messages go to stderr.

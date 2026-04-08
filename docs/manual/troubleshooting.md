@@ -37,7 +37,7 @@ Subsequent runs within the TTL window will be near-instant (served from the loca
 
 ## Terminal hyperlinks not working
 
-The "Link" column uses OSC 8 terminal hyperlinks. If you see escape codes instead of clickable links, your terminal may not support them. Supported terminals include:
+The **Repo**, **Author**, **Checks**, and **Link** columns use OSC 8 terminal hyperlinks. If you see escape codes instead of clickable links, your terminal may not support them. Supported terminals include:
 
 - iTerm2
 - GNOME Terminal

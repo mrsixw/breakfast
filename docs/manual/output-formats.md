@@ -19,16 +19,16 @@ The default output is a colour-coded terminal table with the following columns:
 
 | Column | Description |
 |--------|-------------|
-| Repo | Repository name |
+| Repo | Repository name (clickable hyperlink) |
 | PR Title | Pull request title |
-| Author | GitHub login of the PR author |
+| Author | GitHub login of the PR author (clickable hyperlink) |
 | State | PR state (typically "open") |
 | Files | Number of changed files |
 | Commits | Number of commits in the PR |
 | +/- | Lines added (green) and deleted (red) |
 | Comments | Number of review comments |
 | Age | Days since PR creation (only with `--age`) |
-| Checks | CI/check run status: pass, fail, pending, none (only with `--checks`) |
+| Checks | CI/check run status: pass, fail, pending, none (only with `--checks`, clickable hyperlink) |
 | Mergeable? | Whether the PR can be merged cleanly |
 | Link | Clickable terminal hyperlink to the PR |
 
@@ -44,7 +44,7 @@ Numeric columns (Files, Commits, Comments, Age) are colour-graded:
 
 ### Terminal hyperlinks
 
-The "Link" column uses [OSC 8 terminal hyperlinks](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda), supported by most modern terminals (iTerm2, GNOME Terminal, Windows Terminal, etc.). Click the link to open the PR in your browser.
+The **Repo**, **Author**, **Checks**, and **Link** columns use [OSC 8 terminal hyperlinks](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda), supported by most modern terminals (iTerm2, GNOME Terminal, Windows Terminal, etc.). Click the link to open the repo, author profile, or PR checks in your browser.
 
 ## JSON output (`--json`)
 

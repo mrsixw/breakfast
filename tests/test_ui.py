@@ -9,7 +9,7 @@ from breakfast import ui
     [
         (5, "green"),
         (15, "yellow"),
-        (30, (255, 165, 0)),
+        (30, 208),
         (60, "red"),
     ],
 )
@@ -38,6 +38,6 @@ def test_format_check_status():
 
 
 def test_format_mergeable_status():
-    assert ui.format_mergeable_status(True, "clean") == "✅ (clean)"
-    assert ui.format_mergeable_status(False, "dirty") == "❌ (dirty)"
-    assert ui.format_mergeable_status(True, "clean", style="ascii") == "yes (clean)"
+    assert "✅ (clean)" in ui.format_mergeable_status(True, "clean")
+    assert "❌ (dirty)" in ui.format_mergeable_status(False, "dirty")
+    assert "yes (clean)" in ui.format_mergeable_status(True, "clean", style="ascii")

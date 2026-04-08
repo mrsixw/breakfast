@@ -19,18 +19,18 @@ The default output is a colour-coded terminal table with the following columns:
 
 | Column | Description |
 |--------|-------------|
-| Repo | Repository name |
+| Repo | Repository name — clickable link to the repo on GitHub |
 | PR Title | Pull request title |
-| Author | GitHub login of the PR author |
+| Author | GitHub login of the PR author — clickable link to their profile |
 | State | PR state (typically "open") |
 | Files | Number of changed files |
 | Commits | Number of commits in the PR |
 | +/- | Lines added (green) and deleted (red) |
 | Comments | Number of review comments |
 | Age | Days since PR creation (only with `--age`) |
-| Checks | CI/check run status: pass, fail, pending, none (only with `--checks`) |
+| Checks | CI/check run status: pass, fail, pending, none (only with `--checks`) — clickable link to the PR's checks tab |
 | Mergeable? | Whether the PR can be merged cleanly |
-| Link | Clickable terminal hyperlink to the PR |
+| Link | Clickable link to the PR |
 
 Use `--status-style ascii` if your terminal font renders the status emoji with uneven column widths.
 

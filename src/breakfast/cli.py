@@ -51,11 +51,27 @@ _DROPPABLE_COLUMNS = [
     "Apr",
 ]
 
-_ANSI_RE = re.compile(r"\x1b(?:\[[0-9;]*[mK]|\]8;;[^\x1b]*\x1b\\)")
+_ANSI_RE = re.compile(r"\x1b(?:\[[0-9;]*[a-zA-Z]|\]8;;.*?\x1b\\|\]8;;.*?\x07)")
+_ANSI_LEADING_RE = re.compile(r"^(?:\x1b\[[0-9;]*[a-zA-Z])*")
+_ANSI_RESET = "\x1b[0m"
 
 
 def _strip_ansi(s):
     return _ANSI_RE.sub("", str(s))
+
+
+def _styled_hyperlink(url, styled_text):
+    """Wrap a click.style'd string in an OSC 8 hyperlink.
+
+    Tabulate's OSC 8 parser requires the link text to contain no escape
+    sequences. This helper moves leading ANSI colour codes outside the OSC 8
+    escape so tabulate measures column width correctly while the terminal
+    still renders the text in colour.
+    """
+    plain = _strip_ansi(styled_text)
+    prefix = _ANSI_LEADING_RE.match(styled_text).group()
+    suffix = _ANSI_RESET if _ANSI_RESET in styled_text else ""
+    return prefix + generate_terminal_url_anchor(url, plain) + suffix
 
 
 def _table_width(rows):
@@ -841,10 +857,15 @@ def breakfast(
         if legendary and is_legendary(pr_detail):
             state_label = state_label + " " + _LEGENDARY_EMOJI
 
+        repo = pr_detail["base"]["repo"]
+        repo_url = repo.get("html_url") or pr_detail["html_url"].split("/pull/")[0]
+        author = pr_detail["user"]
+        author_url = author.get("html_url") or f"https://github.com/{author['login']}"
+
         row = {
-            "Repo": pr_detail["base"]["repo"]["name"],
+            "Repo": generate_terminal_url_anchor(repo_url, repo["name"]),
             "PR Title": pr_detail["title"],
-            "Author": pr_detail["user"]["login"],
+            "Author": generate_terminal_url_anchor(author_url, author["login"]),
             "State": state_label,
             "Files": click_colour_grade_number(pr_detail["changed_files"]),
             "Commits": click_colour_grade_number(pr_detail["commits"]),
@@ -854,9 +875,12 @@ def breakfast(
         if age:
             row["Age"] = click_colour_grade_number(get_pr_age_days(pr_detail))
         if checks:
-            row["Checks"] = format_check_status(
-                check_statuses.get(pr_detail["id"], "none"),
-                style=status_style,
+            row["Checks"] = _styled_hyperlink(
+                f"{pr_detail['html_url']}/checks",
+                format_check_status(
+                    check_statuses.get(pr_detail["id"], "none"),
+                    style=status_style,
+                ),
             )
         if approvals:
             row["Approved"] = format_approval_status(

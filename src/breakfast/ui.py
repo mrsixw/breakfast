@@ -39,6 +39,23 @@ BREAKFAST_ITEMS = [
 ]
 
 
+def format_pr_state(state, is_draft=False):
+    """Return a colour-coded state string for display in the PR table.
+
+    open   → green  'open'
+    draft  → grey   'draft'
+    closed → red    'closed'
+    """
+    state_lower = state.lower()
+    if state_lower == "open":
+        if is_draft:
+            return click.style("draft", fg=246, bold=False)
+        return click.style("open", fg="green", bold=True)
+    if state_lower == "closed":
+        return click.style("closed", fg="red", bold=True)
+    return state
+
+
 def click_colour_grade_number(num):
     colour = "red"
     if num < 10:

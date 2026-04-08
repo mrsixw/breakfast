@@ -34,6 +34,7 @@ from .ui import (
     format_approval_status,
     format_check_status,
     format_mergeable_status,
+    format_pr_state,
     generate_terminal_url_anchor,
 )
 from .updater import check_for_update
@@ -788,15 +789,15 @@ def breakfast(
         adds = click.style("+" + str(pr_detail["additions"]), fg="green", bold=True)
         subs = click.style("-" + str(pr_detail["deletions"]), fg="red", bold=True)
 
-        state_value = pr_detail["state"]
+        state_label = format_pr_state(pr_detail["state"], pr_detail.get("draft", False))
         if legendary and is_legendary(pr_detail):
-            state_value = state_value + " " + _LEGENDARY_EMOJI
+            state_label = state_label + " " + _LEGENDARY_EMOJI
 
         row = {
             "Repo": pr_detail["base"]["repo"]["name"],
             "PR Title": pr_detail["title"],
             "Author": pr_detail["user"]["login"],
-            "State": state_value,
+            "State": state_label,
             "Files": click_colour_grade_number(pr_detail["changed_files"]),
             "Commits": click_colour_grade_number(pr_detail["commits"]),
             "+/-": f"{adds}/{subs}",

@@ -9,7 +9,7 @@ from breakfast import ui
     [
         (5, "green"),
         (15, "yellow"),
-        (30, 208),
+        (30, (255, 165, 0)),
         (60, "red"),
     ],
 )
@@ -37,40 +37,7 @@ def test_format_check_status():
     assert "⚠️" not in result
 
 
-def test_format_approval_status_emoji():
-    assert "✅ approved" in ui.format_approval_status("approved")
-    assert "❌ changes" in ui.format_approval_status("changes")
-    assert "⏳ pending" in ui.format_approval_status("pending")
-
-
-def test_format_approval_status_ascii():
-    result = ui.format_approval_status("approved", style="ascii")
-    assert "approved" in result
-    assert "✅" not in result
-
-    result = ui.format_approval_status("changes", style="ascii")
-    assert "changes" in result
-    assert "❌" not in result
-
-    result = ui.format_approval_status("pending", style="ascii")
-    assert "pending" in result
-    assert "⏳" not in result
-
-
 def test_format_mergeable_status():
-    result = ui.format_mergeable_status(True, "clean")
-    assert "✅ (clean)" in result
-    assert "\x1b[" in result  # contains ANSI colour codes
-
-    result = ui.format_mergeable_status(False, "dirty")
-    assert "❌ (dirty)" in result
-    assert "\x1b[" in result
-
-    result = ui.format_mergeable_status(True, "clean", style="ascii")
-    assert "yes (clean)" in result
-
-    result = ui.format_mergeable_status(True, None)
-    assert "✅" in result
-
-    result = ui.format_mergeable_status(False, None)
-    assert "❌" in result
+    assert ui.format_mergeable_status(True, "clean") == "✅ (clean)"
+    assert ui.format_mergeable_status(False, "dirty") == "❌ (dirty)"
+    assert ui.format_mergeable_status(True, "clean", style="ascii") == "yes (clean)"

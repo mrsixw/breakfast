@@ -34,6 +34,7 @@ from .ui import (
     format_approval_status,
     format_check_status,
     format_mergeable_status,
+    format_pr_state,
     generate_terminal_url_anchor,
 )
 from .updater import check_for_update
@@ -796,7 +797,7 @@ def breakfast(
             "Repo": pr_detail["base"]["repo"]["name"],
             "PR Title": pr_detail["title"],
             "Author": pr_detail["user"]["login"],
-            "State": state_value,
+            "State": format_pr_state(pr_detail["state"], pr_detail.get("draft", False)),
             "Files": click_colour_grade_number(pr_detail["changed_files"]),
             "Commits": click_colour_grade_number(pr_detail["commits"]),
             "+/-": f"{adds}/{subs}",

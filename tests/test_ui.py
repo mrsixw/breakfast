@@ -41,3 +41,20 @@ def test_format_mergeable_status():
     assert "✅ (clean)" in ui.format_mergeable_status(True, "clean")
     assert "❌ (dirty)" in ui.format_mergeable_status(False, "dirty")
     assert "yes (clean)" in ui.format_mergeable_status(True, "clean", style="ascii")
+
+
+def test_format_pr_state_open():
+    result = ui.format_pr_state("open", is_draft=False)
+    assert "open" in result
+    assert "draft" not in result
+
+
+def test_format_pr_state_draft():
+    result = ui.format_pr_state("open", is_draft=True)
+    assert "draft" in result
+    assert "open" not in result
+
+
+def test_format_pr_state_closed():
+    result = ui.format_pr_state("closed")
+    assert "closed" in result

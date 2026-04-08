@@ -1742,3 +1742,68 @@ def test_no_drafts_and_drafts_only_are_mutually_exclusive(monkeypatch):
 
     assert result.exit_code == 1
     assert "mutually exclusive" in result.output.lower()
+
+
+def test_styled_hyperlink_puts_colour_outside_osc8():
+    import click
+
+    styled = click.style("pending", fg="yellow", bold=True)
+    result = cli._styled_hyperlink("https://example.com/checks", styled)
+    # Find the link text between the OSC 8 open and close tags
+    osc_open_end = result.index("\x1b\\") + 2
+    osc_close_start = result.index("\x1b]8;;\x1b\\", osc_open_end)
+    link_text = result[osc_open_end:osc_close_start]
+    assert link_text == "pending"  # plain text inside the OSC 8, no escape sequences
+    assert "\x1b[" in result  # colour codes still present outside the OSC 8
+
+
+def test_cli_repo_and_author_are_hyperlinks(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    pr = _make_pr_fixture(number=1)
+    pr["base"]["repo"]["html_url"] = "https://github.com/myorg/myrepo"
+    pr["user"]["html_url"] = "https://github.com/alice"
+
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/myorg/myrepo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _path: pr)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "myorg", "-r", "myrepo"])
+
+    assert result.exit_code == 0
+    assert "\x1b]8;;https://github.com/myorg/myrepo\x1b\\" in result.output
+    assert "\x1b]8;;https://github.com/alice\x1b\\" in result.output
+
+
+def test_cli_checks_column_links_to_checks_tab(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    pr = _make_pr_fixture(number=7)
+    pr["base"]["repo"]["owner"] = {"login": "org"}
+    pr["head"] = {"sha": "abc123"}
+    pr["id"] = 9007
+
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/7"]
+    )
+
+    def fake_api(path):
+        if "check-runs" in path:
+            return {"check_runs": [{"status": "completed", "conclusion": "success"}]}
+        if "status" in path:
+            return {"statuses": []}
+        return pr
+
+    monkeypatch.setattr(api, "make_github_api_request", fake_api)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--checks"])
+
+    assert result.exit_code == 0
+    assert "\x1b]8;;https://github.com/org/repo/pull/7/checks\x1b\\" in result.output

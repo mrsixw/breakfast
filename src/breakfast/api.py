@@ -197,13 +197,16 @@ def get_authenticated_user_login():
     return login
 
 
-def get_approval_status(owner, repo, pr_number):
-    """Get the aggregate approval status for a PR.
+def _review_status_from_latest_reviews(owner, repo, pr_number):
+    """Aggregate approval state from the latest REST review events.
 
-    Uses the most recent review per reviewer, mirroring GitHub's UI logic:
-    - ``approved``  — at least one APPROVED review, no CHANGES_REQUESTED
-    - ``changes``   — at least one reviewer has requested changes
-    - ``pending``   — no qualifying reviews yet
+    Args:
+        owner: Repository owner login.
+        repo: Repository name.
+        pr_number: Pull request number.
+
+    Returns:
+        str: One of ``approved``, ``changes``, or ``pending``.
     """
     reviews = make_paginated_github_api_requst(
         f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
@@ -212,7 +215,6 @@ def get_approval_status(owner, repo, pr_number):
     if not reviews:
         return "pending"
 
-    # Keep only the most recent qualifying review state per reviewer
     latest_by_reviewer = {}
     for review in reviews:
         reviewer = review.get("user", {}).get("login")
@@ -226,6 +228,56 @@ def get_approval_status(owner, repo, pr_number):
     if "APPROVED" in states:
         return "approved"
     return "pending"
+
+
+def get_approval_status(owner, repo, pr_number):
+    """Get GitHub's current review decision for a pull request.
+
+    Args:
+        owner: Repository owner login.
+        repo: Repository name.
+        pr_number: Pull request number.
+
+    Returns:
+        str: One of ``approved``, ``changes``, or ``pending``.
+
+    Notes:
+        This prefers GitHub's ``reviewDecision`` so multi-review branch rules do
+        not get flattened into a misleading single-approval green state. If the
+        GraphQL signal is unavailable, it falls back to the latest REST review
+        events.
+    """
+    query = """
+    query($owner: String!, $repo: String!, $prNumber: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $prNumber) {
+          reviewDecision
+        }
+      }
+    }
+    """
+    variables = {"owner": owner, "repo": repo, "prNumber": pr_number}
+
+    try:
+        response = make_github_graphql_request(query, variables)
+        review_decision = (
+            response.get("data", {})
+            .get("repository", {})
+            .get("pullRequest", {})
+            .get("reviewDecision")
+        )
+    except (ValueError, requests.exceptions.RequestException):
+        review_decision = None
+
+    decision_map = {
+        "APPROVED": "approved",
+        "CHANGES_REQUESTED": "changes",
+        "REVIEW_REQUIRED": "pending",
+    }
+    if review_decision in decision_map:
+        return decision_map[review_decision]
+
+    return _review_status_from_latest_reviews(owner, repo, pr_number)
 
 
 def get_check_status(owner, repo, sha):

@@ -3,11 +3,31 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from unittest.mock import patch
 
+import pytest
 import requests
 from click.testing import CliRunner
 from tabulate import tabulate
 
 from breakfast import api, cache, cli
+
+
+@pytest.fixture(autouse=True)
+def stub_review_decision(monkeypatch):
+    monkeypatch.setattr(
+        api,
+        "make_github_graphql_request",
+        lambda query, variables: {
+            "data": {
+                "repository": {"pullRequest": {"reviewDecision": "REVIEW_REQUIRED"}}
+            }
+        },
+    )
+
+
+@pytest.fixture(autouse=True)
+def isolate_config_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg_config"))
 
 
 def test_get_pr_age_days():
@@ -598,13 +618,15 @@ def test_cli_outputs_approvals_column(monkeypatch):
     def fake_get_prs(_org, _repo_filter):
         return ["https://github.com/org/repo/pull/1"]
 
-    def fake_api_request(path):
-        if "/reviews" in path:
-            return [{"user": {"login": "bob"}, "state": "APPROVED"}]
-        return pr_detail
-
     monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
-    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+    monkeypatch.setattr(api, "make_github_api_request", lambda path: pr_detail)
+    monkeypatch.setattr(
+        api,
+        "make_github_graphql_request",
+        lambda query, variables: {
+            "data": {"repository": {"pullRequest": {"reviewDecision": "APPROVED"}}}
+        },
+    )
 
     runner = CliRunner()
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--approvals"])
@@ -612,6 +634,36 @@ def test_cli_outputs_approvals_column(monkeypatch):
     assert result.exit_code == 0
     assert "Approved" in result.output
     assert "✅ approved" in result.output
+
+
+def test_cli_renders_review_required_for_incomplete_reviews(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    pr_detail = _make_pr_detail()
+
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda _org, _repo_filter: ["https://github.com/org/repo/pull/1"],
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda path: pr_detail)
+    monkeypatch.setattr(
+        api,
+        "make_github_graphql_request",
+        lambda query, variables: {
+            "data": {
+                "repository": {"pullRequest": {"reviewDecision": "REVIEW_REQUIRED"}}
+            }
+        },
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--approvals"])
+
+    assert result.exit_code == 0
+    assert "⏳ review required" in result.output
 
 
 def test_cli_approvals_not_shown_by_default(monkeypatch):
@@ -649,6 +701,15 @@ def test_cli_json_includes_approval_when_enabled(monkeypatch):
         cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
     )
     monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+    monkeypatch.setattr(
+        api,
+        "make_github_graphql_request",
+        lambda query, variables: {
+            "data": {
+                "repository": {"pullRequest": {"reviewDecision": "CHANGES_REQUESTED"}}
+            }
+        },
+    )
 
     runner = CliRunner()
     result = runner.invoke(

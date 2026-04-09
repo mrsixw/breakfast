@@ -110,12 +110,12 @@ def format_approval_status(status, style="emoji"):
         "emoji": {
             "approved": ("green", "✅ approved"),
             "changes": ("red", "❌ changes"),
-            "pending": ("yellow", "⏳ pending"),
+            "pending": ("yellow", "⏳ review required"),
         },
         "ascii": {
             "approved": ("green", "approved"),
             "changes": ("red", "changes"),
-            "pending": ("yellow", "pending"),
+            "pending": ("yellow", "review required"),
         },
     }
     style_map = styles.get(style, styles["emoji"])

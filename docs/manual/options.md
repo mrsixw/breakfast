@@ -258,16 +258,17 @@ Processing platform PRs...🍩🧇...Done
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------------+--------+
 |       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | ✅ approved  | ✅ (clean)   | PR-142 |
 |       1 | platform-api   | Fix login bug   | bob    | open    |   1   |    1    |  +5/-2     |    3     | ❌ changes   | ✅ (clean)   | PR-138 |
-|       2 | platform-ui    | Update nav bar  | carol  | open    |  12   |    4    |  +280/-95  |    1     | ⏳ pending   | ❌ (dirty)   | PR-87  |
+|       2 | platform-ui    | Update nav bar  | carol  | open    |  12   |    4    |  +280/-95  |    1     | ⏳ review required | ❌ (dirty)   | PR-87  |
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------------+--------+
 ```
 
 Approval values:
-- **✅ approved** (green) — at least one reviewer has approved and no changes are requested
+- **✅ approved** (green) — GitHub reports the PR as approved for merge
 - **❌ changes** (red) — at least one reviewer has requested changes
-- **⏳ pending** (yellow) — no qualifying reviews yet
+- **⏳ review required** (yellow) — GitHub still requires more review before merge
 
-The most recent review per reviewer is used, mirroring GitHub's own UI logic.
+GitHub's review decision is used when available so repos that require multiple
+approvals do not show a misleading green approval after only one review.
 
 Can also be set in the config file:
 

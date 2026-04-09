@@ -281,28 +281,38 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
 
     check_status = None
     if fetch_checks:
-        owner = pr_detail["base"]["repo"]["owner"]["login"]
-        repo_name = pr_detail["base"]["repo"]["name"]
-        try:
-            check_status = get_check_status(owner, repo_name, pr_detail["head"]["sha"])
-        except requests.exceptions.RequestException as exc:
-            logger.warning(
-                "check_status_fetch_failed pr_id=%s error=%r", pr_detail["id"], str(exc)
-            )
+        owner = pr_detail.get("base", {}).get("repo", {}).get("owner", {}).get("login")
+        repo_name = pr_detail.get("base", {}).get("repo", {}).get("name")
+        head_sha = pr_detail.get("head", {}).get("sha")
+        if owner and repo_name and head_sha:
+            try:
+                check_status = get_check_status(owner, repo_name, head_sha)
+            except requests.exceptions.RequestException as exc:
+                logger.warning(
+                    "check_status_fetch_failed pr_id=%s error=%r",
+                    pr_detail.get("id"),
+                    str(exc),
+                )
+                check_status = "none"
+        else:
             check_status = "none"
 
     approval_status = None
     if fetch_approvals:
-        owner = pr_detail["base"]["repo"]["owner"]["login"]
-        repo_name = pr_detail["base"]["repo"]["name"]
-        try:
-            approval_status = get_approval_status(owner, repo_name, pr_detail["number"])
-        except requests.exceptions.RequestException as exc:
-            logger.warning(
-                "approval_status_fetch_failed pr_id=%s error=%r",
-                pr_detail["id"],
-                str(exc),
-            )
+        owner = pr_detail.get("base", {}).get("repo", {}).get("owner", {}).get("login")
+        repo_name = pr_detail.get("base", {}).get("repo", {}).get("name")
+        pr_number = pr_detail.get("number")
+        if owner and repo_name and pr_number is not None:
+            try:
+                approval_status = get_approval_status(owner, repo_name, pr_number)
+            except (ValueError, requests.exceptions.RequestException) as exc:
+                logger.warning(
+                    "approval_status_fetch_failed pr_id=%s error=%r",
+                    pr_detail.get("id"),
+                    str(exc),
+                )
+                approval_status = "pending"
+        else:
             approval_status = "pending"
 
     return pr_detail, check_status, approval_status

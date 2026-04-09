@@ -271,6 +271,43 @@ def is_legendary(pr_detail, now=None):
     )
 
 
+def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
+    """Fetch a PR's detail plus optional check and approval statuses in one shot.
+
+    Propagates RequestException from the detail fetch so the caller can skip
+    the PR. Check/approval failures fall back to sentinel values instead.
+    """
+    pr_detail = _fetch_pr_detail(url)
+
+    check_status = None
+    if fetch_checks:
+        owner = pr_detail["base"]["repo"]["owner"]["login"]
+        repo_name = pr_detail["base"]["repo"]["name"]
+        try:
+            check_status = get_check_status(owner, repo_name, pr_detail["head"]["sha"])
+        except requests.exceptions.RequestException as exc:
+            logger.warning(
+                "check_status_fetch_failed pr_id=%s error=%r", pr_detail["id"], str(exc)
+            )
+            check_status = "none"
+
+    approval_status = None
+    if fetch_approvals:
+        owner = pr_detail["base"]["repo"]["owner"]["login"]
+        repo_name = pr_detail["base"]["repo"]["name"]
+        try:
+            approval_status = get_approval_status(owner, repo_name, pr_detail["number"])
+        except requests.exceptions.RequestException as exc:
+            logger.warning(
+                "approval_status_fetch_failed pr_id=%s error=%r",
+                pr_detail["id"],
+                str(exc),
+            )
+            approval_status = "pending"
+
+    return pr_detail, check_status, approval_status
+
+
 @click.command()
 @click.option("--config", help="Path to config file.")
 @click.option("--show-config", is_flag=True, help="Print the resolved config and exit.")
@@ -653,6 +690,16 @@ def breakfast(
             cached_check_statuses = cache_result["check_statuses"]
             cached_approval_statuses = cache_result["approval_statuses"]
 
+    # Resolve implied flags before fetch so bundle knows what to fetch per PR.
+    if filter_check:
+        checks = True
+    if filter_approval:
+        approvals = True
+
+    check_statuses = {}
+    approval_statuses = {}
+    statuses_from_bundle = False
+
     if pr_details is None:
         # --- Layer 2: GraphQL URL list cache (skip only on --refresh) ---
         prs = None
@@ -688,15 +735,21 @@ def breakfast(
         failed_urls = []
         click.echo(f"Processing {repo_filter} PRs...", nl=False, err=json_output)
         if prs:
-            max_workers = min(8, len(prs))
+            max_workers = min(64, len(prs))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_url = {
-                    executor.submit(_fetch_pr_detail, url): url for url in prs
+                    executor.submit(_fetch_pr_bundle, url, checks, approvals): url
+                    for url in prs
                 }
                 for future in as_completed(future_to_url):
                     url = future_to_url[future]
                     try:
-                        pr_details.append(future.result())
+                        pr_detail, check_status, approval_status = future.result()
+                        pr_details.append(pr_detail)
+                        if check_status is not None:
+                            check_statuses[pr_detail["id"]] = check_status
+                        if approval_status is not None:
+                            approval_statuses[pr_detail["id"]] = approval_status
                         click.echo(
                             random.choices(BREAKFAST_ITEMS)[0],
                             nl=False,
@@ -707,6 +760,7 @@ def breakfast(
                             "pr_detail_fetch_failed url=%s error=%r", url, str(exc)
                         )
                         failed_urls.append(url)
+        statuses_from_bundle = True
         click.echo("...Done", err=json_output)
         if failed_urls:
             examples = ", ".join(failed_urls[:3])
@@ -720,20 +774,14 @@ def breakfast(
             needs_cache_write = True
     else:
         click.echo(f"Processing {repo_filter} PRs...⚡...Done", err=json_output)
-    # --filter-check implies --checks (we need the data to filter on)
-    if filter_check:
-        checks = True
 
-    # Fetch check statuses before filtering so --filter-check can use them.
-    # When --checks is enabled without --filter-check we still fetch here
-    # so the column is populated for the final display.
-    # Use cached statuses when available to avoid redundant API calls.
-    check_statuses = {}
-    if checks and pr_details:
+    # Fetch check statuses for cache-hit paths where statuses are absent.
+    # In the live-fetch path statuses are already populated by _fetch_pr_bundle.
+    if checks and pr_details and not statuses_from_bundle:
         if cached_check_statuses is not None:
             check_statuses = cached_check_statuses
         else:
-            max_workers = min(8, len(pr_details))
+            max_workers = min(64, len(pr_details))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 check_futures = []
                 for pr_detail in pr_details:
@@ -754,16 +802,13 @@ def breakfast(
                     check_statuses[pr_id] = "none"
             needs_cache_write = True
 
-    # --filter-approval implies fetching approval data (same as --approvals)
-    if filter_approval:
-        approvals = True
-
-    approval_statuses = {}
-    if approvals and pr_details:
+    # Fetch approval statuses for cache-hit paths where statuses are absent.
+    # In the live-fetch path statuses are already populated by _fetch_pr_bundle.
+    if approvals and pr_details and not statuses_from_bundle:
         if cached_approval_statuses is not None:
             approval_statuses = cached_approval_statuses
         else:
-            max_workers = min(8, len(pr_details))
+            max_workers = min(64, len(pr_details))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 approval_futures = []
                 for pr_detail in pr_details:

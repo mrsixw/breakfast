@@ -125,6 +125,7 @@ def read_pr_cache(org: str, repo_filter: str, ttl: int) -> dict | None:
       "prs"              – list of PR detail dicts
       "check_statuses"   – dict[int, str] or None (absent from older caches)
       "approval_statuses"– dict[int, str] or None (absent from older caches)
+      "approval_details" – dict[int, dict] or None (absent from older caches)
     """
     path = cache_path(org, repo_filter)
     try:
@@ -147,6 +148,7 @@ def read_pr_cache(org: str, repo_filter: str, ttl: int) -> dict | None:
         # JSON keys are always strings; convert back to int for PR IDs.
         raw_checks = data.get("check_statuses")
         raw_approvals = data.get("approval_statuses")
+        raw_approval_details = data.get("approval_details")
         pr_count = len(data["prs"])
         logger.debug(
             "cache_hit layer=pr_detail path=%s age=%.0fs pr_count=%d",
@@ -166,6 +168,11 @@ def read_pr_cache(org: str, repo_filter: str, ttl: int) -> dict | None:
                 if raw_approvals is not None
                 else None
             ),
+            "approval_details": (
+                {int(k): v for k, v in raw_approval_details.items()}
+                if raw_approval_details is not None
+                else None
+            ),
         }
     except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
         logger.warning(
@@ -181,6 +188,7 @@ def write_pr_cache(
     pr_details: list,
     check_statuses: dict | None = None,
     approval_statuses: dict | None = None,
+    approval_details: dict | None = None,
 ) -> None:
     """Write pr_details (and optional statuses) to disk cache."""
     try:
@@ -199,6 +207,10 @@ def write_pr_cache(
         if approval_statuses is not None:
             payload["approval_statuses"] = {
                 str(k): v for k, v in approval_statuses.items()
+            }
+        if approval_details is not None:
+            payload["approval_details"] = {
+                str(k): v for k, v in approval_details.items()
             }
         path.write_text(json.dumps(payload))
         logger.debug(

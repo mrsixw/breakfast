@@ -47,7 +47,7 @@ breakfast -o my-org -r my-app --legendary-only
 - `--repo-filter`, `-r`: Filter repos by name substring.
 - `--age`: Add an age column (days since creation).
 - `--checks`: Add a checks column showing CI status (✅ pass / ❌ fail / ⚠️ pending).
-- `--approvals`: Add an approvals column showing review status (✅ approved / ❌ changes / ⏳ pending).
+- `--approvals`: Add an approvals column showing review status (✅ approved / ✅ 1/2 approvals / ❌ changes / ⏳ pending).
 - `--status-style`: Render status cells with `emoji` (default) or `ascii` labels.
 - `--json`: Output as JSON instead of a table.
 - `--limit`: Cap the number of PRs shown.

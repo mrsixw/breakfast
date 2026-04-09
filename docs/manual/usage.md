@@ -117,6 +117,22 @@ breakfast -o my-org -r my-app \
 breakfast -o my-org -r platform --checks --status-style ascii
 ```
 
+### Search PR titles
+
+Find PRs whose title contains a keyword (case-insensitive):
+
+```bash
+breakfast -o my-org -r platform --search hotfix
+breakfast -o my-org -r platform -s login
+```
+
+Or narrow down with a regex pattern:
+
+```bash
+breakfast -o my-org -r platform -s "^feat"         # starts with "feat"
+breakfast -o my-org -r platform -s "fix|chore"     # either word
+```
+
 ### Spot legendary PRs at a glance
 
 Highlight PRs that have been open for 30+ days or have 100+ comments with a ⚔️:
@@ -153,5 +169,5 @@ breakfast -o my-org -r platform --cache-ttl 10m   # cache for 10 minutes
 2. **Fetch repositories** - Uses the GitHub GraphQL API to paginate through all repositories in the organization
 3. **Filter repos** - Keeps only repos whose name contains the `--repo-filter` substring
 4. **Fetch PR details** - Uses the GitHub REST API to fetch full details for each open PR (parallelized for speed); writes results to disk cache
-5. **Filter PRs** - Applies author filters (`--ignore-author`, `--mine-only`)
+5. **Filter PRs** - Applies author filters (`--ignore-author`, `--mine-only`), title search (`--search`), and other filters
 6. **Display** - Renders results as a terminal table or JSON

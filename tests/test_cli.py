@@ -1814,3 +1814,72 @@ def test_cli_checks_column_links_to_checks_tab(monkeypatch):
 
     assert result.exit_code == 0
     assert "\x1b]8;;https://github.com/org/repo/pull/7/checks\x1b\\" in result.output
+
+
+def test_progress_emoji_emitted_after_check_status_fetch(monkeypatch):
+    """Emoji must appear only after the full bundle (detail + checks) is fetched.
+
+    Regression for #142: the old code emitted the emoji as soon as PR detail
+    completed, before check/approval statuses were fetched, causing a silent
+    delay after the progress line showed ...Done.
+    """
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    pr = _make_pr_fixture(number=1)
+    pr["base"]["repo"]["owner"] = {"login": "org"}
+    pr["head"] = {"sha": "sha-abc"}
+    pr["id"] = 5001
+
+    call_log = []
+
+    original_bundle = cli._fetch_pr_bundle
+
+    def tracked_bundle(url, fetch_checks, fetch_approvals):
+        result = original_bundle(url, fetch_checks, fetch_approvals)
+        call_log.append("bundle_complete")
+        return result
+
+    monkeypatch.setattr(cli, "_fetch_pr_bundle", tracked_bundle)
+
+    original_echo = cli.click.echo
+
+    def tracked_echo(msg=None, **kwargs):
+        if msg == "*":
+            call_log.append("emoji")
+        original_echo(msg, **kwargs)
+
+    monkeypatch.setattr(cli.click, "echo", tracked_echo)
+
+    def fake_api(path):
+        if "check-runs" in path:
+            call_log.append("check_status_fetched")
+            return {"check_runs": [{"status": "completed", "conclusion": "success"}]}
+        if "status" in path:
+            return {"statuses": []}
+        return pr
+
+    monkeypatch.setattr(api, "make_github_api_request", fake_api)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--checks"])
+
+    assert result.exit_code == 0
+
+    # check_status_fetched must come before emoji in the log
+    assert "check_status_fetched" in call_log, "get_check_status was never called"
+    assert "emoji" in call_log, "progress emoji was never emitted"
+    check_idx = call_log.index("check_status_fetched")
+    emoji_idx = call_log.index("emoji")
+    assert check_idx < emoji_idx, (
+        f"Expected check status fetch (pos {check_idx}) before emoji "
+        f"(pos {emoji_idx}); got call_log={call_log}"
+    )
+
+    # bundle_complete appears exactly once — no second bulk-fetch phase
+    assert call_log.count("bundle_complete") == 1
+    assert call_log.count("check_status_fetched") == 1

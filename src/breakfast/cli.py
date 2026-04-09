@@ -380,6 +380,12 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     help="Cap the number of PRs shown. Unset means show all results.",
 )
 @click.option(
+    "--workers",
+    type=int,
+    default=None,
+    help="Number of parallel workers for fetching PR data. Default: 64.",
+)
+@click.option(
     "--max-title-length",
     type=int,
     default=None,
@@ -490,6 +496,7 @@ def breakfast(
     approvals,
     status_style,
     limit,
+    workers,
     max_title_length,
     no_update_check,
     cache_ttl,
@@ -548,6 +555,7 @@ def breakfast(
         if max_title_length is not None
         else cfg.get("max-title-length")
     )
+    workers = workers if workers is not None else cfg.get("workers", 64)
     if status_style not in {"emoji", "ascii"}:
         status_style = "emoji"
     legendary = legendary if legendary is not None else cfg.get("legendary", False)
@@ -604,6 +612,7 @@ def breakfast(
             "approvals": approvals,
             "status-style": status_style,
             "max-title-length": max_title_length,
+            "workers": workers,
             "cache": cache_enabled,
             "cache-ttl": cache_ttl_seconds,
             "refresh": refresh,
@@ -735,7 +744,7 @@ def breakfast(
         failed_urls = []
         click.echo(f"Processing {repo_filter} PRs...", nl=False, err=json_output)
         if prs:
-            max_workers = min(64, len(prs))
+            max_workers = min(workers, len(prs))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_url = {
                     executor.submit(_fetch_pr_bundle, url, checks, approvals): url
@@ -781,7 +790,7 @@ def breakfast(
         if cached_check_statuses is not None:
             check_statuses = cached_check_statuses
         else:
-            max_workers = min(64, len(pr_details))
+            max_workers = min(workers, len(pr_details))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 check_futures = []
                 for pr_detail in pr_details:
@@ -808,7 +817,7 @@ def breakfast(
         if cached_approval_statuses is not None:
             approval_statuses = cached_approval_statuses
         else:
-            max_workers = min(64, len(pr_details))
+            max_workers = min(workers, len(pr_details))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 approval_futures = []
                 for pr_detail in pr_details:

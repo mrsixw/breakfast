@@ -401,6 +401,20 @@ Can also be set in the config file to apply to all runs:
 max-title-length = 72
 ```
 
+### `--workers`
+
+Number of parallel workers used to fetch PR details, check statuses, and approval statuses. Defaults to `64`. Lower values reduce API concurrency (useful if you're hitting rate limits); higher values may speed things up on very large organisations.
+
+```bash
+breakfast -o my-org -r my-app --workers 16
+```
+
+Can also be set in the config file:
+
+```toml
+workers = 16
+```
+
 ## Caching options
 
 The disk cache is **off by default**. Enable it with `--cache` or `cache = true` in config. Once enabled, results are stored in `~/.cache/breakfast/` (or `$XDG_CACHE_HOME/breakfast/`) and reused until the TTL expires.

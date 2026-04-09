@@ -181,6 +181,17 @@ def generate_default_config():
 
 # Exclude draft PRs from results
 # no-drafts = true
+
+
+# -----------------------------------------------------------------------------
+# Performance
+# Control how aggressively breakfast fetches data in parallel.
+# -----------------------------------------------------------------------------
+
+# Number of parallel workers used to fetch PR details, check statuses, and
+# approval statuses. Higher values fetch faster but consume more API rate limit.
+# Equivalent to: --workers <n>
+# workers = 64
 """
     config_path.write_text(default_content)
     click.echo(click.style(f"Created default config at {config_path}", fg="green"))

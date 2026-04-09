@@ -1,6 +1,8 @@
 import os
 import random
 import time
+from functools import lru_cache
+from urllib.parse import quote
 
 import click
 import requests
@@ -213,30 +215,135 @@ def _review_status_from_latest_reviews(owner, repo, pr_number):
     )
 
     if not reviews:
-        return "pending"
+        return {"status": "pending", "current": 0}
 
     latest_by_reviewer = {}
     for review in reviews:
         reviewer = review.get("user", {}).get("login")
         state = review.get("state")
-        if reviewer and state in ("APPROVED", "CHANGES_REQUESTED"):
+        if reviewer and state in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
             latest_by_reviewer[reviewer] = state
 
     states = set(latest_by_reviewer.values())
+    approval_count = sum(
+        1 for state in latest_by_reviewer.values() if state == "APPROVED"
+    )
     if "CHANGES_REQUESTED" in states:
-        return "changes"
-    if "APPROVED" in states:
-        return "approved"
-    return "pending"
+        status = "changes"
+    elif approval_count:
+        status = "approved"
+    else:
+        status = "pending"
+    return {"status": status, "current": approval_count}
 
 
-def get_approval_status(owner, repo, pr_number):
+@lru_cache(maxsize=None)
+def get_required_approving_review_count(owner, repo, branch):
+    """Return the required approval count for a protected branch.
+
+    Args:
+        owner: Repository owner login.
+        repo: Repository name.
+        branch: Base branch name.
+
+    Returns:
+        int | None: Required approval count, or ``None`` when it cannot be
+        determined from branch protection data.
+    """
+    encoded_branch = quote(branch, safe="")
+    query_string = (
+        f"/repos/{owner}/{repo}/branches/{encoded_branch}"
+        "/protection/required_pull_request_reviews"
+    )
+    try:
+        data = make_github_api_request(query_string)
+    except requests.exceptions.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else None
+        if status_code in (403, 404):
+            return None
+        raise
+
+    required_count = data.get("required_approving_review_count")
+    if isinstance(required_count, int) and required_count > 0:
+        return required_count
+    return None
+
+
+def get_approval_summary(owner, repo, pr_number, base_branch=None):
+    """Return approval status plus optional obtained/required review counts.
+
+    Args:
+        owner: Repository owner login.
+        repo: Repository name.
+        pr_number: Pull request number.
+        base_branch: Base branch name for branch protection lookup.
+
+    Returns:
+        dict: Summary with ``status`` and optional ``current`` / ``required``
+        review counts.
+    """
+    review_summary = _review_status_from_latest_reviews(owner, repo, pr_number)
+    current_reviews = review_summary["current"]
+    required_reviews = None
+
+    if base_branch:
+        try:
+            required_reviews = get_required_approving_review_count(
+                owner, repo, base_branch
+            )
+        except requests.exceptions.RequestException:
+            required_reviews = None
+
+    query = """
+    query($owner: String!, $repo: String!, $prNumber: Int!) {
+      repository(owner: $owner, name: $repo) {
+        pullRequest(number: $prNumber) {
+          reviewDecision
+        }
+      }
+    }
+    """
+    variables = {"owner": owner, "repo": repo, "prNumber": pr_number}
+
+    try:
+        response = make_github_graphql_request(query, variables)
+        review_decision = (
+            response.get("data", {})
+            .get("repository", {})
+            .get("pullRequest", {})
+            .get("reviewDecision")
+        )
+    except (ValueError, requests.exceptions.RequestException):
+        review_decision = None
+
+    decision_map = {
+        "APPROVED": "approved",
+        "CHANGES_REQUESTED": "changes",
+        "REVIEW_REQUIRED": "pending",
+    }
+    status = decision_map.get(review_decision, review_summary["status"])
+
+    if required_reviews is not None and review_decision is None and status != "changes":
+        status = "approved" if current_reviews >= required_reviews else "pending"
+
+    if required_reviews is not None and status == "approved":
+        current_reviews = max(current_reviews, required_reviews)
+
+    return {
+        "status": status,
+        "current": current_reviews,
+        "required": required_reviews,
+    }
+
+
+def get_approval_status(owner, repo, pr_number, base_branch=None):
     """Get GitHub's current review decision for a pull request.
 
     Args:
         owner: Repository owner login.
         repo: Repository name.
         pr_number: Pull request number.
+        base_branch: Base branch name for branch protection lookup.
 
     Returns:
         str: One of ``approved``, ``changes``, or ``pending``.
@@ -277,7 +384,7 @@ def get_approval_status(owner, repo, pr_number):
     if review_decision in decision_map:
         return decision_map[review_decision]
 
-    return _review_status_from_latest_reviews(owner, repo, pr_number)
+    return get_approval_summary(owner, repo, pr_number, base_branch)["status"]
 
 
 def get_check_status(owner, repo, sha):

@@ -256,19 +256,22 @@ Processing platform PRs...🍩🧇...Done
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------------+--------+
 |         | Repo           | PR Title        | Author | State   | Files | Commits |    +/-     | Comments | Approved     | Mergeable?   | Link   |
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------------+--------+
-|       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | ✅ approved  | ✅ (clean)   | PR-142 |
+|       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | ✅ 2/2 approvals | ✅ (clean)   | PR-142 |
 |       1 | platform-api   | Fix login bug   | bob    | open    |   1   |    1    |  +5/-2     |    3     | ❌ changes   | ✅ (clean)   | PR-138 |
-|       2 | platform-ui    | Update nav bar  | carol  | open    |  12   |    4    |  +280/-95  |    1     | ⏳ review required | ❌ (dirty)   | PR-87  |
+|       2 | platform-ui    | Update nav bar  | carol  | open    |  12   |    4    |  +280/-95  |    1     | ✅ 1/2 approvals | ❌ (dirty)   | PR-87  |
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------------+--------+
 ```
 
 Approval values:
-- **✅ approved** (green) — GitHub reports the PR as approved for merge
+- **✅ approved** (green) — GitHub reports the PR as approved for merge when no multi-review count is available
+- **✅ 1/2 approvals** (green) — the PR has some effective approvals, but still needs more to satisfy a multi-review branch rule
 - **❌ changes** (red) — at least one reviewer has requested changes
-- **⏳ review required** (yellow) — GitHub still requires more review before merge
+- **⏳ pending** (yellow) — no effective approvals yet
 
 GitHub's review decision is used when available so repos that require multiple
-approvals do not show a misleading green approval after only one review.
+approvals do not show a misleading final `approved` state after only one review.
+When branch protection exposes a required approval count, breakfast also shows
+the current/required approval total.
 
 Can also be set in the config file:
 
@@ -276,13 +279,17 @@ Can also be set in the config file:
 approvals = true
 ```
 
-With `--json --approvals`, an `"approval"` field is included in each PR object:
+With `--json --approvals`, an `"approval"` field is included in each PR object.
+When approval counts are available, `"approval_current"` and
+`"approval_required"` are included as well:
 
 ```json
 {
   "repo": "platform-api",
   "title": "Add user search",
   "approval": "approved",
+  "approval_current": 2,
+  "approval_required": 2,
   ...
 }
 ```
@@ -296,8 +303,8 @@ breakfast -o my-org -r platform --checks --status-style ascii
 ```
 
 Supported values:
-- `emoji` - default whimsical output, such as `✅ pass`, `✅ approved`, and `❌ (dirty)`
-- `ascii` - terminal-safe fallback, such as `pass`, `approved`, and `no (dirty)`
+- `emoji` - default whimsical output, such as `✅ pass`, `✅ 1/2 approvals`, and `❌ (dirty)`
+- `ascii` - terminal-safe fallback, such as `pass`, `1/2 approvals`, and `no (dirty)`
 
 This is also available in config:
 
@@ -361,7 +368,7 @@ The table is compressed progressively, in order of least impact:
 4. **Mergeable?** reason is dropped (`"✅ (clean)"` → `"✅"`)
 4b. **Mergeable?** header is shortened to `"Mrg"`
 5. **Checks** label is dropped (`"✅ pass"` → `"✅"`)
-5b. **Approved** label is dropped (`"✅ approved"` → `"✅"`)
+5b. **Approved** label is shortened (`"✅ approved"` → `"✅"`, `"✅ 1/2 approvals"` → `"✅ 1/2"`)
 6. **Comments** header is shortened to `"Cmt"`
 6b. **Approved** header is shortened to `"Apr"`
 7. Low-priority columns are dropped entirely: State, Commits, Files, +/-, Cmt, Age, Checks, Approved/Apr

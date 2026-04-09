@@ -21,7 +21,7 @@ breakfast --no-cache  # always fetches fresh
 any in-memory filtering. This means `--ignore-author` and `--mine-only` can vary
 between runs without re-fetching the underlying data.
 
-**Also cache: CI check statuses and review approval statuses.**
+**Also cache: CI check statuses and review approval statuses/details.**
 _(Added in [#113 — filter options](https://github.com/mrsixw/breakfast/issues/113))_
 When `--checks`, `--approvals`, or the corresponding filter flags are used, the
 fetched statuses are stored in the same cache file alongside the PR details.
@@ -69,14 +69,19 @@ file as optional top-level keys:
   "pr_count": 42,
   "prs": [{}, {}],
   "check_statuses": {"101": "pass", "102": "fail"},
-  "approval_statuses": {"101": "approved", "102": "pending"}
+  "approval_statuses": {"101": "approved", "102": "pending"},
+  "approval_details": {
+    "101": {"status": "approved", "current": 2, "required": 2},
+    "102": {"status": "pending", "current": 1, "required": 2}
+  }
 }
 ```
 
-`check_statuses` and `approval_statuses` are omitted when `--checks`/`--approvals`
-were not used in the run that wrote the cache. Older cache files without these
-fields are handled gracefully — the statuses are treated as uncached and fetched
-on demand. JSON requires string keys; they are converted back to `int` on read.
+`check_statuses`, `approval_statuses`, and `approval_details` are omitted when
+`--checks`/`--approvals` were not used in the run that wrote the cache. Older
+cache files without these fields are handled gracefully — the statuses/details
+are treated as uncached and fetched on demand. JSON requires string keys; they
+are converted back to `int` on read.
 
 ## Cache Location
 

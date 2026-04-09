@@ -96,26 +96,47 @@ def format_check_status(status, style="emoji"):
     return click.style(text, fg=colour, bold=True)
 
 
-def format_approval_status(status, style="emoji"):
+def format_approval_status(
+    status,
+    style="emoji",
+    current_reviews=None,
+    required_reviews=None,
+):
     """Return a colour-coded approval status label for table output.
 
     Args:
         status: Canonical approval status — ``approved``, ``changes``, or ``pending``.
         style: Rendering style, either ``emoji`` or ``ascii``.
+        current_reviews: Number of effective approvals currently present.
+        required_reviews: Number of approvals required by branch protection.
 
     Returns:
         A styled label in the requested style.
     """
+    if (
+        required_reviews is not None
+        and required_reviews > 1
+        and current_reviews is not None
+        and status != "changes"
+    ):
+        colour = "green" if current_reviews > 0 else "yellow"
+        if style == "ascii":
+            text = f"{current_reviews}/{required_reviews} approvals"
+        else:
+            prefix = "✅" if current_reviews > 0 else "⏳"
+            text = f"{prefix} {current_reviews}/{required_reviews} approvals"
+        return click.style(text, fg=colour, bold=True)
+
     styles = {
         "emoji": {
             "approved": ("green", "✅ approved"),
             "changes": ("red", "❌ changes"),
-            "pending": ("yellow", "⏳ review required"),
+            "pending": ("yellow", "⏳ pending"),
         },
         "ascii": {
             "approved": ("green", "approved"),
             "changes": ("red", "changes"),
-            "pending": ("yellow", "review required"),
+            "pending": ("yellow", "pending"),
         },
     }
     style_map = styles.get(style, styles["emoji"])

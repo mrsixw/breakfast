@@ -43,6 +43,31 @@ def test_format_mergeable_status():
     assert "yes (clean)" in ui.format_mergeable_status(True, "clean", style="ascii")
 
 
+def test_format_approval_status():
+    result = ui.format_approval_status("approved")
+    assert "✅ approved" in result
+
+    result = ui.format_approval_status("pending")
+    assert "⏳ pending" in result
+
+
+def test_format_approval_status_with_counts():
+    result = ui.format_approval_status(
+        "pending",
+        current_reviews=1,
+        required_reviews=2,
+    )
+    assert "✅ 1/2 approvals" in result
+
+    result = ui.format_approval_status(
+        "pending",
+        style="ascii",
+        current_reviews=0,
+        required_reviews=2,
+    )
+    assert "0/2 approvals" in result
+
+
 def test_format_pr_state_open():
     result = ui.format_pr_state("open", is_draft=False)
     assert "open" in result

@@ -469,6 +469,68 @@ def test_get_approval_status_falls_back_to_rest_reviews_on_graphql_error(monkeyp
     assert api.get_approval_status("org", "repo", 1) == "approved"
 
 
+def test_get_required_approving_review_count(monkeypatch):
+    monkeypatch.setattr(
+        api,
+        "make_github_api_request",
+        lambda path: {"required_approving_review_count": 2},
+    )
+
+    assert api.get_required_approving_review_count("org", "repo", "main") == 2
+
+
+def test_get_approval_summary_includes_counts_for_multi_review_branch(monkeypatch):
+    monkeypatch.setattr(
+        api,
+        "make_github_graphql_request",
+        lambda query, variables: {
+            "data": {
+                "repository": {"pullRequest": {"reviewDecision": "REVIEW_REQUIRED"}}
+            }
+        },
+    )
+    monkeypatch.setattr(
+        api,
+        "make_paginated_github_api_requst",
+        lambda path: [{"user": {"login": "alice"}, "state": "APPROVED"}],
+    )
+    monkeypatch.setattr(
+        api,
+        "get_required_approving_review_count",
+        lambda owner, repo, branch: 2,
+    )
+
+    summary = api.get_approval_summary("org", "repo", 1, base_branch="main")
+
+    assert summary == {"status": "pending", "current": 1, "required": 2}
+
+
+def test_get_approval_summary_preserves_approved_when_github_reports_approved(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        api,
+        "make_github_graphql_request",
+        lambda query, variables: {
+            "data": {"repository": {"pullRequest": {"reviewDecision": "APPROVED"}}}
+        },
+    )
+    monkeypatch.setattr(
+        api,
+        "make_paginated_github_api_requst",
+        lambda path: [{"user": {"login": "alice"}, "state": "APPROVED"}],
+    )
+    monkeypatch.setattr(
+        api,
+        "get_required_approving_review_count",
+        lambda owner, repo, branch: 2,
+    )
+
+    summary = api.get_approval_summary("org", "repo", 1, base_branch="main")
+
+    assert summary == {"status": "approved", "current": 2, "required": 2}
+
+
 def test_get_check_status_mixed_sources(monkeypatch):
     """Check runs pass but commit statuses fail — overall should be fail."""
 

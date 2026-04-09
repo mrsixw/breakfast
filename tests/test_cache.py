@@ -108,6 +108,7 @@ def test_write_then_read_roundtrip(monkeypatch, tmp_path):
     assert result["prs"] == pr_details
     assert result["check_statuses"] is None
     assert result["approval_statuses"] is None
+    assert result["approval_details"] is None
 
 
 def test_write_then_read_roundtrip_with_statuses(monkeypatch, tmp_path):
@@ -115,17 +116,20 @@ def test_write_then_read_roundtrip_with_statuses(monkeypatch, tmp_path):
     pr_details = [{"number": 1, "id": 101}]
     check_statuses = {101: "pass"}
     approval_statuses = {101: "approved"}
+    approval_details = {101: {"status": "approved", "current": 2, "required": 2}}
     cache.write_pr_cache(
         "org",
         "filter",
         pr_details,
         check_statuses=check_statuses,
         approval_statuses=approval_statuses,
+        approval_details=approval_details,
     )
     result = cache.read_pr_cache("org", "filter", 300)
     assert result["prs"] == pr_details
     assert result["check_statuses"] == check_statuses
     assert result["approval_statuses"] == approval_statuses
+    assert result["approval_details"] == approval_details
 
 
 def test_read_pr_cache_expired(monkeypatch, tmp_path):

@@ -426,6 +426,15 @@ def is_legendary(pr_detail, now=None):
         " Implies --legendary."
     ),
 )
+@click.option(
+    "--search",
+    "-s",
+    default=None,
+    help=(
+        "Filter PRs by title. Accepts a plain string or regex pattern;"
+        " matching is case-insensitive."
+    ),
+)
 @click.version_option(package_name="breakfast")
 def breakfast(
     config,
@@ -455,8 +464,22 @@ def breakfast(
     filter_approval,
     legendary,
     legendary_only,
+    search,
 ):
     configure_logging()
+
+    if search is not None:
+        try:
+            re.compile(search)
+        except re.error as exc:
+            click.echo(
+                click.style(
+                    f"Error: --search pattern is not valid regex: {exc}",
+                    fg="red",
+                    bold=True,
+                )
+            )
+            sys.exit(1)
 
     if init_config:
         generate_default_config()
@@ -553,6 +576,7 @@ def breakfast(
             "filter-approval": filter_approval,
             "legendary": legendary,
             "legendary-only": legendary_only,
+            "search": search,
         }
         for k, v in resolved.items():
             click.echo(f"  {k}: {v}")
@@ -563,7 +587,7 @@ def breakfast(
         " cache_enabled=%s cache_ttl=%ss refresh=%s refresh_prs=%s"
         " checks=%s approvals=%s age=%s legendary=%s legendary_only=%s"
         " limit=%s max_title_length=%s status_style=%s json=%s"
-        " filter_state=%r filter_check=%r filter_approval=%r",
+        " filter_state=%r filter_check=%r filter_approval=%r search=%r",
         organization,
         repo_filter,
         mine_only,
@@ -584,6 +608,7 @@ def breakfast(
         filter_state,
         filter_check,
         filter_approval,
+        search,
     )
 
     if no_drafts and drafts_only:
@@ -791,12 +816,21 @@ def breakfast(
         filter_approval=filter_approval,
         check_statuses=check_statuses,
         approval_statuses=approval_statuses,
+        search_title=search,
     )
     logger.info(
         "filter_result before=%d after=%d",
         before_filter,
         len(pr_details),
     )
+
+    if search is not None and not pr_details:
+        click.echo(
+            click.style(
+                f"🔍 No PRs matched '{search}'",
+                fg="yellow",
+            )
+        )
     pr_details.sort(key=lambda pr: pr["base"]["repo"]["name"])
     if legendary_only:
         pr_details = [pr for pr in pr_details if is_legendary(pr)]

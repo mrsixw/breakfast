@@ -1,3 +1,4 @@
+import re
 import tomllib
 from pathlib import Path
 
@@ -206,6 +207,7 @@ def filter_pr_details(
     filter_approval=None,
     check_statuses=None,
     approval_statuses=None,
+    search_title=None,
 ):
     ignore_set = normalize_ignore_authors(ignore_authors)
     current_user_login_normalized = (
@@ -241,6 +243,10 @@ def filter_pr_details(
         if filter_approval and approval_statuses is not None:
             pr_approval = approval_statuses.get(pr_detail["id"], "pending")
             if pr_approval not in filter_approval:
+                continue
+        if search_title is not None:
+            title = pr_detail.get("title", "")
+            if not re.search(search_title, title, re.IGNORECASE):
                 continue
 
         filtered.append(pr_detail)

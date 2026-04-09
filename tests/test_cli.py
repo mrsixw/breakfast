@@ -24,6 +24,13 @@ def test_get_pr_age_days_invalid_or_missing():
     assert cli.get_pr_age_days({"created_at": "bad-date"}, now=now) == 0
 
 
+def test_cli_search_invalid_regex():
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "--search", "[invalid"])
+    assert result.exit_code == 1
+    assert "not valid regex" in result.output
+
+
 def test_cli_exits_when_token_missing(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", None)
     runner = CliRunner()

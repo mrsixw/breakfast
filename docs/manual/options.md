@@ -83,6 +83,28 @@ breakfast -o my-org -r my-app --filter-approval pending --filter-approval change
 
 > **Note:** Review and check statuses are cached alongside PR details, so repeated runs with these flags skip redundant API calls.
 
+### `--search`, `-s`
+
+Filter PRs by title. Accepts a plain string or a regular expression pattern; matching is always **case-insensitive**.
+
+```bash
+breakfast -o my-org -r platform --search hotfix         # plain string
+breakfast -o my-org -r platform -s "^feat"              # regex: titles starting with "feat"
+breakfast -o my-org -r platform -s "fix|chore"          # regex: either word
+```
+
+If no PRs match the pattern, a friendly message is shown:
+
+```
+🔍 No PRs matched 'hotfix'
+```
+
+If the pattern is not valid regex, breakfast exits immediately with an error:
+
+```
+Error: --search pattern is not valid regex: unterminated character set at position 0
+```
+
 ### `--mine-only`
 
 Show only PRs authored by the currently authenticated GitHub user (determined from `GITHUB_TOKEN`).

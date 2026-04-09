@@ -183,3 +183,56 @@ def test_get_config_dir_xdg(tmp_path, monkeypatch):
 
     config_dir = config.get_config_dir()
     assert config_dir == custom_path / "breakfast"
+
+
+def _make_pr_with_title(title, pr_id=1, user="alice"):
+    return {"id": pr_id, "user": {"login": user}, "title": title}
+
+
+def test_filter_search_title_plain_string():
+    pr_details = [
+        _make_pr_with_title("fix login bug", pr_id=1),
+        _make_pr_with_title("Add user search", pr_id=2),
+        _make_pr_with_title("chore: bump deps", pr_id=3),
+    ]
+    result = config.filter_pr_details(pr_details, [], search_title="login")
+    assert len(result) == 1
+    assert result[0]["id"] == 1
+
+
+def test_filter_search_title_case_insensitive():
+    pr_details = [
+        _make_pr_with_title("Fix Login Bug", pr_id=1),
+        _make_pr_with_title("chore: bump deps", pr_id=2),
+    ]
+    result = config.filter_pr_details(pr_details, [], search_title="login")
+    assert len(result) == 1
+    assert result[0]["id"] == 1
+
+
+def test_filter_search_title_regex():
+    pr_details = [
+        _make_pr_with_title("fix: login bug", pr_id=1),
+        _make_pr_with_title("chore: bump deps", pr_id=2),
+        _make_pr_with_title("feat: add search", pr_id=3),
+    ]
+    result = config.filter_pr_details(pr_details, [], search_title="^fix|^feat")
+    assert {r["id"] for r in result} == {1, 3}
+
+
+def test_filter_search_title_no_match():
+    pr_details = [
+        _make_pr_with_title("fix login bug", pr_id=1),
+        _make_pr_with_title("add user search", pr_id=2),
+    ]
+    result = config.filter_pr_details(pr_details, [], search_title="nonexistent")
+    assert result == []
+
+
+def test_filter_search_title_none_passes_all():
+    pr_details = [
+        _make_pr_with_title("fix login bug", pr_id=1),
+        _make_pr_with_title("add user search", pr_id=2),
+    ]
+    result = config.filter_pr_details(pr_details, [], search_title=None)
+    assert len(result) == 2

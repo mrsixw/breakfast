@@ -68,10 +68,59 @@ jobs:
       - name: Verify binary version
         run: utils/check_binary_version.sh
 
+  man:
+    runs-on: ubuntu-latest
+    needs: [test, lint]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Generate man page
+        run: make man
+
+      - name: Verify man page
+        run: test -f man1/breakfast.1.gz
+
+  completions:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Generate completion scripts
+        run: make completions
+
+      - name: Verify completion scripts
+        run: |
+          test -f completions/breakfast.bash
+          test -f completions/_breakfast
+          test -f completions/breakfast.fish
+
   release:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, man, completions]
     permissions:
       contents: write
     steps:
@@ -108,6 +157,12 @@ jobs:
 
       - name: Build binary
         run: make release
+
+      - name: Generate man page
+        run: make man
+
+      - name: Generate completion scripts
+        run: make completions
 
       - name: Create release
         env:

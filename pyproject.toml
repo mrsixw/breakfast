@@ -31,9 +31,11 @@ lint = [
 ]
 build = [
   "shiv",
+  "click-man",
 ]
 dev = [
   "black",
+  "click-man",
   "pytest",
   "requests-mock",
   "ruff",

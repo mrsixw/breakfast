@@ -98,7 +98,9 @@ jobs:
         run: make man
 
       - name: Verify man page
-        run: test -f man1/breakfast.1.gz
+        run: |
+          test -f man1/breakfast.1.gz
+          man -l man1/breakfast.1.gz | head -1 | grep -q "breakfast"
 
   completions:
     runs-on: ubuntu-latest
@@ -120,11 +122,17 @@ jobs:
       - name: Generate completion scripts
         run: make completions
 
+      - name: Install zsh and fish
+        run: sudo apt-get install -y zsh fish
+
       - name: Verify completion scripts
         run: |
           test -f completions/breakfast.bash
           test -f completions/_breakfast
           test -f completions/breakfast.fish
+          source completions/breakfast.bash && complete -p breakfast
+          zsh -i -c "autoload -Uz compinit && compinit -u && source completions/_breakfast && echo 'zsh ok'"
+          fish -c "source completions/breakfast.fish && echo 'fish ok'"
 
   release:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -196,3 +204,22 @@ jobs:
         run: |
           ~/.local/bin/breakfast --version
           ls -l ~/.config/breakfast/config.toml
+
+      - name: Verify man page
+        run: |
+          export MANPATH="${HOME}/.local/share/man:${MANPATH}"
+          man breakfast | head -1 | grep -q "breakfast"
+
+      - name: Install zsh and fish
+        run: sudo apt-get install -y zsh fish
+
+      - name: Verify bash completions
+        run: |
+          source ~/.local/share/bash-completion/completions/breakfast
+          complete -p breakfast
+
+      - name: Verify zsh completions
+        run: zsh -c "source ~/.local/share/zsh/site-functions/_breakfast && echo 'zsh ok'"
+
+      - name: Verify fish completions
+        run: fish -c "source ~/.config/fish/completions/breakfast.fish && echo 'fish ok'"

@@ -72,6 +72,46 @@ Run both `make test` and `make lint` before committing.
 make build       # builds a shiv executable
 ```
 
+### Testing the man page locally
+
+Generate and view the man page without installing:
+
+```bash
+make man
+man -l man1/breakfast.1.gz
+```
+
+### Testing shell completions locally
+
+Generate the completion scripts:
+
+```bash
+make completions
+```
+
+Then load them in your current shell session:
+
+**Bash:**
+```bash
+source completions/breakfast.bash
+breakfast <tab>
+```
+
+**Zsh:**
+```zsh
+fpath=($(pwd)/completions $fpath)
+autoload -Uz compinit && compinit
+breakfast <tab>
+```
+
+**Fish:**
+```fish
+source completions/breakfast.fish
+breakfast <tab>
+```
+
+These are temporary — they only apply to the current shell session and do not affect your system installation.
+
 ## Commit Messages
 
 Use [Conventional Commits](https://www.conventionalcommits.org/):

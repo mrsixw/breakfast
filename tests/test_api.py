@@ -231,7 +231,7 @@ def test_make_paginated_github_api_request_adds_initial_query_separator(monkeypa
 
     monkeypatch.setattr(api, "make_github_api_request", fake_api)
 
-    result = api.make_paginated_github_api_requst(
+    result = api.make_paginated_github_api_request(
         "/repos/org/repo/pulls/1/reviews",
         rate=2,
     )

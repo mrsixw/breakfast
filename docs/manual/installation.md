@@ -12,6 +12,8 @@ This script will:
 1. Download the latest `breakfast` binary from GitHub Releases.
 2. Install it to `~/.local/bin/breakfast`.
 3. Initialize a default configuration file at `~/.config/breakfast/config.toml`.
+4. Install the man page to `~/.local/share/man/man1/breakfast.1.gz`.
+5. Install tab-completion scripts for bash, zsh, and fish.
 
 ## Advanced: Install from source
 

@@ -54,7 +54,7 @@ echo -e "${YELLOW}Initializing default configuration...${RESET}"
 # Install man page
 echo -e "${YELLOW}Installing man page...${RESET}"
 mkdir -p "${MAN_DIR}"
-if curl -sL "${RELEASE_BASE_URL}/breakfast.1.gz" -o "${MAN_DIR}/breakfast.1.gz"; then
+if curl -sfL "${RELEASE_BASE_URL}/breakfast.1.gz" -o "${MAN_DIR}/breakfast.1.gz"; then
     echo -e "${GREEN}📖 Man page installed. Run: ${BOLD}man breakfast${RESET}"
 else
     echo -e "${YELLOW}⚠️  Could not install man page (non-fatal).${RESET}"
@@ -64,21 +64,21 @@ fi
 echo -e "${YELLOW}Installing shell completions...${RESET}"
 
 mkdir -p "${BASH_COMPLETION_DIR}"
-if curl -sL "${RELEASE_BASE_URL}/breakfast.bash" -o "${BASH_COMPLETION_DIR}/breakfast"; then
+if curl -sfL "${RELEASE_BASE_URL}/breakfast.bash" -o "${BASH_COMPLETION_DIR}/breakfast"; then
     echo -e "${GREEN}✅ Bash completion installed.${RESET}"
 else
     echo -e "${YELLOW}⚠️  Could not install bash completion (non-fatal).${RESET}"
 fi
 
 mkdir -p "${ZSH_COMPLETION_DIR}"
-if curl -sL "${RELEASE_BASE_URL}/_breakfast" -o "${ZSH_COMPLETION_DIR}/_breakfast"; then
+if curl -sfL "${RELEASE_BASE_URL}/_breakfast" -o "${ZSH_COMPLETION_DIR}/_breakfast"; then
     echo -e "${GREEN}✅ Zsh completion installed.${RESET}"
 else
     echo -e "${YELLOW}⚠️  Could not install zsh completion (non-fatal).${RESET}"
 fi
 
 mkdir -p "${FISH_COMPLETION_DIR}"
-if curl -sL "${RELEASE_BASE_URL}/breakfast.fish" -o "${FISH_COMPLETION_DIR}/breakfast.fish"; then
+if curl -sfL "${RELEASE_BASE_URL}/breakfast.fish" -o "${FISH_COMPLETION_DIR}/breakfast.fish"; then
     echo -e "${GREEN}✅ Fish completion installed.${RESET}"
 else
     echo -e "${YELLOW}⚠️  Could not install fish completion (non-fatal).${RESET}"

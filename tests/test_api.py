@@ -491,7 +491,7 @@ def test_get_approval_summary_includes_counts_for_multi_review_branch(monkeypatc
     )
     monkeypatch.setattr(
         api,
-        "make_paginated_github_api_requst",
+        "make_paginated_github_api_request",
         lambda path: [{"user": {"login": "alice"}, "state": "APPROVED"}],
     )
     monkeypatch.setattr(
@@ -517,7 +517,7 @@ def test_get_approval_summary_preserves_approved_when_github_reports_approved(
     )
     monkeypatch.setattr(
         api,
-        "make_paginated_github_api_requst",
+        "make_paginated_github_api_request",
         lambda path: [{"user": {"login": "alice"}, "state": "APPROVED"}],
     )
     monkeypatch.setattr(

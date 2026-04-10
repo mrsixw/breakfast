@@ -219,7 +219,7 @@ jobs:
           complete -p breakfast
 
       - name: Verify zsh completions
-        run: zsh -c "source ~/.local/share/zsh/site-functions/_breakfast && echo 'zsh ok'"
+        run: zsh -i -c "autoload -Uz compinit && compinit -u && source ~/.local/share/zsh/site-functions/_breakfast && echo 'zsh ok'"
 
       - name: Verify fish completions
         run: fish -c "source ~/.config/fish/completions/breakfast.fish && echo 'fish ok'"

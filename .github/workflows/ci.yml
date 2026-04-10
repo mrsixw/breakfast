@@ -122,8 +122,8 @@ jobs:
       - name: Generate completion scripts
         run: make completions
 
-      - name: Install fish
-        run: sudo apt-get install -y fish
+      - name: Install zsh and fish
+        run: sudo apt-get install -y zsh fish
 
       - name: Verify completion scripts
         run: |
@@ -210,8 +210,8 @@ jobs:
           export MANPATH="${HOME}/.local/share/man:${MANPATH}"
           man breakfast | head -1 | grep -q "breakfast"
 
-      - name: Install fish
-        run: sudo apt-get install -y fish
+      - name: Install zsh and fish
+        run: sudo apt-get install -y zsh fish
 
       - name: Verify bash completions
         run: |

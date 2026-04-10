@@ -13,7 +13,7 @@ from tabulate import tabulate
 from .api import (
     SECRET_GITHUB_TOKEN,
     _fetch_pr_detail,
-    get_approval_status,
+    get_approval_summary,
     get_authenticated_user_login,
     get_check_status,
     get_github_prs,
@@ -130,8 +130,11 @@ def _compress_styled(styled_text):
     words = plain.split()
     if len(words) <= 1:
         return styled_text
-    first_word = words[0]
-    return styled_text.replace(plain, first_word, 1)
+    if len(words) >= 2 and re.fullmatch(r"\d+/\d+", words[1]):
+        compressed = " ".join(words[:2])
+    else:
+        compressed = words[0]
+    return styled_text.replace(plain, compressed, 1)
 
 
 def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
@@ -193,7 +196,7 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     if fits():
         return pr_data
 
-    # 5b. Compress Approved: "✅ approved" → "✅" (preserving colour)
+    # 5b. Compress Approved: "✅ approved" → "✅", "✅ 1/2 approvals" → "✅ 1/2"
     if "Approved" in pr_data[0]:
         pr_data = [
             {**row, "Approved": _compress_styled(row["Approved"])} for row in pr_data
@@ -281,31 +284,55 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
 
     check_status = None
     if fetch_checks:
-        owner = pr_detail["base"]["repo"]["owner"]["login"]
-        repo_name = pr_detail["base"]["repo"]["name"]
-        try:
-            check_status = get_check_status(owner, repo_name, pr_detail["head"]["sha"])
-        except requests.exceptions.RequestException as exc:
-            logger.warning(
-                "check_status_fetch_failed pr_id=%s error=%r", pr_detail["id"], str(exc)
-            )
+        owner = pr_detail.get("base", {}).get("repo", {}).get("owner", {}).get("login")
+        repo_name = pr_detail.get("base", {}).get("repo", {}).get("name")
+        head_sha = pr_detail.get("head", {}).get("sha")
+        if owner and repo_name and head_sha:
+            try:
+                check_status = get_check_status(owner, repo_name, head_sha)
+            except requests.exceptions.RequestException as exc:
+                logger.warning(
+                    "check_status_fetch_failed pr_id=%s error=%r",
+                    pr_detail.get("id"),
+                    str(exc),
+                )
+                check_status = "none"
+        else:
             check_status = "none"
 
-    approval_status = None
+    approval_detail = None
     if fetch_approvals:
-        owner = pr_detail["base"]["repo"]["owner"]["login"]
-        repo_name = pr_detail["base"]["repo"]["name"]
-        try:
-            approval_status = get_approval_status(owner, repo_name, pr_detail["number"])
-        except requests.exceptions.RequestException as exc:
-            logger.warning(
-                "approval_status_fetch_failed pr_id=%s error=%r",
-                pr_detail["id"],
-                str(exc),
-            )
-            approval_status = "pending"
+        owner = pr_detail.get("base", {}).get("repo", {}).get("owner", {}).get("login")
+        repo_name = pr_detail.get("base", {}).get("repo", {}).get("name")
+        pr_number = pr_detail.get("number")
+        base_branch = pr_detail.get("base", {}).get("ref")
+        if owner and repo_name and pr_number is not None:
+            try:
+                approval_detail = get_approval_summary(
+                    owner,
+                    repo_name,
+                    pr_number,
+                    base_branch=base_branch,
+                )
+            except (ValueError, requests.exceptions.RequestException) as exc:
+                logger.warning(
+                    "approval_status_fetch_failed pr_id=%s error=%r",
+                    pr_detail.get("id"),
+                    str(exc),
+                )
+                approval_detail = {
+                    "status": "pending",
+                    "current": 0,
+                    "required": None,
+                }
+        else:
+            approval_detail = {
+                "status": "pending",
+                "current": 0,
+                "required": None,
+            }
 
-    return pr_detail, check_status, approval_status
+    return pr_detail, check_status, approval_detail
 
 
 @click.command()
@@ -378,6 +405,12 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     type=int,
     default=None,
     help="Cap the number of PRs shown. Unset means show all results.",
+)
+@click.option(
+    "--workers",
+    type=int,
+    default=None,
+    help="Number of parallel workers for fetching PR data. Default: 64.",
 )
 @click.option(
     "--max-title-length",
@@ -490,6 +523,7 @@ def breakfast(
     approvals,
     status_style,
     limit,
+    workers,
     max_title_length,
     no_update_check,
     cache_ttl,
@@ -548,6 +582,7 @@ def breakfast(
         if max_title_length is not None
         else cfg.get("max-title-length")
     )
+    workers = workers if workers is not None else cfg.get("workers", 64)
     if status_style not in {"emoji", "ascii"}:
         status_style = "emoji"
     legendary = legendary if legendary is not None else cfg.get("legendary", False)
@@ -604,6 +639,7 @@ def breakfast(
             "approvals": approvals,
             "status-style": status_style,
             "max-title-length": max_title_length,
+            "workers": workers,
             "cache": cache_enabled,
             "cache-ttl": cache_ttl_seconds,
             "refresh": refresh,
@@ -682,6 +718,7 @@ def breakfast(
     pr_details = None
     cached_check_statuses = None
     cached_approval_statuses = None
+    cached_approval_details = None
     needs_cache_write = False
     if cache_enabled and not refresh and not refresh_prs:
         cache_result = read_pr_cache(organization, repo_filter, cache_ttl_seconds)
@@ -689,6 +726,7 @@ def breakfast(
             pr_details = cache_result["prs"]
             cached_check_statuses = cache_result["check_statuses"]
             cached_approval_statuses = cache_result["approval_statuses"]
+            cached_approval_details = cache_result.get("approval_details")
 
     # Resolve implied flags before fetch so bundle knows what to fetch per PR.
     if filter_check:
@@ -698,6 +736,7 @@ def breakfast(
 
     check_statuses = {}
     approval_statuses = {}
+    approval_details = {}
     statuses_from_bundle = False
 
     if pr_details is None:
@@ -735,7 +774,7 @@ def breakfast(
         failed_urls = []
         click.echo(f"Processing {repo_filter} PRs...", nl=False, err=json_output)
         if prs:
-            max_workers = min(64, len(prs))
+            max_workers = min(workers, len(prs))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_url = {
                     executor.submit(_fetch_pr_bundle, url, checks, approvals): url
@@ -744,12 +783,15 @@ def breakfast(
                 for future in as_completed(future_to_url):
                     url = future_to_url[future]
                     try:
-                        pr_detail, check_status, approval_status = future.result()
+                        pr_detail, check_status, approval_detail = future.result()
                         pr_details.append(pr_detail)
                         if check_status is not None:
                             check_statuses[pr_detail["id"]] = check_status
-                        if approval_status is not None:
-                            approval_statuses[pr_detail["id"]] = approval_status
+                        if approval_detail is not None:
+                            approval_statuses[pr_detail["id"]] = approval_detail[
+                                "status"
+                            ]
+                            approval_details[pr_detail["id"]] = approval_detail
                         click.echo(
                             random.choices(BREAKFAST_ITEMS)[0],
                             nl=False,
@@ -781,7 +823,7 @@ def breakfast(
         if cached_check_statuses is not None:
             check_statuses = cached_check_statuses
         else:
-            max_workers = min(64, len(pr_details))
+            max_workers = min(workers, len(pr_details))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 check_futures = []
                 for pr_detail in pr_details:
@@ -805,30 +847,39 @@ def breakfast(
     # Fetch approval statuses for cache-hit paths where statuses are absent.
     # In the live-fetch path statuses are already populated by _fetch_pr_bundle.
     if approvals and pr_details and not statuses_from_bundle:
-        if cached_approval_statuses is not None:
+        if cached_approval_statuses is not None and cached_approval_details is not None:
             approval_statuses = cached_approval_statuses
+            approval_details = cached_approval_details
         else:
-            max_workers = min(64, len(pr_details))
+            max_workers = min(workers, len(pr_details))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 approval_futures = []
                 for pr_detail in pr_details:
                     owner = pr_detail["base"]["repo"]["owner"]["login"]
                     repo_name = pr_detail["base"]["repo"]["name"]
                     pr_number = pr_detail["number"]
+                    base_branch = pr_detail.get("base", {}).get("ref")
                     future = executor.submit(
-                        get_approval_status, owner, repo_name, pr_number
+                        get_approval_summary, owner, repo_name, pr_number, base_branch
                     )
                     approval_futures.append((pr_detail["id"], future))
             for pr_id, future in approval_futures:
                 try:
-                    approval_statuses[pr_id] = future.result()
-                except requests.exceptions.RequestException as exc:
+                    approval_detail = future.result()
+                    approval_statuses[pr_id] = approval_detail["status"]
+                    approval_details[pr_id] = approval_detail
+                except (ValueError, requests.exceptions.RequestException) as exc:
                     logger.warning(
                         "approval_status_fetch_failed pr_id=%s error=%r",
                         pr_id,
                         str(exc),
                     )
                     approval_statuses[pr_id] = "pending"
+                    approval_details[pr_id] = {
+                        "status": "pending",
+                        "current": 0,
+                        "required": None,
+                    }
             needs_cache_write = True
 
     logger.info(
@@ -844,6 +895,7 @@ def breakfast(
             pr_details,
             check_statuses=check_statuses or None,
             approval_statuses=approval_statuses or None,
+            approval_details=approval_details or None,
         )
         if refresh or refresh_prs:
             click.echo("🔄 Cache refreshed.", err=json_output)
@@ -916,6 +968,11 @@ def breakfast(
                 entry["checks"] = check_statuses.get(pr_detail["id"], "none")
             if approvals:
                 entry["approval"] = approval_statuses.get(pr_detail["id"], "pending")
+                approval_detail = approval_details.get(pr_detail["id"], {})
+                if approval_detail.get("current") is not None:
+                    entry["approval_current"] = approval_detail["current"]
+                if approval_detail.get("required") is not None:
+                    entry["approval_required"] = approval_detail["required"]
             json_data.append(entry)
         click.echo(json.dumps(json_data, indent=2))
         logger.info(
@@ -962,9 +1019,12 @@ def breakfast(
                 ),
             )
         if approvals:
+            approval_detail = approval_details.get(pr_detail["id"], {})
             row["Approved"] = format_approval_status(
                 approval_statuses.get(pr_detail["id"], "pending"),
                 style=status_style,
+                current_reviews=approval_detail.get("current"),
+                required_reviews=approval_detail.get("required"),
             )
         row["Mergeable?"] = format_mergeable_status(
             pr_detail["mergeable"],

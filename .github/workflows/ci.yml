@@ -122,13 +122,17 @@ jobs:
       - name: Generate completion scripts
         run: make completions
 
+      - name: Install fish
+        run: sudo apt-get install -y fish
+
       - name: Verify completion scripts
         run: |
           test -f completions/breakfast.bash
           test -f completions/_breakfast
           test -f completions/breakfast.fish
-          bash completions/breakfast.bash
           source completions/breakfast.bash && complete -p breakfast
+          zsh -c "source completions/_breakfast && echo 'zsh ok'"
+          fish -c "source completions/breakfast.fish && echo 'fish ok'"
 
   release:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -206,7 +210,16 @@ jobs:
           export MANPATH="${HOME}/.local/share/man:${MANPATH}"
           man breakfast | head -1 | grep -q "breakfast"
 
+      - name: Install fish
+        run: sudo apt-get install -y fish
+
       - name: Verify bash completions
         run: |
           source ~/.local/share/bash-completion/completions/breakfast
           complete -p breakfast
+
+      - name: Verify zsh completions
+        run: zsh -c "source ~/.local/share/zsh/site-functions/_breakfast && echo 'zsh ok'"
+
+      - name: Verify fish completions
+        run: fish -c "source ~/.config/fish/completions/breakfast.fish && echo 'fish ok'"

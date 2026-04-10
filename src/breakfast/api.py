@@ -70,7 +70,7 @@ def _fetch_pr_detail(pr_url):
     )
 
 
-def make_paginated_github_api_requst(query_string, rate=100):
+def make_paginated_github_api_request(query_string, rate=100):
     """Fetch a paginated GitHub REST resource.
 
     Args:
@@ -210,7 +210,7 @@ def _review_status_from_latest_reviews(owner, repo, pr_number):
     Returns:
         str: One of ``approved``, ``changes``, or ``pending``.
     """
-    reviews = make_paginated_github_api_requst(
+    reviews = make_paginated_github_api_request(
         f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
     )
 

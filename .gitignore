@@ -175,3 +175,7 @@ cython_debug/
 
 # Local shiv build output
 /breakfast
+
+# Generated build artifacts
+/completions/
+/man1/

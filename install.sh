@@ -91,5 +91,12 @@ if [[ ":$PATH:" != *":${INSTALL_DIR}:"* ]]; then
     echo -e "  ${BOLD}export PATH=\"${INSTALL_DIR}:\$PATH\"${RESET}"
 fi
 
+# Check if MAN_DIR is findable by man
+if ! man --path 2>/dev/null | tr ':' '\n' | grep -qx "${MAN_DIR%/man1}"; then
+    echo -e "\n${BOLD}${YELLOW}⚠️  Warning: ${MAN_DIR} is not in your MANPATH.${RESET}"
+    echo -e "To use ${BOLD}man breakfast${RESET}, add this to your ~/.bashrc or ~/.zshrc:"
+    echo -e "  ${BOLD}export MANPATH=\"${MAN_DIR%/man1}:\${MANPATH}\"${RESET}"
+fi
+
 echo -e "\n${BOLD}Try running it now:${RESET}"
 echo -e "  ${BINARY_NAME} --help"

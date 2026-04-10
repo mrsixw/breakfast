@@ -131,7 +131,7 @@ jobs:
           test -f completions/_breakfast
           test -f completions/breakfast.fish
           source completions/breakfast.bash && complete -p breakfast
-          zsh -c "autoload -Uz compinit && compinit && source completions/_breakfast && echo 'zsh ok'"
+          zsh -i -c "autoload -Uz compinit && compinit -u && source completions/_breakfast && echo 'zsh ok'"
           fish -c "source completions/breakfast.fish && echo 'fish ok'"
 
   release:

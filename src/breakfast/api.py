@@ -1,5 +1,6 @@
 import os
 import random
+import threading
 import time
 from functools import lru_cache
 from urllib.parse import quote
@@ -16,6 +17,39 @@ SECRET_GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", None)
 
 _MAX_RETRIES = 3
 _RETRY_STATUSES = {502, 503, 504}
+
+_api_stats_lock = threading.Lock()
+_api_stats = {
+    "rest_calls": 0,
+    "graphql_calls": 0,
+    "rest_rate_limit_remaining": None,
+    "rest_rate_limit_reset": None,
+}
+
+
+def get_api_stats():
+    """Return a snapshot of the current API call statistics."""
+    with _api_stats_lock:
+        return dict(_api_stats)
+
+
+def get_graphql_rate_limit():
+    """Query the current GraphQL API rate limit status."""
+    query = """
+    query {
+      rateLimit {
+        cost
+        remaining
+        resetAt
+        used
+      }
+    }
+    """
+    try:
+        response = make_github_graphql_request(query)
+        return response.get("data", {}).get("rateLimit")
+    except (ValueError, requests.exceptions.RequestException):
+        return None
 
 
 def make_github_api_request(query_string):
@@ -48,7 +82,17 @@ def make_github_api_request(query_string):
                 req.status_code,
                 elapsed_ms,
             )
-            return req.json()
+            result = req.json()
+            with _api_stats_lock:
+                _api_stats["rest_calls"] += 1
+                headers = getattr(req, "headers", {})
+                remaining = headers.get("X-RateLimit-Remaining")
+                reset_ts = headers.get("X-RateLimit-Reset")
+                if remaining is not None:
+                    _api_stats["rest_rate_limit_remaining"] = int(remaining)
+                if reset_ts is not None:
+                    _api_stats["rest_rate_limit_reset"] = int(reset_ts)
+            return result
         except (
             requests.exceptions.ConnectionError,
             requests.exceptions.Timeout,
@@ -131,7 +175,9 @@ def make_github_graphql_request(query, variables={}):
                 response.status_code,
                 elapsed_ms,
             )
-            return response.json()
+            with _api_stats_lock:
+                _api_stats["graphql_calls"] += 1
+            return resp_json
         except (
             requests.exceptions.ConnectionError,
             requests.exceptions.Timeout,

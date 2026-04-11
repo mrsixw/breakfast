@@ -639,3 +639,106 @@ def test_make_github_graphql_request_raises_on_persistent_timeout(monkeypatch):
 
     with pytest.raises(requests.exceptions.Timeout):
         api.make_github_graphql_request("{ viewer { login } }")
+
+
+def test_get_api_stats_tracks_rest_calls(monkeypatch):
+    """REST calls increment the rest_calls counter."""
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+    # Reset stats for this test
+    with api._api_stats_lock:
+        api._api_stats.update(
+            {
+                "rest_calls": 0,
+                "graphql_calls": 0,
+                "rest_rate_limit_remaining": None,
+                "rest_rate_limit_reset": None,
+            }
+        )
+
+    class OkResponse:
+        status_code = 200
+        headers = {"X-RateLimit-Remaining": "4999", "X-RateLimit-Reset": "1700000000"}
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"ok": True}
+
+    monkeypatch.setattr(api.requests, "get", lambda url, headers: OkResponse())
+
+    api.make_github_api_request("/repos/org/repo")
+    api.make_github_api_request("/repos/org/repo")
+
+    stats = api.get_api_stats()
+    assert stats["rest_calls"] == 2
+    assert stats["rest_rate_limit_remaining"] == 4999
+    assert stats["rest_rate_limit_reset"] == 1700000000
+
+
+def test_get_api_stats_tracks_graphql_calls(monkeypatch):
+    """GraphQL calls increment the graphql_calls counter."""
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+    monkeypatch.setattr(api.random, "uniform", lambda _a, _b: 0)
+    with api._api_stats_lock:
+        api._api_stats.update(
+            {
+                "rest_calls": 0,
+                "graphql_calls": 0,
+                "rest_rate_limit_remaining": None,
+                "rest_rate_limit_reset": None,
+            }
+        )
+
+    class GoodGraphqlResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"data": {"viewer": {"login": "alice"}}}
+
+    monkeypatch.setattr(
+        api.requests, "post", lambda url, json, headers: GoodGraphqlResponse()
+    )
+
+    api.make_github_graphql_request("{ viewer { login } }")
+    api.make_github_graphql_request("{ viewer { login } }")
+
+    stats = api.get_api_stats()
+    assert stats["graphql_calls"] == 2
+
+
+def test_get_graphql_rate_limit_returns_rate_limit_data(monkeypatch):
+    """get_graphql_rate_limit returns the rateLimit node from the response."""
+    rate_limit = {
+        "cost": 1,
+        "remaining": 4998,
+        "resetAt": "2026-04-11T10:30:00Z",
+        "used": 2,
+    }
+    monkeypatch.setattr(
+        api,
+        "make_github_graphql_request",
+        lambda query, variables={}: {"data": {"rateLimit": rate_limit}},
+    )
+
+    result = api.get_graphql_rate_limit()
+    assert result == rate_limit
+
+
+def test_get_graphql_rate_limit_returns_none_on_error(monkeypatch):
+    """get_graphql_rate_limit returns None if the request fails."""
+    monkeypatch.setattr(
+        api,
+        "make_github_graphql_request",
+        lambda query, variables={}: (_ for _ in ()).throw(
+            requests.exceptions.ConnectionError("network error")
+        ),
+    )
+
+    result = api.get_graphql_rate_limit()
+    assert result is None

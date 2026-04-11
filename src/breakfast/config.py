@@ -192,6 +192,17 @@ def generate_default_config():
 # approval statuses. Higher values fetch faster but consume more API rate limit.
 # Equivalent to: --workers <n>
 # workers = 64
+
+
+# -----------------------------------------------------------------------------
+# Diagnostics
+# Tools for understanding what breakfast is doing under the hood.
+# -----------------------------------------------------------------------------
+
+# Print API diagnostics to stderr after output: total elapsed time, number of
+# REST and GraphQL calls made, and rate-limit remaining/reset info.
+# Equivalent to: --api-stats
+# api-stats = false
 """
     config_path.write_text(default_content)
     click.echo(click.style(f"Created default config at {config_path}", fg="green"))

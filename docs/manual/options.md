@@ -501,6 +501,35 @@ breakfast -o my-org -r my-app --no-update-check
 export BREAKFAST_NO_UPDATE_CHECK=1
 ```
 
+## Diagnostics
+
+### `--debug`
+
+Print API diagnostics to stderr after the normal output. Useful for understanding slow runs or diagnosing rate-limit issues.
+
+```bash
+breakfast -o my-org -r my-app --debug
+```
+
+Output is written to **stderr** so it does not interfere with `--json` piping. Example:
+
+```
+🐛 Debug summary
+  Total elapsed:    3.41s
+  PRs processed:    42
+  API calls:        87 (85 REST + 2 GraphQL)
+  REST rate limit:  4913 requests remaining
+  REST rate resets: 10:30:00 UTC
+  GQL rate limit:   4998 points remaining
+  GQL rate resets:  2026-04-11T10:30:00Z
+```
+
+Can also be enabled persistently via config:
+
+```toml
+debug = true
+```
+
 ## Other options
 
 ### `--version`

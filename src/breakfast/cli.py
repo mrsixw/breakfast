@@ -13,10 +13,12 @@ from tabulate import tabulate
 from .api import (
     SECRET_GITHUB_TOKEN,
     _fetch_pr_detail,
+    get_api_stats,
     get_approval_summary,
     get_authenticated_user_login,
     get_check_status,
     get_github_prs,
+    get_graphql_rate_limit,
 )
 from .cache import (
     parse_ttl,
@@ -234,6 +236,35 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
 
 def _stdout_is_tty():
     return sys.stdout.isatty()
+
+
+def _print_debug_summary(t0, pr_count, api_stats, graphql_rate_limit):
+    from datetime import datetime, timezone
+
+    elapsed = time.monotonic() - t0
+    total_calls = api_stats["rest_calls"] + api_stats["graphql_calls"]
+    lines = [
+        click.style("🐛 Debug summary", fg="cyan", bold=True),
+        f"  Total elapsed:    {elapsed:.2f}s",
+        f"  PRs processed:    {pr_count}",
+        f"  API calls:        {total_calls}"
+        f" ({api_stats['rest_calls']} REST + {api_stats['graphql_calls']} GraphQL)",
+    ]
+    remaining = api_stats.get("rest_rate_limit_remaining")
+    reset_ts = api_stats.get("rest_rate_limit_reset")
+    if remaining is not None:
+        lines.append(f"  REST rate limit:  {remaining} requests remaining")
+    if reset_ts is not None:
+        reset_dt = datetime.fromtimestamp(reset_ts, tz=timezone.utc)
+        lines.append(f"  REST rate resets: {reset_dt.strftime('%H:%M:%S UTC')}")
+    if graphql_rate_limit:
+        gql_remaining = graphql_rate_limit.get("remaining")
+        gql_reset = graphql_rate_limit.get("resetAt")
+        if gql_remaining is not None:
+            lines.append(f"  GQL rate limit:   {gql_remaining} points remaining")
+        if gql_reset:
+            lines.append(f"  GQL rate resets:  {gql_reset}")
+    click.echo("\n".join(lines), err=True)
 
 
 def get_pr_age_days(pr_detail, now=None):
@@ -505,6 +536,15 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
         " matching is case-insensitive."
     ),
 )
+@click.option(
+    "--debug",
+    is_flag=True,
+    default=False,
+    help=(
+        "Print API diagnostics to stderr after output: call counts,"
+        " rate-limit remaining, and total elapsed time."
+    ),
+)
 @click.version_option(package_name="breakfast")
 def breakfast(
     config,
@@ -536,7 +576,9 @@ def breakfast(
     legendary,
     legendary_only,
     search,
+    debug,
 ):
+    t0_total = time.monotonic()
     configure_logging()
 
     if search is not None:
@@ -589,6 +631,7 @@ def breakfast(
     legendary_only = legendary_only or cfg.get("legendary-only", False)
     if legendary_only:
         legendary = True  # --legendary-only implies marking
+    debug = debug or cfg.get("debug", False)
 
     # Cache is opt-in: CLI flag > config > default off.
     cache_enabled = cache if cache is not None else cfg.get("cache", False)
@@ -650,6 +693,7 @@ def breakfast(
             "legendary": legendary,
             "legendary-only": legendary_only,
             "search": search,
+            "debug": debug,
         }
         for k, v in resolved.items():
             click.echo(f"  {k}: {v}")
@@ -660,7 +704,7 @@ def breakfast(
         " cache_enabled=%s cache_ttl=%ss refresh=%s refresh_prs=%s"
         " checks=%s approvals=%s age=%s legendary=%s legendary_only=%s"
         " limit=%s max_title_length=%s status_style=%s json=%s"
-        " filter_state=%r filter_check=%r filter_approval=%r search=%r",
+        " filter_state=%r filter_check=%r filter_approval=%r search=%r debug=%s",
         organization,
         repo_filter,
         mine_only,
@@ -682,6 +726,7 @@ def breakfast(
         filter_check,
         filter_approval,
         search,
+        debug,
     )
 
     if no_drafts and drafts_only:
@@ -983,6 +1028,10 @@ def breakfast(
             if update_msg:
                 logger.info("update_available msg=%r", update_msg)
                 click.echo(click.style(update_msg, fg="cyan", bold=True), err=True)
+        if debug:
+            _print_debug_summary(
+                t0_total, len(json_data), get_api_stats(), get_graphql_rate_limit()
+            )
         return
 
     for pr_detail in pr_details:
@@ -1074,6 +1123,11 @@ def breakfast(
         if update_msg:
             logger.info("update_available msg=%r", update_msg)
             click.echo(click.style(update_msg, fg="cyan", bold=True), err=True)
+
+    if debug:
+        _print_debug_summary(
+            t0_total, len(pr_data), get_api_stats(), get_graphql_rate_limit()
+        )
 
 
 if __name__ == "__main__":

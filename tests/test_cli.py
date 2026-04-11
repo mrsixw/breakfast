@@ -2048,3 +2048,63 @@ def test_progress_emoji_emitted_after_check_status_fetch(monkeypatch):
     # bundle_complete appears exactly once — no second bulk-fetch phase
     assert call_log.count("bundle_complete") == 1
     assert call_log.count("check_status_fetched") == 1
+
+
+def test_debug_flag_prints_summary_to_stderr(monkeypatch):
+    """--debug emits a summary block to stderr without disrupting stdout output."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli,
+        "get_api_stats",
+        lambda: {
+            "rest_calls": 10,
+            "graphql_calls": 2,
+            "rest_rate_limit_remaining": 4990,
+            "rest_rate_limit_reset": 1700000000,
+        },
+    )
+    monkeypatch.setattr(
+        cli,
+        "get_graphql_rate_limit",
+        lambda: {
+            "remaining": 4998,
+            "resetAt": "2026-04-11T10:30:00Z",
+        },
+    )
+
+    def fake_get_prs(_org, _repo_filter):
+        return ["https://github.com/org/repo/pull/1"]
+
+    def fake_api_request(_path):
+        return {
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": "Test PR",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": "https://github.com/org/repo/pull/1",
+            "number": 1,
+        }
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--debug"])
+
+    assert result.exit_code == 0
+    assert "Debug summary" in result.output
+    assert "12 (10 REST + 2 GraphQL)" in result.output
+    assert "4990 requests remaining" in result.output
+    assert "4998 points remaining" in result.output
+    # Normal table output is still present
+    assert "PR-1" in result.output

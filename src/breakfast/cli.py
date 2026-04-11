@@ -537,7 +537,7 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     ),
 )
 @click.option(
-    "--debug",
+    "--api-stats",
     is_flag=True,
     default=False,
     help=(
@@ -576,7 +576,7 @@ def breakfast(
     legendary,
     legendary_only,
     search,
-    debug,
+    api_stats,
 ):
     t0_total = time.monotonic()
     configure_logging()
@@ -631,7 +631,7 @@ def breakfast(
     legendary_only = legendary_only or cfg.get("legendary-only", False)
     if legendary_only:
         legendary = True  # --legendary-only implies marking
-    debug = debug or cfg.get("debug", False)
+    api_stats = api_stats or cfg.get("api-stats", False)
 
     # Cache is opt-in: CLI flag > config > default off.
     cache_enabled = cache if cache is not None else cfg.get("cache", False)
@@ -693,7 +693,7 @@ def breakfast(
             "legendary": legendary,
             "legendary-only": legendary_only,
             "search": search,
-            "debug": debug,
+            "api-stats": api_stats,
         }
         for k, v in resolved.items():
             click.echo(f"  {k}: {v}")
@@ -704,7 +704,7 @@ def breakfast(
         " cache_enabled=%s cache_ttl=%ss refresh=%s refresh_prs=%s"
         " checks=%s approvals=%s age=%s legendary=%s legendary_only=%s"
         " limit=%s max_title_length=%s status_style=%s json=%s"
-        " filter_state=%r filter_check=%r filter_approval=%r search=%r debug=%s",
+        " filter_state=%r filter_check=%r filter_approval=%r search=%r api_stats=%s",
         organization,
         repo_filter,
         mine_only,
@@ -726,7 +726,7 @@ def breakfast(
         filter_check,
         filter_approval,
         search,
-        debug,
+        api_stats,
     )
 
     if no_drafts and drafts_only:
@@ -1028,7 +1028,7 @@ def breakfast(
             if update_msg:
                 logger.info("update_available msg=%r", update_msg)
                 click.echo(click.style(update_msg, fg="cyan", bold=True), err=True)
-        if debug:
+        if api_stats:
             _print_debug_summary(
                 t0_total, len(json_data), get_api_stats(), get_graphql_rate_limit()
             )
@@ -1124,7 +1124,7 @@ def breakfast(
             logger.info("update_available msg=%r", update_msg)
             click.echo(click.style(update_msg, fg="cyan", bold=True), err=True)
 
-    if debug:
+    if api_stats:
         _print_debug_summary(
             t0_total, len(pr_data), get_api_stats(), get_graphql_rate_limit()
         )

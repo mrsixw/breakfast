@@ -2099,7 +2099,7 @@ def test_debug_flag_prints_summary_to_stderr(monkeypatch):
     monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
 
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--debug"])
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--api-stats"])
 
     assert result.exit_code == 0
     assert "Debug summary" in result.output

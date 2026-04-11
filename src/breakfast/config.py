@@ -201,8 +201,8 @@ def generate_default_config():
 
 # Print API diagnostics to stderr after output: total elapsed time, number of
 # REST and GraphQL calls made, and rate-limit remaining/reset info.
-# Equivalent to: --debug
-# debug = false
+# Equivalent to: --api-stats
+# api-stats = false
 """
     config_path.write_text(default_content)
     click.echo(click.style(f"Created default config at {config_path}", fg="green"))

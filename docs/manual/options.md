@@ -503,12 +503,12 @@ export BREAKFAST_NO_UPDATE_CHECK=1
 
 ## Diagnostics
 
-### `--debug`
+### `--api-stats`
 
 Print API diagnostics to stderr after the normal output. Useful for understanding slow runs or diagnosing rate-limit issues.
 
 ```bash
-breakfast -o my-org -r my-app --debug
+breakfast -o my-org -r my-app --api-stats
 ```
 
 Output is written to **stderr** so it does not interfere with `--json` piping. Example:
@@ -527,7 +527,7 @@ Output is written to **stderr** so it does not interfere with `--json` piping. E
 Can also be enabled persistently via config:
 
 ```toml
-debug = true
+api-stats = true
 ```
 
 ## Other options

@@ -641,6 +641,66 @@ def test_make_github_graphql_request_raises_on_persistent_timeout(monkeypatch):
         api.make_github_graphql_request("{ viewer { login } }")
 
 
+def test_make_github_graphql_request_retries_on_chunked_encoding_error(monkeypatch):
+    """Premature chunked response is retried and eventually succeeds."""
+    attempts = []
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+    monkeypatch.setattr(api.random, "uniform", lambda _a, _b: 0)
+
+    class GoodResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"data": {"ok": True}}
+
+    def fake_post(url, json, headers):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise requests.exceptions.ChunkedEncodingError("Response ended prematurely")
+        return GoodResponse()
+
+    monkeypatch.setattr(api.requests, "post", fake_post)
+
+    result = api.make_github_graphql_request("{ viewer { login } }")
+
+    assert result == {"data": {"ok": True}}
+    assert len(attempts) == 3
+
+
+def test_make_github_api_request_retries_on_chunked_encoding_error(monkeypatch):
+    """Premature chunked REST response is retried and eventually succeeds."""
+    attempts = []
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+
+    class GoodResponse:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"ok": True}
+
+    def fake_get(url, headers):
+        attempts.append(1)
+        if len(attempts) < 2:
+            raise requests.exceptions.ChunkedEncodingError("Response ended prematurely")
+        return GoodResponse()
+
+    monkeypatch.setattr(api.requests, "get", fake_get)
+
+    result = api.make_github_api_request("/repos/org/repo")
+
+    assert result == {"ok": True}
+    assert len(attempts) == 2
+
+
 def test_get_api_stats_tracks_rest_calls(monkeypatch):
     """REST calls increment the rest_calls counter."""
     monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")

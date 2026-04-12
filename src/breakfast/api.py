@@ -94,6 +94,7 @@ def make_github_api_request(query_string):
                     _api_stats["rest_rate_limit_reset"] = int(reset_ts)
             return result
         except (
+            requests.exceptions.ChunkedEncodingError,
             requests.exceptions.ConnectionError,
             requests.exceptions.Timeout,
         ) as exc:
@@ -179,6 +180,7 @@ def make_github_graphql_request(query, variables={}):
                 _api_stats["graphql_calls"] += 1
             return resp_json
         except (
+            requests.exceptions.ChunkedEncodingError,
             requests.exceptions.ConnectionError,
             requests.exceptions.Timeout,
         ) as exc:

@@ -509,6 +509,29 @@ breakfast -o my-org -r my-app --no-update-check
 export BREAKFAST_NO_UPDATE_CHECK=1
 ```
 
+## Colour control
+
+### `--no-colour` / `--no-color`
+
+Disable all ANSI colour codes and formatting in output. Useful when piping output to a file, logging system, or tool that does not interpret escape codes.
+
+```bash
+breakfast -o my-org -r my-app --no-colour
+breakfast -o my-org -r my-app --no-color    # US spelling alias
+```
+
+The `NO_COLOR` environment variable is also honoured (see [no-color.org](https://no-color.org/)):
+
+```bash
+NO_COLOR=1 breakfast -o my-org -r my-app
+```
+
+Can also be set persistently in config:
+
+```toml
+no-colour = true
+```
+
 ## Diagnostics
 
 ### `--api-stats`

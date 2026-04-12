@@ -545,6 +545,18 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
         " rate-limit remaining, and total elapsed time."
     ),
 )
+@click.option(
+    "--no-colour",
+    "--no-color",
+    "no_colour",
+    is_flag=True,
+    default=False,
+    envvar="NO_COLOR",
+    help=(
+        "Disable ANSI colour in all output."
+        " Also honoured via the NO_COLOR environment variable (no-color.org)."
+    ),
+)
 @click.version_option(package_name="breakfast")
 def breakfast(
     config,
@@ -577,6 +589,7 @@ def breakfast(
     legendary_only,
     search,
     api_stats,
+    no_colour,
 ):
     t0_total = time.monotonic()
     configure_logging()
@@ -590,7 +603,8 @@ def breakfast(
                     f"Error: --search pattern is not valid regex: {exc}",
                     fg="red",
                     bold=True,
-                )
+                ),
+                color=not no_colour,
             )
             sys.exit(1)
 
@@ -632,6 +646,8 @@ def breakfast(
     if legendary_only:
         legendary = True  # --legendary-only implies marking
     api_stats = api_stats or cfg.get("api-stats", False)
+    no_colour = no_colour or cfg.get("no-colour", False)
+    colour = not no_colour
 
     # Cache is opt-in: CLI flag > config > default off.
     cache_enabled = cache if cache is not None else cfg.get("cache", False)
@@ -643,7 +659,8 @@ def breakfast(
                 " Pass --cache or set cache = true in config.",
                 fg="red",
                 bold=True,
-            )
+            ),
+            color=colour,
         )
         sys.exit(1)
     if refresh_prs and not cache_enabled:
@@ -653,7 +670,8 @@ def breakfast(
                 " Pass --cache or set cache = true in config.",
                 fg="red",
                 bold=True,
-            )
+            ),
+            color=colour,
         )
         sys.exit(1)
 
@@ -664,7 +682,7 @@ def breakfast(
     except ValueError as exc:
         logger.error("invalid_cache_ttl value=%r error=%s", raw_ttl, exc)
         msg = f"Error: invalid --cache-ttl value: {exc}"
-        click.echo(click.style(msg, fg="red", bold=True))
+        click.echo(click.style(msg, fg="red", bold=True), color=colour)
         sys.exit(1)
 
     if show_config:
@@ -694,6 +712,7 @@ def breakfast(
             "legendary-only": legendary_only,
             "search": search,
             "api-stats": api_stats,
+            "no-colour": no_colour,
         }
         for k, v in resolved.items():
             click.echo(f"  {k}: {v}")
@@ -735,7 +754,8 @@ def breakfast(
                 "Error: --no-drafts and --drafts-only are mutually exclusive.",
                 fg="red",
                 bold=True,
-            )
+            ),
+            color=colour,
         )
         sys.exit(1)
 
@@ -744,12 +764,12 @@ def breakfast(
             "Organization must be provided via CLI (-o) "
             "or config file (organization)."
         )
-        click.echo(click.style(message, fg="red", bold=True))
+        click.echo(click.style(message, fg="red", bold=True), color=colour)
         sys.exit(1)
 
     if SECRET_GITHUB_TOKEN is None:
         message = "GITHUB_TOKEN not set in environment - exiting..."
-        click.echo(click.style(message, fg="red", bold=True))
+        click.echo(click.style(message, fg="red", bold=True), color=colour)
         sys.exit(1)
     current_user_login = None
     if mine_only:
@@ -808,7 +828,9 @@ def breakfast(
                     "check your network connection and try again.\n"
                     f"  ({type(exc).__name__}: {exc})"
                 )
-                click.echo(click.style(msg, fg="red", bold=True), err=True)
+                click.echo(
+                    click.style(msg, fg="red", bold=True), err=True, color=colour
+                )
                 sys.exit(1)
             if cache_enabled:
                 write_graphql_cache(organization, repo_filter, prs)
@@ -856,7 +878,7 @@ def breakfast(
                 f"Warning: {len(failed_urls)} PR(s) could not be fetched"
                 f" after retries: {examples}{suffix}"
             )
-            click.echo(click.style(msg, fg="yellow"), err=True)
+            click.echo(click.style(msg, fg="yellow"), err=True, color=colour)
         if cache_enabled:
             needs_cache_write = True
     else:
@@ -971,7 +993,8 @@ def breakfast(
             click.style(
                 f"🔍 No PRs matched '{search}'",
                 fg="yellow",
-            )
+            ),
+            color=colour,
         )
     pr_details.sort(key=lambda pr: pr["base"]["repo"]["name"])
     if legendary_only:
@@ -1027,7 +1050,11 @@ def breakfast(
             update_msg = check_for_update()
             if update_msg:
                 logger.info("update_available msg=%r", update_msg)
-                click.echo(click.style(update_msg, fg="cyan", bold=True), err=True)
+                click.echo(
+                    click.style(update_msg, fg="cyan", bold=True),
+                    err=True,
+                    color=colour,
+                )
         if api_stats:
             _print_debug_summary(
                 t0_total, len(json_data), get_api_stats(), get_graphql_rate_limit()
@@ -1111,7 +1138,7 @@ def breakfast(
             tablefmt="outline",
             disable_numparse=True,
         ),
-        color=_stdout_is_tty(),
+        color=_stdout_is_tty() and colour,
     )
 
     logger.info(
@@ -1122,7 +1149,9 @@ def breakfast(
         update_msg = check_for_update()
         if update_msg:
             logger.info("update_available msg=%r", update_msg)
-            click.echo(click.style(update_msg, fg="cyan", bold=True), err=True)
+            click.echo(
+                click.style(update_msg, fg="cyan", bold=True), err=True, color=colour
+            )
 
     if api_stats:
         _print_debug_summary(

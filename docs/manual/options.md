@@ -12,11 +12,19 @@ breakfast -o my-org -r my-app
 
 ### `--repo-filter`, `-r`
 
-Filter repositories by name substring. Only repos whose name contains this string are included.
+Filter repositories by name. Supports both substring matching and glob patterns.
+
+- **Plain string** (no glob characters): substring match — `platform` matches `"platform-api"`, `"my-platform"`, `"happyplatform"`.
+- **Glob pattern** (contains `*`, `?`, or `[`): uses shell-style glob matching via `fnmatch`.
 
 ```bash
-breakfast -o my-org -r platform    # matches "platform-api", "my-platform", etc.
+breakfast -o my-org -r platform        # substring: matches "platform-api", "my-platform"
+breakfast -o my-org -r "platform-*"    # glob: matches "platform-api", "platform-web" but not "my-platform"
+breakfast -o my-org -r "service-?"     # glob: matches "service-a" but not "service-ab"
+breakfast -o my-org -r "app"           # substring: matches "app", "app-one", "happyapp"
 ```
+
+Glob matching is case-sensitive and uses Python's `fnmatch` semantics. To match all repos, omit `-r` entirely or pass an empty string.
 
 ## Filtering options
 

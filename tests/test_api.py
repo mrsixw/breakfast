@@ -802,3 +802,56 @@ def test_get_graphql_rate_limit_returns_none_on_error(monkeypatch):
 
     result = api.get_graphql_rate_limit()
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _match_repo_filter
+# ---------------------------------------------------------------------------
+
+
+def test_match_repo_filter_empty_matches_all():
+    assert api._match_repo_filter("any-repo", "") is True
+
+
+def test_match_repo_filter_substring_backward_compat():
+    """Plain strings use substring matching for backward compatibility."""
+    assert api._match_repo_filter("platform-api", "platform") is True
+    assert api._match_repo_filter("happyapp", "app") is True
+    assert api._match_repo_filter("mapper", "app") is True
+
+
+def test_match_repo_filter_substring_no_match():
+    assert api._match_repo_filter("platform-api", "frontend") is False
+
+
+def test_match_repo_filter_glob_star_prefix():
+    """app-* matches repos starting with 'app-' only."""
+    assert api._match_repo_filter("app-one", "app-*") is True
+    assert api._match_repo_filter("app-two", "app-*") is True
+    assert api._match_repo_filter("happyapp", "app-*") is False
+    assert api._match_repo_filter("mapper", "app-*") is False
+
+
+def test_match_repo_filter_glob_question_mark():
+    """? matches exactly one character."""
+    assert api._match_repo_filter("service-a", "service-?") is True
+    assert api._match_repo_filter("service-ab", "service-?") is False
+
+
+def test_match_repo_filter_glob_bracket():
+    """[abc] matches a single character from the set."""
+    assert api._match_repo_filter("service-a", "service-[abc]") is True
+    assert api._match_repo_filter("service-z", "service-[abc]") is False
+
+
+def test_match_repo_filter_glob_exact_match():
+    """Glob without wildcards requires exact match."""
+    # fnmatch treats a bare pattern with no wildcards as exact match
+    assert api._match_repo_filter("app", "app") is True
+
+
+def test_match_repo_filter_glob_no_partial_match():
+    """Glob pattern without trailing * does not match mid-string."""
+    assert api._match_repo_filter("app-one", "app") is True  # substring fallback
+    # But if user adds glob chars, fnmatch is used (no partial match)
+    assert api._match_repo_filter("app-one", "app?") is False  # 'app-one' != 'app?'

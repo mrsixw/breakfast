@@ -1,3 +1,4 @@
+import fnmatch
 import os
 import random
 import threading
@@ -194,6 +195,23 @@ def make_github_graphql_request(query, variables={}):
                 raise
 
 
+_GLOB_CHARS = frozenset("*?[")
+
+
+def _match_repo_filter(repo_name, repo_filter):
+    """Match a repo name against a filter pattern.
+
+    If the pattern contains glob characters (``*``, ``?``, ``[``), uses
+    ``fnmatch`` for precise glob matching. Otherwise falls back to
+    substring matching for backwards compatibility.
+    """
+    if not repo_filter:
+        return True
+    if any(c in repo_filter for c in _GLOB_CHARS):
+        return fnmatch.fnmatch(repo_name, repo_filter)
+    return repo_filter in repo_name
+
+
 def get_github_prs(organization, repo_filter):
     base_query = """
     query($organization: String!, $cursor: String){
@@ -233,7 +251,7 @@ def get_github_prs(organization, repo_filter):
     prs = []
     for response in gql_responses:
         for repo in response["data"]["organization"]["repositories"]["nodes"]:
-            if repo_filter in repo["name"]:
+            if _match_repo_filter(repo["name"], repo_filter):
                 for pr in repo["pullRequests"]["nodes"]:
                     prs.append(pr["url"])
     return prs

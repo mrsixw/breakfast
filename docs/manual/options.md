@@ -63,11 +63,14 @@ With `--ignore-author dependabot[bot]`, the bot PR is excluded:
 
 ### `--filter-state`
 
-Only show PRs with a specific state. Accepted values: `open`, `closed`. Repeat the flag to match multiple states.
+Only show PRs with a specific state. Accepted values: `open`, `closed`, `draft`. Repeat the flag to match multiple states.
+
+`draft` matches PRs where `draft=true`. It can be combined with other states:
 
 ```bash
-breakfast -o my-org -r my-app --filter-state open                          # open PRs only
-breakfast -o my-org -r my-app --filter-state open --filter-state closed    # both states
+breakfast -o my-org -r my-app --filter-state open            # open PRs only (includes drafts)
+breakfast -o my-org -r my-app --filter-state draft           # only draft PRs
+breakfast -o my-org -r my-app --filter-state closed --filter-state draft   # closed or draft
 ```
 
 ### `--filter-check`

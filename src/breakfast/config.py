@@ -259,10 +259,16 @@ def filter_pr_details(
             continue
         if drafts_only and not is_draft:
             continue
-        if filter_state and pr_detail.get("state", "").lower() not in {
-            s.lower() for s in filter_state
-        }:
-            continue
+        if filter_state:
+            filter_state_lower = {s.lower() for s in filter_state}
+            regular_states = filter_state_lower - {"draft"}
+            include_drafts = "draft" in filter_state_lower
+            is_draft = pr_detail.get("draft", False)
+            pr_state = pr_detail.get("state", "").lower()
+            state_match = bool(regular_states) and pr_state in regular_states
+            draft_match = include_drafts and is_draft
+            if not (state_match or draft_match):
+                continue
         if filter_check and check_statuses is not None:
             pr_check = check_statuses.get(pr_detail["id"], "none")
             if pr_check not in filter_check:

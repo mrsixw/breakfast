@@ -134,6 +134,25 @@ def test_filter_pr_details_filter_state():
     assert result[0]["id"] == 2
 
 
+def test_filter_pr_details_filter_state_draft():
+    draft_pr = {**_make_pr(state="open", pr_id=1), "draft": True}
+    open_pr = {**_make_pr(state="open", pr_id=2), "draft": False}
+    closed_pr = {**_make_pr(state="closed", pr_id=3), "draft": False}
+    pr_details = [draft_pr, open_pr, closed_pr]
+
+    # draft only
+    result = config.filter_pr_details(pr_details, [], filter_state=("draft",))
+    assert [r["id"] for r in result] == [1]
+
+    # closed + draft
+    result = config.filter_pr_details(pr_details, [], filter_state=("closed", "draft"))
+    assert sorted(r["id"] for r in result) == [1, 3]
+
+    # open alone still includes draft PRs (state=open)
+    result = config.filter_pr_details(pr_details, [], filter_state=("open",))
+    assert sorted(r["id"] for r in result) == [1, 2]
+
+
 def test_filter_pr_details_filter_check():
     pr_details = [_make_pr(pr_id=1), _make_pr(pr_id=2), _make_pr(pr_id=3)]
     check_statuses = {1: "pass", 2: "fail", 3: "pending"}

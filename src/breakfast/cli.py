@@ -494,9 +494,12 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
 )
 @click.option(
     "--filter-state",
-    type=click.Choice(["open", "closed"], case_sensitive=False),
+    type=click.Choice(["open", "closed", "draft"], case_sensitive=False),
     multiple=True,
-    help="Only show PRs with this state. Repeat for multiple values.",
+    help=(
+        "Only show PRs with this state. Repeat for multiple values."
+        " 'draft' matches PRs where draft=true."
+    ),
 )
 @click.option(
     "--filter-check",

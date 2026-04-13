@@ -2108,3 +2108,59 @@ def test_debug_flag_prints_summary_to_stderr(monkeypatch):
     assert "4998 points remaining" in result.output
     # Normal table output is still present
     assert "PR-1" in result.output
+
+
+def _plain_pr():
+    return {
+        "base": {"repo": {"name": "repo", "html_url": "https://github.com/org/repo"}},
+        "mergeable": True,
+        "mergeable_state": "clean",
+        "additions": 5,
+        "deletions": 2,
+        "title": "Test PR",
+        "user": {"login": "alice", "html_url": "https://github.com/alice"},
+        "state": "open",
+        "draft": False,
+        "changed_files": 1,
+        "commits": 1,
+        "review_comments": 0,
+        "created_at": "2026-01-10T00:00:00Z",
+        "html_url": "https://github.com/org/repo/pull/1",
+        "number": 1,
+        "id": 1,
+    }
+
+
+def test_no_colour_strips_ansi_from_table(monkeypatch):
+    """--no-colour produces output with no ANSI escape sequences."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _: _plain_pr())
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--no-colour"])
+
+    assert result.exit_code == 0
+    assert "\x1b[" not in result.output
+    assert "PR-1" in result.output
+
+
+def test_no_color_alias_works(monkeypatch):
+    """--no-color (US spelling) is accepted and strips ANSI."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _: _plain_pr())
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--no-color"])
+
+    assert result.exit_code == 0
+    assert "\x1b[" not in result.output

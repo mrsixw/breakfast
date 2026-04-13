@@ -203,6 +203,11 @@ def generate_default_config():
 # REST and GraphQL calls made, and rate-limit remaining/reset info.
 # Equivalent to: --api-stats
 # api-stats = false
+
+# Disable all ANSI colour codes in output. Equivalent to setting the
+# NO_COLOR environment variable (https://no-color.org/).
+# Equivalent to: --no-colour
+# no-colour = false
 """
     config_path.write_text(default_content)
     click.echo(click.style(f"Created default config at {config_path}", fg="green"))

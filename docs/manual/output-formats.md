@@ -2,7 +2,7 @@
 
 ## Table output (default)
 
-```
+```text
 $ breakfast -o my-org -r platform
 Fetching my-org PRs...🥐🍳...Done
 Processing platform PRs...🥞🧇🍩...Done
@@ -18,7 +18,7 @@ Processing platform PRs...🥞🧇🍩...Done
 The default output is a colour-coded terminal table with the following columns:
 
 | Column | Description |
-|--------|-------------|
+| --- | --- |
 | Repo | Repository name — clickable link to the repo on GitHub |
 | PR Title | Pull request title |
 | Author | GitHub login of the PR author — clickable link to their profile |
@@ -37,6 +37,7 @@ Use `--status-style ascii` if your terminal font renders the status emoji with u
 ### Colour coding
 
 Numeric columns (Files, Commits, Comments, Age) are colour-graded:
+
 - **Green**: < 10
 - **Yellow**: 10-19
 - **Orange**: 20-49
@@ -77,7 +78,7 @@ Each PR object contains:
 
 ### Full example
 
-```
+```text
 $ breakfast -o my-org -r platform --json 2>/dev/null
 [
   {

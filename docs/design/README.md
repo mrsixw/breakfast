@@ -7,7 +7,7 @@ Each document captures the problem, proposed solution, and implementation approa
 ## Documents
 
 | Document | Status | Issue |
-|----------|--------|-------|
+| --- | --- | --- |
 | [Config File](config-file.md) | Proposed | [#42](https://github.com/mrsixw/breakfast/issues/42) |
 | [Demo Generation](demo-generation.md) | Implemented | [#80](https://github.com/mrsixw/breakfast/issues/80) |
 | [PR Caching](pr-caching.md) | Proposed | [#45](https://github.com/mrsixw/breakfast/issues/45) |

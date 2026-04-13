@@ -33,7 +33,7 @@ again.
 SHA-256 of `"{org.lower()}:{filter.lower()}"`, truncated to the first 16 hex
 characters → filename `prs_{hash16}.json`.
 
-```
+```text
 org=MyOrg, filter=Platform  →  prs_3f8a1d9c2b047e56.json
 org=myorg, filter=platform  →  prs_3f8a1d9c2b047e56.json  (same — normalised)
 ```
@@ -87,7 +87,7 @@ are converted back to `int` on read.
 
 Follows the XDG Base Directory spec — the same convention as `updater.py`:
 
-```
+```text
 ~/.cache/breakfast/prs_{hash16}.json              (default)
 $XDG_CACHE_HOME/breakfast/prs_{hash16}.json       (if XDG_CACHE_HOME is set)
 ```
@@ -118,7 +118,7 @@ setting defeats the purpose of having a cache.
 ## Behaviour Table
 
 | Scenario | Behaviour |
-|----------|-----------|
+| --- | --- |
 | Cache miss / TTL expired | Fetch from API, write cache |
 | Cache hit within TTL | Read from cache, skip API fetch |
 | `--no-cache` | Always fetch from API, never read/write cache |
@@ -215,9 +215,11 @@ the same pattern as `test_updater.py`.
 ## What Goes in Config vs What Doesn't
 
 **Belongs in config:**
+
 - `cache-ttl` — a stable per-user preference (some environments have slower networks)
 
 **Does NOT belong in config:**
+
 - `--no-cache` — a per-invocation override; a persistent no-cache defeats the purpose
 
 ## Example User Workflows

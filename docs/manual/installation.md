@@ -9,6 +9,7 @@ curl -sSL https://raw.githubusercontent.com/mrsixw/breakfast/main/install.sh | b
 ```
 
 This script will:
+
 1. Download the latest `breakfast` binary from GitHub Releases.
 2. Install it to `~/.local/bin/breakfast`.
 3. Initialize a default configuration file at `~/.config/breakfast/config.toml`.
@@ -60,12 +61,15 @@ uv run breakfast --version
 The installer (`install.sh`) automatically installs tab-completion scripts for bash, zsh, and fish. After installation, you may need to activate them for your shell:
 
 **Bash** — source the script in your `~/.bashrc`:
+
 ```bash
 source ~/.local/share/bash-completion/completions/breakfast
 ```
+
 Or, if your system loads all files from `~/.local/share/bash-completion/completions/` automatically (common with `bash-completion` ≥ 2.x), no action is needed.
 
 **Zsh** — add the install directory to your `fpath` in `~/.zshrc` before calling `compinit`:
+
 ```zsh
 fpath=(~/.local/share/zsh/site-functions $fpath)
 autoload -Uz compinit && compinit
@@ -74,6 +78,7 @@ autoload -Uz compinit && compinit
 **Fish** — completions in `~/.config/fish/completions/` are loaded automatically. No further action needed.
 
 To regenerate completions manually from source:
+
 ```bash
 make completions   # writes to completions/
 ```
@@ -87,6 +92,7 @@ man breakfast
 ```
 
 If `man` can't find it, ensure your `MANPATH` includes `~/.local/share/man`:
+
 ```bash
 export MANPATH="${HOME}/.local/share/man:${MANPATH}"
 ```
@@ -94,6 +100,7 @@ export MANPATH="${HOME}/.local/share/man:${MANPATH}"
 Add this line to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.) to make it permanent.
 
 To regenerate the man page from source:
+
 ```bash
 make man   # writes to man1/breakfast.1.gz
 ```

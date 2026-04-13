@@ -1226,9 +1226,11 @@ def test_auto_fit_truncates_repo_and_author_before_dropping(monkeypatch):
         result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
 
     assert result.exit_code == 0
+    visible_output = cli._strip_ansi(result.output)
     # Full long names should have been truncated
-    assert "a-very-long-repository-name" not in result.output
-    assert "a-very-long-author-name" not in result.output
+    assert "a-very-long-repository-name" not in visible_output
+    assert "a-very-long-author-name" not in visible_output
+    assert "a-very-…" in visible_output
 
 
 def test_auto_fit_compresses_mergeable_before_dropping(monkeypatch):
@@ -1897,6 +1899,57 @@ def test_compress_styled_preserves_approval_fraction():
     compressed = cli._compress_styled(styled)
 
     assert cli._strip_ansi(compressed) == "✅ 1/2"
+
+
+def test_truncate_formatted_text_preserves_osc8_anchor():
+    linked_repo = cli.generate_terminal_url_anchor(
+        "https://github.com/myorg/really-long-repo-name",
+        "really-long-repo-name",
+    )
+
+    truncated = cli._truncate_formatted_text(linked_repo, 8)
+
+    assert cli._strip_ansi(truncated) == "really-…"
+    assert "\x1b]8;;https://github.com/myorg/really-long-repo-name\x1b\\" in truncated
+    assert truncated.endswith("\x1b]8;;\x1b\\")
+    assert "]8;;ht…" not in truncated
+
+
+def test_truncate_col_preserves_repo_and_author_hyperlinks():
+    rows = [
+        {
+            "Repo": cli.generate_terminal_url_anchor(
+                "https://github.com/myorg/really-long-repo-name",
+                "really-long-repo-name",
+            ),
+            "PR Title": "Short title",
+            "Author": cli.generate_terminal_url_anchor(
+                "https://github.com/some-very-long-author-name",
+                "some-very-long-author-name",
+            ),
+            "State": "open",
+            "Files": "1",
+            "Commits": "1",
+            "+/-": "+1/-0",
+            "Comments": "0",
+            "Mergeable?": "✅ (clean)",
+            "Link": "PR-1",
+        }
+    ]
+
+    truncated = cli._truncate_col(rows, "Repo", terminal_width=40, min_len=8)
+    truncated = cli._truncate_col(truncated, "Author", terminal_width=40, min_len=8)
+
+    assert (
+        "\x1b]8;;https://github.com/myorg/really-long-repo-name\x1b\\"
+        in truncated[0]["Repo"]
+    )
+    assert (
+        "\x1b]8;;https://github.com/some-very-long-author-name\x1b\\"
+        in truncated[0]["Author"]
+    )
+    assert "]8;;ht…" not in truncated[0]["Repo"]
+    assert "]8;;ht…" not in truncated[0]["Author"]
 
 
 def test_auto_fit_preserves_checks_colour(monkeypatch):

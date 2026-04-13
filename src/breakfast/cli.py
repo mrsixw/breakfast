@@ -56,11 +56,46 @@ _DROPPABLE_COLUMNS = [
 
 _ANSI_RE = re.compile(r"\x1b(?:\[[0-9;]*[a-zA-Z]|\]8;;.*?\x1b\\|\]8;;.*?\x07)")
 _ANSI_LEADING_RE = re.compile(r"^(?:\x1b\[[0-9;]*[a-zA-Z])*")
+_OSC8_FULL_RE = re.compile(
+    r"^(?P<prefix>(?:\x1b\[[0-9;]*[a-zA-Z])*)"
+    r"\x1b]8;;(?P<url>.*?)(?:\x1b\\|\x07)"
+    r"(?P<text>.*?)"
+    r"\x1b]8;;(?:\x1b\\|\x07)"
+    r"(?P<suffix>(?:\x1b\[[0-9;]*[a-zA-Z])*)$"
+)
 _ANSI_RESET = "\x1b[0m"
 
 
 def _strip_ansi(s):
     return _ANSI_RE.sub("", str(s))
+
+
+def _truncate_formatted_text(value, limit):
+    """Truncate visible text while preserving ANSI and OSC 8 wrappers.
+
+    Args:
+        value: Cell value that may contain ANSI styling or OSC 8 hyperlinks.
+        limit: Maximum visible character count, including the ellipsis.
+
+    Returns:
+        The truncated value with any existing formatting preserved.
+    """
+    plain = _strip_ansi(value)
+    if len(plain) <= limit:
+        return value
+
+    truncated = plain[: limit - 1] + "…"
+    osc_match = _OSC8_FULL_RE.match(str(value))
+    if osc_match:
+        return (
+            osc_match.group("prefix")
+            + generate_terminal_url_anchor(osc_match.group("url"), truncated)
+            + osc_match.group("suffix")
+        )
+
+    if plain != value:
+        return str(value).replace(plain, truncated, 1)
+    return truncated
 
 
 def _styled_hyperlink(url, styled_text):
@@ -117,11 +152,7 @@ def _truncate_col(pr_data, key, terminal_width, min_len=8):
     return [
         {
             **row,
-            key: (
-                row[key][: limit - 1] + "…"
-                if len(_strip_ansi(row[key])) > limit
-                else row[key]
-            ),
+            key: _truncate_formatted_text(row[key], limit),
         }
         for row in pr_data
     ]

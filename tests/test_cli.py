@@ -301,6 +301,26 @@ def test_cli_mine_only_filters_to_authenticated_user(monkeypatch):
     assert "Bob PR" not in result.output
 
 
+def test_cli_mine_only_exits_cleanly_on_rate_limit(monkeypatch):
+    from breakfast.api import GitHubRateLimitError
+
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli,
+        "get_authenticated_user_login",
+        lambda: (_ for _ in ()).throw(GitHubRateLimitError("2026-04-10 16:04:48")),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--mine-only"])
+
+    assert result.exit_code == 1
+    assert "rate limit" in result.output.lower()
+    assert "2026-04-10 16:04:48" in result.output
+
+
 def test_cli_outputs_checks_column(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])

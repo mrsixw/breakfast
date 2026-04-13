@@ -1,3 +1,4 @@
+import datetime
 import fnmatch
 import os
 import random
@@ -15,6 +16,24 @@ from .ui import BREAKFAST_ITEMS
 GITHUB_API_URL = "https://api.github.com"
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 SECRET_GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", None)
+
+
+class GitHubRateLimitError(Exception):
+    """Raised when the GitHub REST API rate limit is exhausted.
+
+    Attributes:
+        reset_time: UTC datetime when the rate limit resets, or None if unknown.
+    """
+
+    def __init__(self, reset_time=None):
+        self.reset_time = reset_time
+        if reset_time:
+            super().__init__(
+                f"GitHub API rate limit exceeded. Try again after {reset_time} UTC."
+            )
+        else:
+            super().__init__("GitHub API rate limit exceeded.")
+
 
 _MAX_RETRIES = 3
 _RETRY_STATUSES = {502, 503, 504}
@@ -76,6 +95,22 @@ def make_github_api_request(query_string):
                     attempt + 1,
                 )
                 continue
+            if (
+                req.status_code == 403
+                and req.headers.get("X-RateLimit-Remaining") == "0"
+            ):
+                reset_ts = req.headers.get("X-RateLimit-Reset")
+                reset_time = None
+                if reset_ts:
+                    reset_time = datetime.datetime.fromtimestamp(
+                        int(reset_ts), tz=datetime.timezone.utc
+                    ).strftime("%Y-%m-%d %H:%M:%S")
+                logger.warning(
+                    "api_call type=rest url=%s rate_limit_exceeded reset=%s",
+                    url,
+                    reset_time,
+                )
+                raise GitHubRateLimitError(reset_time)
             req.raise_for_status()
             logger.debug(
                 "api_call type=rest url=%s status=%d elapsed_ms=%d",

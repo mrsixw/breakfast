@@ -68,9 +68,9 @@ Only show PRs with a specific state. Accepted values: `open`, `closed`, `draft`.
 `draft` matches PRs where `draft=true`. It can be combined with other states:
 
 ```bash
-breakfast -o my-org -r my-app --filter-state open            # open PRs only (includes drafts)
-breakfast -o my-org -r my-app --filter-state draft           # only draft PRs
-breakfast -o my-org -r my-app --filter-state closed --filter-state draft   # closed or draft
+breakfast -o my-org -r my-app --filter-state open                        # open PRs only (includes drafts)
+breakfast -o my-org -r my-app --filter-state draft                       # only draft PRs
+breakfast -o my-org -r my-app --filter-state closed --filter-state draft # closed or draft
 ```
 
 ### `--filter-check`

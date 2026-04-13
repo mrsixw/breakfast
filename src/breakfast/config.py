@@ -103,6 +103,9 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Equivalent to: --status-style emoji|ascii
 # status-style = "emoji"
 
+# A little something extra for the observant. 🌟
+# seasonal-colours = true
+
 
 # -----------------------------------------------------------------------------
 # Legendary PRs ⚔️

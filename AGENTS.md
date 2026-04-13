@@ -1,4 +1,4 @@
-# Claude Instructions
+# Codex Instructions
 
 ## Project Overview
 - **breakfast** is a CLI tool that displays open GitHub pull requests across an organization's repos in a terminal table.
@@ -27,9 +27,9 @@
 
 ## Agent Instruction Files
 This project maintains per-agent instruction files that all convey the same rules:
-- `CLAUDE.md` — Claude Code (this file)
+- `CLAUDE.md` — Claude Code
 - `GEMINI.md` — Gemini
-- `AGENTS.md` — OpenAI Codex
+- `AGENTS.md` — OpenAI Codex (this file)
 - `.github/copilot-instructions.md` — GitHub Copilot
 
 When updating project rules, update **all four files** to keep them consistent.

@@ -135,6 +135,19 @@ Keep the summary short and imperative (e.g., `feat: add label filtering`).
 - Ensure CI is green before requesting review.
 - Keep PRs focused — one issue per PR where possible.
 
+## Agent Instruction Files
+
+This project maintains per-agent instruction files so that AI coding assistants follow the same conventions:
+
+| File | Agent |
+| ------ | ------- |
+| `CLAUDE.md` | Claude Code |
+| `GEMINI.md` | Gemini |
+| `AGENTS.md` | OpenAI Codex |
+| `.github/copilot-instructions.md` | GitHub Copilot |
+
+All four files convey the same project rules. **When updating project conventions, update all four files in the same PR.**
+
 ## Code Quality
 
 - **Linter:** [ruff](https://docs.astral.sh/ruff/) (lint rules: E, F, I)

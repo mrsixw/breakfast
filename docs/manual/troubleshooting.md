@@ -65,7 +65,7 @@ status-style = "ascii"
 
 breakfast writes a trace log on every invocation to:
 
-```
+```text
 ~/.local/state/breakfast/breakfast.log
 ```
 
@@ -79,7 +79,7 @@ cat ~/.local/state/breakfast/breakfast.log
 
 Example output:
 
-```
+```text
 2026-03-23 08:00:01 INFO    startup org=acme repo_filter='' mine_only=False ...
 2026-03-23 08:00:01 DEBUG   cache_miss layer=graphql path=~/.cache/breakfast/graphql_abc123.json reason=file_not_found
 2026-03-23 08:00:02 DEBUG   api_call type=graphql status=200 elapsed_ms=812

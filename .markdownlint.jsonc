@@ -1,0 +1,17 @@
+{
+  // markdownlint configuration for breakfast
+  // https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
+
+  "default": true,
+
+  // MD013: Line length — disabled; prose lines in markdown docs are not
+  // constrained to 80 chars and wrapping them harms readability.
+  "MD013": false,
+
+  // MD033: Inline HTML — disabled; some docs use raw HTML for formatting.
+  "MD033": false,
+
+  // MD041: First line in file should be a top level heading — disabled;
+  // some docs start with a comment or frontmatter-style block.
+  "MD041": false
+}

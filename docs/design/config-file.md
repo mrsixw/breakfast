@@ -20,6 +20,7 @@ breakfast
 ## File Location and Format
 
 ### Location (in priority order)
+
 1. `--config <path>` CLI flag (explicit override)
 2. `.breakfast.toml` in the current directory (project-level config)
 3. `~/.config/breakfast/config.toml` (user-level config, XDG-compliant)
@@ -28,6 +29,7 @@ Project-level config takes precedence over user-level config. Both are
 merged, with project-level values overriding user-level on a per-key basis.
 
 ### Why TOML?
+
 - Already standard in the Python ecosystem (`pyproject.toml`)
 - Human-readable and easy to edit
 - Python 3.11+ includes `tomllib` in stdlib — zero additional dependencies
@@ -77,7 +79,7 @@ format = "table"
 The principle: **CLI flags always win over config file values.**
 
 | Scenario | Behavior |
-|----------|----------|
+| --- | --- |
 | Config sets `organization = "org-a"`, CLI passes `-o org-b` | Uses `org-b` |
 | Config sets `age = true`, CLI passes nothing | Age column shown |
 | Config sets `age = true`, CLI passes `--no-age` | Age column hidden |
@@ -167,6 +169,7 @@ loads the config before parameter resolution. This keeps the main function clean
 ### Config File Generation
 
 The `--init-config` flag provides a quick start for users:
+
 1. Checks if `~/.config/breakfast/config.toml` already exists (to avoid overwriting).
 2. Creates the directory structure if missing.
 3. Writes a commented-out template with common defaults.
@@ -178,7 +181,7 @@ The XDG Base Directory path is prioritized for initialization to keep the user's
 
 When running with verbose output or `--show-config`, show which config file(s) were loaded:
 
-```
+```text
 Using config: ~/.config/breakfast/config.toml
 Using config: .breakfast.toml (project override)
 ```
@@ -186,7 +189,7 @@ Using config: .breakfast.toml (project override)
 ## Behavioral Changes Summary
 
 | Without config file | With config file |
-|---------------------|-----------------|
+| --- | --- |
 | All options must be passed on every invocation | Defaults loaded from file |
 | No way to set org-wide defaults | `.breakfast.toml` in project root sets team defaults |
 | Users repeat `--ignore-author bot` everywhere | Set once in config, applies everywhere |
@@ -195,17 +198,20 @@ Using config: .breakfast.toml (project override)
 ## What Goes in Config vs What Doesn't
 
 **Belongs in config:**
+
 - organization, repo-filter, ignore-author (stable, per-user/project preferences)
 - age, mine-only, format (display preferences)
 - sort, stale, draft, checks (when those features land)
 
 **Does NOT belong in config:**
+
 - `GITHUB_TOKEN` — this is a secret; keep it in environment variables only
 - One-off flags that change per invocation (e.g., a hypothetical `--since` date filter)
 
 ## Example User Workflows
 
 ### Personal defaults
+
 ```toml
 # ~/.config/breakfast/config.toml
 organization = "my-company"
@@ -220,6 +226,7 @@ breakfast -r my-app --json    # override format for piping
 ```
 
 ### Team/project defaults
+
 ```toml
 # .breakfast.toml (committed to repo)
 organization = "my-team-org"
@@ -233,6 +240,7 @@ breakfast --mine-only         # my PRs in this project
 ```
 
 ### Override everything
+
 ```bash
 breakfast --config /dev/null -o other-org -r other-app  # ignore all config
 ```

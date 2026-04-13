@@ -1,7 +1,7 @@
 .ONESHELL:
 SHELL = /bin/bash
 
-.PHONY: activate build version-bump release breakfast smoketest test lint format man completions
+.PHONY: activate build version-bump release breakfast smoketest test lint docs-lint format man completions
 
 .venv:
 	uv venv .venv
@@ -32,10 +32,13 @@ test: .venv
 	uv sync --extra test
 	uv run pytest -v
 
-lint: .venv
+lint: .venv docs-lint
 	uv sync --extra lint
 	uv run ruff check .
 	uv run black --check .
+
+docs-lint:
+	npx --yes markdownlint-cli2 "docs/**/*.md" "README.md" "CONTRIBUTING.md"
 
 format: .venv
 	uv sync --extra lint

@@ -12,7 +12,7 @@ This queries all repositories in `my-org` whose name contains `my-app`, fetches 
 
 ## Example output
 
-```
+```text
 $ breakfast -o my-org -r platform
 Fetching my-org PRs...🥐🍳...Done
 Processing platform PRs...🥞🧇🍩...Done
@@ -45,7 +45,7 @@ breakfast -o my-org -r my-app \
 
 ### Show only your own PRs
 
-```
+```text
 $ breakfast -o my-org -r platform --mine-only
 Fetching my-org PRs...🥓...Done
 Processing platform PRs...🍳...Done
@@ -60,7 +60,7 @@ Processing platform PRs...🍳...Done
 
 The `--age` column shows days since PR creation, colour-coded like other numeric columns:
 
-```
+```text
 $ breakfast -o my-org -r platform --age
 Fetching my-org PRs...🥐...Done
 Processing platform PRs...🍩🧇...Done
@@ -77,7 +77,7 @@ Processing platform PRs...🍩🧇...Done
 
 Progress messages go to stderr, so JSON can be piped cleanly:
 
-```
+```text
 $ breakfast -o my-org -r platform --json 2>/dev/null
 [
   {

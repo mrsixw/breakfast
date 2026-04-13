@@ -855,3 +855,66 @@ def test_match_repo_filter_glob_no_partial_match():
     assert api._match_repo_filter("app-one", "app") is True  # substring fallback
     # But if user adds glob chars, fnmatch is used (no partial match)
     assert api._match_repo_filter("app-one", "app?") is False  # 'app-one' != 'app?'
+
+
+# ---------------------------------------------------------------------------
+# Rate limit error tests
+# ---------------------------------------------------------------------------
+
+
+def _make_rate_limit_response(reset_ts="1712000000"):
+    """Return a fake requests.Response that looks like a GitHub rate-limit 403."""
+
+    class FakeResponse:
+        status_code = 403
+        headers = {
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": reset_ts,
+        }
+
+        def raise_for_status(self):
+            raise requests.exceptions.HTTPError(response=self)
+
+    return FakeResponse()
+
+
+def test_make_github_api_request_raises_rate_limit_error(monkeypatch):
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(
+        api.requests, "get", lambda *_a, **_kw: _make_rate_limit_response()
+    )
+
+    with pytest.raises(api.GitHubRateLimitError):
+        api.make_github_api_request("/user")
+
+
+def test_make_github_api_request_rate_limit_error_contains_reset_time(monkeypatch):
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(
+        api.requests, "get", lambda *_a, **_kw: _make_rate_limit_response("1712000000")
+    )
+
+    with pytest.raises(api.GitHubRateLimitError) as exc_info:
+        api.make_github_api_request("/user")
+
+    assert exc_info.value.reset_time is not None
+    assert "2024" in exc_info.value.reset_time  # timestamp 1712000000 is in 2024
+
+
+def test_make_github_api_request_403_without_rate_limit_header_raises_http_error(
+    monkeypatch,
+):
+    """A plain 403 (auth failure) should raise HTTPError, not GitHubRateLimitError."""
+
+    class FakeForbidden:
+        status_code = 403
+        headers = {}  # no X-RateLimit-Remaining header
+
+        def raise_for_status(self):
+            raise requests.exceptions.HTTPError(response=self)
+
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.requests, "get", lambda *_a, **_kw: FakeForbidden())
+
+    with pytest.raises(requests.exceptions.HTTPError):
+        api.make_github_api_request("/user")

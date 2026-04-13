@@ -12,6 +12,7 @@ from tabulate import tabulate
 
 from .api import (
     SECRET_GITHUB_TOKEN,
+    GitHubRateLimitError,
     _fetch_pr_detail,
     get_api_stats,
     get_approval_summary,
@@ -236,6 +237,15 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
 
 def _stdout_is_tty():
     return sys.stdout.isatty()
+
+
+def _handle_rate_limit(exc, json_output=False):
+    """Print a friendly rate-limit message and exit non-zero."""
+    click.echo(
+        click.style(f"🥞 {exc}", fg="red", bold=True),
+        err=json_output,
+    )
+    sys.exit(1)
 
 
 def _print_debug_summary(t0, pr_count, api_stats, graphql_rate_limit):
@@ -776,7 +786,10 @@ def breakfast(
         sys.exit(1)
     current_user_login = None
     if mine_only:
-        current_user_login = get_authenticated_user_login()
+        try:
+            current_user_login = get_authenticated_user_login()
+        except GitHubRateLimitError as exc:
+            _handle_rate_limit(exc, json_output)
 
     # grab all the pull requests we are interested in
     pr_data = []
@@ -867,6 +880,9 @@ def breakfast(
                             nl=False,
                             err=json_output,
                         )
+                    except GitHubRateLimitError as exc:
+                        click.echo("", err=json_output)  # end the progress line
+                        _handle_rate_limit(exc, json_output)
                     except requests.exceptions.RequestException as exc:
                         logger.warning(
                             "pr_detail_fetch_failed url=%s error=%r", url, str(exc)

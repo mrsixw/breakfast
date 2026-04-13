@@ -40,7 +40,7 @@ breakfast -o my-org -r my-app \
 
 Without `--ignore-author`, bot PRs appear in the output:
 
-```
+```text
 +---------+----------------+-------------------------------+------------------+---------+-------+---------+-------------+----------+--------------+--------+
 |         | Repo           | PR Title                      | Author           | State   | Files | Commits |    +/-      | Comments | Mergeable?   | Link   |
 +---------+----------------+-------------------------------+------------------+---------+-------+---------+-------------+----------+--------------+--------+
@@ -52,7 +52,7 @@ Without `--ignore-author`, bot PRs appear in the output:
 
 With `--ignore-author dependabot[bot]`, the bot PR is excluded:
 
-```
+```text
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
 |         | Repo           | PR Title        | Author | State   | Files | Commits |    +/-     | Comments | Mergeable?   | Link   |
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
@@ -106,13 +106,13 @@ breakfast -o my-org -r platform -s "fix|chore"          # regex: either word
 
 If no PRs match the pattern, a friendly message is shown:
 
-```
+```text
 🔍 No PRs matched 'hotfix'
 ```
 
 If the pattern is not valid regex, breakfast exits immediately with an error:
 
-```
+```text
 Error: --search pattern is not valid regex: unterminated character set at position 0
 ```
 
@@ -120,7 +120,7 @@ Error: --search pattern is not valid regex: unterminated character set at positi
 
 Show only PRs authored by the currently authenticated GitHub user (determined from `GITHUB_TOKEN`).
 
-```
+```text
 $ breakfast -o my-org -r platform --mine-only
 Fetching my-org PRs...🥐...Done
 Processing platform PRs...🍳...Done
@@ -161,7 +161,7 @@ breakfast -o my-org -r platform --drafts-only
 
 Add an "Age" column showing the number of days since each PR was created. Displayed between "Comments" and "Mergeable?" columns.
 
-```
+```text
 $ breakfast -o my-org -r platform --age
 Fetching my-org PRs...🥐...Done
 Processing platform PRs...🍩🧇...Done
@@ -178,7 +178,7 @@ Processing platform PRs...🍩🧇...Done
 
 Output results as JSON instead of a terminal table. Progress messages are sent to stderr so JSON output can be piped cleanly.
 
-```
+```text
 $ breakfast -o my-org -r platform --json 2>/dev/null
 [
   {
@@ -226,7 +226,7 @@ See [Output Formats](output-formats.md) for full schema details and scripting ex
 
 Show CI/check status for each PR. This is opt-in because it requires an additional API call per PR.
 
-```
+```text
 $ breakfast -o my-org -r platform --checks
 Fetching my-org PRs...🥐...Done
 Processing platform PRs...🍩🧇...Done
@@ -240,6 +240,7 @@ Processing platform PRs...🍩🧇...Done
 ```
 
 Check status values:
+
 - **pass** (green) - All check runs succeeded or were skipped
 - **fail** (red) - One or more check runs failed, were cancelled, or timed out
 - **pending** (yellow) - One or more check runs are still queued or in progress
@@ -260,7 +261,7 @@ With `--json --checks`, a `"checks"` field is included in each PR object:
 
 Show review approval status for each PR. This is opt-in because it requires an additional API call per PR.
 
-```
+```text
 $ breakfast -o my-org -r platform --approvals
 Fetching my-org PRs...🥐...Done
 Processing platform PRs...🍩🧇...Done
@@ -274,6 +275,7 @@ Processing platform PRs...🍩🧇...Done
 ```
 
 Approval values:
+
 - **✅ approved** (green) — GitHub reports the PR as approved for merge when no multi-review count is available
 - **✅ 1/2 approvals** (green) — the PR has some effective approvals, but still needs more to satisfy a multi-review branch rule
 - **❌ changes** (red) — at least one reviewer has requested changes
@@ -314,6 +316,7 @@ breakfast -o my-org -r platform --checks --status-style ascii
 ```
 
 Supported values:
+
 - `emoji` - default whimsical output, such as `✅ pass`, `✅ 1/2 approvals`, and `❌ (dirty)`
 - `ascii` - terminal-safe fallback, such as `pass`, `1/2 approvals`, and `no (dirty)`
 
@@ -338,7 +341,7 @@ breakfast -o my-org -r platform --legendary
 
 Example output with a legendary PR:
 
-```
+```text
 +---------+----------------+---------------------------+--------+-----------+-------+---------+----------+----------+--------------+--------+
 |         | Repo           | PR Title                  | Author | State     | Files | Commits |   +/-    | Comments | Mergeable?   | Link   |
 +---------+----------------+---------------------------+--------+-----------+-------+---------+----------+----------+--------------+--------+
@@ -404,13 +407,13 @@ breakfast -o my-org -r my-app --max-title-length 72
 
 Example — without `--max-title-length`:
 
-```
+```text
 | Fix: #4362 - Redirect resolved even though allow_redirects is set to False causing exception for unsupported connection adapter | ...
 ```
 
 With `--max-title-length 60`:
 
-```
+```text
 | Fix: #4362 - Redirect resolved even though allow_redir… | ...
 ```
 
@@ -485,7 +488,7 @@ breakfast -o my-org -r my-app --cache --refresh-prs
 ```
 
 | Flag | Cache active? | GraphQL cache | PR detail cache |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | *(none)* | no | skip | skip |
 | `--cache` | yes | read | read |
 | `--cache --refresh-prs` | yes | read | skip, write fresh |
@@ -496,7 +499,7 @@ breakfast -o my-org -r my-app --cache --refresh-prs
 
 breakfast automatically checks for new versions once per day (cached for 24 hours in `~/.cache/breakfast/`). If a newer version is available, you'll see a message after the main output:
 
-```
+```text
 🍳 A fresh breakfast is ready! v0.10.0 → v0.11.0 — update at https://github.com/mrsixw/breakfast/releases/latest
 ```
 
@@ -547,7 +550,7 @@ breakfast -o my-org -r my-app --api-stats
 
 Output is written to **stderr** so it does not interfere with `--json` piping. Example:
 
-```
+```text
 🐛 Debug summary
   Total elapsed:    3.41s
   PRs processed:    42
@@ -568,14 +571,14 @@ api-stats = true
 
 ### `--version`
 
-```
+```text
 $ breakfast --version
 breakfast, version 0.10.0
 ```
 
 ### `--help`
 
-```
+```text
 $ breakfast --help
 Usage: breakfast [OPTIONS]
 

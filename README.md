@@ -1,4 +1,5 @@
 # 🥐 breakfast
+
 [![CI](https://github.com/mrsixw/breakfast/actions/workflows/ci.yml/badge.svg)](https://github.com/mrsixw/breakfast/actions/workflows/ci.yml)
 
 ![breakfast demo](docs/demo.gif)
@@ -21,6 +22,7 @@ breakfast -o my-org -r my-app
 ```
 
 ## Usage
+
 ```bash
 breakfast -o my-org -r my-app
 breakfast -o my-org -r my-app --ignore-author dependabot[bot] --ignore-author renovate[bot]
@@ -43,6 +45,7 @@ breakfast -o my-org -r my-app --legendary-only
 ## Options
 
 ### Display
+
 - `--organization`, `-o`: Organization to query for PRs.
 - `--repo-filter`, `-r`: Filter repos by name substring.
 - `--age`: Add an age column (days since creation).
@@ -54,6 +57,7 @@ breakfast -o my-org -r my-app --legendary-only
 - `--max-title-length`: Truncate PR titles to this many characters.
 
 ### Filtering
+
 - `--ignore-author`: Exclude PRs by author (case-insensitive, repeatable).
 - `--no-ignore-author`: Clear `ignore-author` config defaults for this run.
 - `--mine-only`: Show only your own PRs.
@@ -62,16 +66,19 @@ breakfast -o my-org -r my-app --legendary-only
 - `--filter-approval`: Only show PRs with this review status (`approved`, `pending`, `changes`). Repeatable.
 
 ### Caching
+
 - `--cache` / `--no-cache`: Enable disk cache (off by default). Set `cache = true` in config to make it permanent.
 - `--cache-ttl`: How long to cache results (`300`, `5m`, `2h` etc). Default: 300s.
 - `--refresh`: Bypass cache read, fetch fresh, write back. Requires `--cache`.
 - `--refresh-prs`: Re-fetch PR details using cached repo list. Requires `--cache`.
 
 ### Legendary PRs ⚔️
+
 - `--legendary` / `--no-legendary`: Append ⚔️ to the state of PRs with 100+ comments and open 30+ days.
 - `--legendary-only`: Show only legendary PRs. Implies `--legendary`.
 
 ### Other
+
 - `--config`: Path to a config file.
 - `--show-config`: Print resolved config and exit.
 - `--init-config`: Generate a default config file.

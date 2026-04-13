@@ -45,7 +45,7 @@ Thanks for your interest in contributing to **breakfast**! This guide covers set
 
 - Create a branch from `main` with the issue number and a short description:
 
-  ```
+  ```text
   issue-26_filter_pr_authors
   ```
 
@@ -92,12 +92,14 @@ make completions
 Then load them in your current shell session:
 
 **Bash:**
+
 ```bash
 source completions/breakfast.bash
 breakfast <tab>
 ```
 
 **Zsh:**
+
 ```zsh
 fpath=($(pwd)/completions $fpath)
 autoload -Uz compinit && compinit
@@ -105,6 +107,7 @@ breakfast <tab>
 ```
 
 **Fish:**
+
 ```fish
 source completions/breakfast.fish
 breakfast <tab>

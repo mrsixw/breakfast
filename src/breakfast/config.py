@@ -6,7 +6,7 @@ from pathlib import Path
 import click
 
 from .logger import logger
-from .xdg import get_config_dir
+from .xdg import get_config_dir, get_config_paths
 
 _DEFAULT_CONFIG_CONTENT = """\
 # =============================================================================
@@ -212,13 +212,7 @@ def load_config(config_path=None):
     if config_path:
         paths = [Path(config_path).expanduser().resolve()]
     else:
-        # XDG-compliant pathing prioritized
-        config_dir = get_config_dir()
-        paths = [
-            Path.cwd() / ".breakfast.toml",
-            config_dir / "config.toml",
-            Path.home() / ".breakfast.toml",
-        ]
+        paths = get_config_paths()
 
     merged = {}
     for path in reversed(paths):
@@ -262,15 +256,8 @@ def update_config():
     Creates a timestamped backup before making any changes.  Returns True on
     success (including when already up to date) and False on error.
     """
-    config_dir = get_config_dir()
-    paths = [
-        Path.cwd() / ".breakfast.toml",
-        config_dir / "config.toml",
-        Path.home() / ".breakfast.toml",
-    ]
-
     existing_path = None
-    for path in paths:
+    for path in get_config_paths():
         if path.exists():
             existing_path = path
             break

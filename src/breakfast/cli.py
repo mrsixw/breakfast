@@ -28,7 +28,12 @@ from .cache import (
     write_graphql_cache,
     write_pr_cache,
 )
-from .config import filter_pr_details, generate_default_config, load_config
+from .config import (
+    filter_pr_details,
+    generate_default_config,
+    load_config,
+    update_config,
+)
 from .logger import configure as configure_logging
 from .logger import logger
 from .ui import (
@@ -413,6 +418,15 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
 @click.option(
     "--init-config", is_flag=True, help="Generate a default config file and exit."
 )
+@click.option(
+    "--update-config",
+    "update_config_cmd",
+    is_flag=True,
+    help=(
+        "Append any options missing from the existing config file and exit."
+        " Creates a timestamped backup before modifying."
+    ),
+)
 @click.option("--organization", "-o", help="One or multiple organizations to report on")
 @click.option("--repo-filter", "-r", help="Filter for specific repp(s)")
 @click.option(
@@ -606,6 +620,7 @@ def breakfast(
     config,
     show_config,
     init_config,
+    update_config_cmd,
     organization,
     repo_filter,
     ignore_author,
@@ -654,6 +669,10 @@ def breakfast(
 
     if init_config:
         generate_default_config()
+        sys.exit(0)
+
+    if update_config_cmd:
+        update_config()
         sys.exit(0)
 
     cfg = load_config(config)

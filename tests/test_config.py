@@ -255,3 +255,165 @@ def test_filter_search_title_none_passes_all():
     ]
     result = config.filter_pr_details(pr_details, [], search_title=None)
     assert len(result) == 2
+
+
+# ---------------------------------------------------------------------------
+# _extract_option_blocks
+# ---------------------------------------------------------------------------
+
+
+def test_extract_option_blocks_finds_all_keys():
+    blocks = config._extract_option_blocks(config._DEFAULT_CONFIG_CONTENT)
+    keys = [k for k, _ in blocks]
+    # Spot-check a representative sample from every section
+    for expected in [
+        "organization",
+        "repo-filter",
+        "ignore-author",
+        "mine-only",
+        "limit",
+        "age",
+        "checks",
+        "approvals",
+        "max-title-length",
+        "format",
+        "status-style",
+        "legendary",
+        "legendary-only",
+        "cache",
+        "cache-ttl",
+        "no-drafts",
+        "workers",
+        "api-stats",
+        "no-colour",
+    ]:
+        assert expected in keys, f"key {expected!r} not found in extracted blocks"
+
+
+def test_extract_option_blocks_block_includes_description():
+    blocks = dict(config._extract_option_blocks(config._DEFAULT_CONFIG_CONTENT))
+    # The organization block should include its description comment
+    assert "GitHub organisation" in blocks["organization"]
+    assert "# organization" in blocks["organization"]
+
+
+def test_extract_option_blocks_no_duplicate_keys():
+    blocks = config._extract_option_blocks(config._DEFAULT_CONFIG_CONTENT)
+    keys = [k for k, _ in blocks]
+    assert len(keys) == len(set(keys)), "duplicate keys found in extracted blocks"
+
+
+# ---------------------------------------------------------------------------
+# _key_present_in_file
+# ---------------------------------------------------------------------------
+
+
+def test_key_present_active():
+    assert config._key_present_in_file("workers", "workers = 64\n")
+
+
+def test_key_present_commented():
+    assert config._key_present_in_file("workers", "# workers = 64\n")
+
+
+def test_key_not_present():
+    assert not config._key_present_in_file("workers", "# unrelated = true\n")
+
+
+def test_key_present_with_surrounding_text():
+    content = "organization = my-org\n# workers = 64\nno-colour = false\n"
+    assert config._key_present_in_file("workers", content)
+    assert not config._key_present_in_file("cache", content)
+
+
+# ---------------------------------------------------------------------------
+# update_config
+# ---------------------------------------------------------------------------
+
+
+def test_update_config_no_existing_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(config.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    result = config.update_config()
+    assert result is False
+
+
+def test_update_config_already_up_to_date(tmp_path, monkeypatch):
+    monkeypatch.setattr(config.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+
+    config_dir = tmp_path / ".config" / "breakfast"
+    config_dir.mkdir(parents=True)
+    config_file = config_dir / "config.toml"
+    # Write a file that already contains all known keys
+    full_content = config._DEFAULT_CONFIG_CONTENT
+    config_file.write_text(full_content)
+
+    result = config.update_config()
+    assert result is True
+    # No backup should be created (nothing was changed)
+    backups = list(config_dir.glob("*.bak.*"))
+    assert backups == []
+
+
+def test_update_config_appends_missing_options(tmp_path, monkeypatch):
+    monkeypatch.setattr(config.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+
+    config_dir = tmp_path / ".config" / "breakfast"
+    config_dir.mkdir(parents=True)
+    config_file = config_dir / "config.toml"
+    # Write a minimal config that is missing most options
+    config_file.write_text('organization = "my-org"\n')
+
+    result = config.update_config()
+    assert result is True
+
+    updated = config_file.read_text()
+    # The original content is preserved
+    assert 'organization = "my-org"' in updated
+    # Missing options were appended
+    assert "# workers = 64" in updated
+    assert "# no-colour = false" in updated
+    # organization should NOT be duplicated
+    assert updated.count("organization") == 1
+
+    # A backup was created
+    backups = list(config_dir.glob("config.toml.bak.*"))
+    assert len(backups) == 1
+    assert backups[0].read_text() == 'organization = "my-org"\n'
+
+
+def test_update_config_does_not_duplicate_commented_key(tmp_path, monkeypatch):
+    monkeypatch.setattr(config.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+
+    config_dir = tmp_path / ".config" / "breakfast"
+    config_dir.mkdir(parents=True)
+    config_file = config_dir / "config.toml"
+    # workers is already present (commented out) — should not be added again
+    config_file.write_text(config._DEFAULT_CONFIG_CONTENT)
+
+    result = config.update_config()
+    assert result is True
+
+    updated = config_file.read_text()
+    # Count occurrences of "# workers = 64" — should appear exactly once
+    assert updated.count("# workers = 64") == 1
+
+
+def test_update_config_cli_flag(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    from breakfast import cli
+
+    monkeypatch.setattr(config.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--update-config"])
+    assert result.exit_code == 0
+    assert "No config file found" in result.output

@@ -38,6 +38,7 @@ from .logger import configure as configure_logging
 from .logger import logger
 from .ui import (
     BREAKFAST_ITEMS,
+    apply_seasonal_colour,
     click_colour_grade_number,
     format_approval_status,
     format_check_status,
@@ -711,6 +712,7 @@ def breakfast(
     api_stats = api_stats or cfg.get("api-stats", False)
     no_colour = no_colour or cfg.get("no-colour", False)
     colour = not no_colour
+    seasonal_colours = cfg.get("seasonal-colours", True)
 
     # Cache is opt-in: CLI flag > config > default off.
     cache_enabled = cache if cache is not None else cfg.get("cache", False)
@@ -1142,11 +1144,22 @@ def breakfast(
         repo_url = repo.get("html_url") or pr_detail["html_url"].split("/pull/")[0]
         author = pr_detail["user"]
         author_url = author.get("html_url") or f"https://github.com/{author['login']}"
+        pr_num = pr_detail["number"]
+
+        if seasonal_colours and colour:
+            title_text = apply_seasonal_colour(pr_detail["title"], pr_num)
+            author_cell = _styled_hyperlink(
+                author_url,
+                apply_seasonal_colour(author["login"], pr_num),
+            )
+        else:
+            title_text = pr_detail["title"]
+            author_cell = generate_terminal_url_anchor(author_url, author["login"])
 
         row = {
             "Repo": generate_terminal_url_anchor(repo_url, repo["name"]),
-            "PR Title": pr_detail["title"],
-            "Author": generate_terminal_url_anchor(author_url, author["login"]),
+            "PR Title": title_text,
+            "Author": author_cell,
             "State": state_label,
             "Files": click_colour_grade_number(pr_detail["changed_files"]),
             "Commits": click_colour_grade_number(pr_detail["commits"]),
@@ -1187,11 +1200,7 @@ def breakfast(
         pr_data = [
             {
                 **row,
-                "PR Title": (
-                    row["PR Title"][: max_title_length - 1] + "…"
-                    if len(row["PR Title"]) > max_title_length
-                    else row["PR Title"]
-                ),
+                "PR Title": _truncate_formatted_text(row["PR Title"], max_title_length),
             }
             for row in pr_data
         ]

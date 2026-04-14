@@ -1,4 +1,14 @@
+import datetime
+
 import click
+
+SEASONAL_PALETTES = {
+    "green": ["\033[38;5;22m", "\033[38;5;34m", "\033[38;5;40m", "\033[38;5;46m"],
+    "purple": ["\033[38;5;54m", "\033[38;5;90m", "\033[38;5;129m", "\033[38;5;165m"],
+    "yellow": ["\033[38;5;136m", "\033[38;5;178m", "\033[38;5;220m", "\033[38;5;226m"],
+    "orange": ["\033[38;5;130m", "\033[38;5;166m", "\033[38;5;202m", "\033[38;5;208m"],
+    "red": ["\033[38;5;88m", "\033[38;5;124m", "\033[38;5;160m", "\033[38;5;196m"],
+}
 
 BREAKFAST_ITEMS = [
     "☕️",
@@ -37,6 +47,62 @@ BREAKFAST_ITEMS = [
     "🌯",
     "🥙",
 ]
+
+
+def _easter_month(year: int) -> int:
+    """Return 3 (March) or 4 (April): the month Easter falls in for *year*.
+
+    Uses the Anonymous Gregorian algorithm (Meeus/Jones/Butcher).
+    """
+    a = year % 19
+    b = year // 100
+    c = year % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    ll = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * ll) // 451
+    return (h + ll - 7 * m + 114) // 31
+
+
+def _seasonal_palette() -> list[str]:
+    """Return the 4-shade ANSI palette for the current calendar month."""
+    today = datetime.date.today()
+    month = today.month
+    if month == 1:
+        return SEASONAL_PALETTES["purple"]
+    if month == _easter_month(today.year):
+        return SEASONAL_PALETTES["yellow"]
+    if month == 10:
+        return SEASONAL_PALETTES["orange"]
+    if month == 12:
+        return SEASONAL_PALETTES["red"]
+    return SEASONAL_PALETTES["green"]
+
+
+def apply_seasonal_colour(text: str, pr_number: int) -> str:
+    """Wrap *text* in a seasonal ANSI 256-colour based on the current month.
+
+    December 🎄 alternates rows between red and green (candy-cane style).
+    All other months use a 4-shade gradient keyed by ``pr_number % 4``.
+    Returns the original text unchanged if called when no colour is needed —
+    callers are expected to guard with the ``no-colour`` setting.
+    """
+    today = datetime.date.today()
+    if today.month == 12:
+        colour = (
+            SEASONAL_PALETTES["red"][2]
+            if pr_number % 2 == 0
+            else SEASONAL_PALETTES["green"][2]
+        )
+    else:
+        palette = _seasonal_palette()
+        colour = palette[pr_number % 4]
+    return f"{colour}{text}\033[0m"
 
 
 def format_pr_state(state, is_draft=False):

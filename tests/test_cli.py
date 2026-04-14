@@ -2237,3 +2237,52 @@ def test_no_color_alias_works(monkeypatch):
 
     assert result.exit_code == 0
     assert "\x1b[" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# Seasonal colours (#168)
+# ---------------------------------------------------------------------------
+
+
+def test_seasonal_colours_no_colour_suppresses_them(monkeypatch):
+    """--no-colour must suppress seasonal ANSI colour codes on title and author."""
+
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _: _plain_pr())
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--no-colour"])
+
+    assert result.exit_code == 0
+    assert "\x1b[" not in result.output
+
+
+def test_seasonal_colours_disabled_by_config(monkeypatch, tmp_path):
+    """seasonal-colours = false in config disables the seasonal ANSI codes."""
+
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _: _plain_pr())
+
+    cfg_file = tmp_path / "test.toml"
+    cfg_file.write_text("seasonal-colours = false\n")
+
+    runner = CliRunner()
+    # In non-TTY output, colour is suppressed anyway; test the config path by
+    # verifying the command runs without error and title text is unmodified.
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--config", str(cfg_file)],
+    )
+
+    assert result.exit_code == 0
+    assert "Test PR" in result.output

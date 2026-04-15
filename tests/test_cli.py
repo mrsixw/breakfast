@@ -1345,6 +1345,43 @@ def test_auto_fit_compresses_mergeable_before_dropping(monkeypatch):
     assert "(clean)" not in result.output
 
 
+def test_auto_fit_truncates_branches_before_repo():
+    """Branches should be truncated before the repo name (#175)."""
+    long_branch = "a-very-long-head-branch-name-that-should-go-first"
+    long_repo = "a-long-repo-name-that-should-survive-longer"
+    rows = [
+        {
+            "Repo": long_repo,
+            "PR Title": "Short title",
+            "Author": "alice",
+            "State": "open",
+            "Head Branch": long_branch,
+            "Base Branch": "main",
+            "Comments": "0",
+            "Link": "PR-1",
+        }
+    ]
+
+    # Width just wide enough for the full row minus the long branch — forces
+    # head-branch truncation but not necessarily repo truncation.
+    width_without_long_branch = cli._table_width(
+        [{**rows[0], "Head Branch": "short-branch"}]
+    )
+    result = cli._auto_fit(
+        rows, width_without_long_branch, explicit_max_title_length=None
+    )
+
+    visible_head = cli._strip_ansi(result[0]["Head Branch"])
+    visible_repo = cli._strip_ansi(result[0]["Repo"])
+
+    # Head branch should have been truncated (it's longer and was tried first)
+    assert visible_head != long_branch, "Head Branch should have been truncated"
+    # Repo should still be intact because truncating the branch was enough
+    assert (
+        visible_repo == long_repo
+    ), "Repo should NOT have been truncated before branches"
+
+
 def test_auto_fit_renames_mergeable_to_mrg(monkeypatch):
     rows = [{"Mergeable?": "✅", "PR Title": "x", "Repo": "r", "Author": "a"}]
     # Set terminal width just narrow enough to trigger step 4b but not step 5+

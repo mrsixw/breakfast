@@ -241,7 +241,8 @@ def render_pr_summary(groups, title, label_header, colour, seasonal_colours):
     """Render a compact PR summary table as a string.
 
     Args:
-        groups: List of ``(name, url, count, oldest_age_days, total_comments)``
+        groups: List of
+            ``(name, url, count, draft_count, oldest_age_days, total_comments)``
             tuples, sorted by count descending.
         title: Heading line, e.g. ``"👤 PR Summary by Author"``.
         label_header: Column label printed above the name column,
@@ -255,16 +256,26 @@ def render_pr_summary(groups, title, label_header, colour, seasonal_colours):
     if not groups:
         return f"{title}\n\n  (no PRs to summarise)"
 
-    max_count = max(count for _, _, count, _, _ in groups)
-    max_name_len = max(len(name) for name, _, _, _, _ in groups)
+    max_count = max(count for _, _, count, _, _, _ in groups)
+    max_name_len = max(len(name) for name, _, _, _, _, _ in groups)
     bar_max_width = 20
 
     lines = [title, ""]
 
-    for idx, (name, url, count, oldest_age, total_comments) in enumerate(groups):
+    for idx, (name, url, count, draft_count, oldest_age, total_comments) in enumerate(
+        groups
+    ):
         # Bar width proportional to count; always at least 1 block
         filled = max(1, int(count / max_count * bar_max_width)) if max_count else 1
-        bar_str = "█" * filled
+
+        # Split filled blocks into solid (open) and light-shade (draft)
+        if draft_count > 0 and count > 0:
+            draft_blocks = max(1, round(draft_count / count * filled))
+            draft_blocks = min(draft_blocks, filled)
+        else:
+            draft_blocks = 0
+        solid_blocks = filled - draft_blocks
+
         bar_padding = " " * (bar_max_width - filled)
 
         # Bar colour: green (few) → yellow → orange → red (many),
@@ -280,9 +291,13 @@ def render_pr_summary(groups, title, label_header, colour, seasonal_colours):
             bar_fg = "red"
 
         if colour:
-            bar_display = click.style(bar_str, fg=bar_fg, bold=True) + bar_padding
+            bar_display = (
+                click.style("█" * solid_blocks, fg=bar_fg, bold=True)
+                + click.style("░" * draft_blocks, fg=bar_fg, dim=True)
+                + bar_padding
+            )
         else:
-            bar_display = bar_str + bar_padding
+            bar_display = "█" * solid_blocks + "░" * draft_blocks + bar_padding
 
         # Seasonal colour on label names, cycling by row index
         if colour and seasonal_colours:
@@ -298,12 +313,14 @@ def render_pr_summary(groups, title, label_header, colour, seasonal_colours):
 
         name_padding = " " * (max_name_len - len(name))
         count_str = f"{count} PR{'s' if count != 1 else ' '}"
+        if draft_count:
+            count_str += f" ({draft_count} draft)"
         age_str = f"oldest: {oldest_age}d"
         comments_str = f"comments: {total_comments}"
 
         lines.append(
             f"  {label}{name_padding}  {bar_display}  "
-            f"{count_str:<8}  {age_str:<13}  {comments_str}"
+            f"{count_str}  {age_str:<13}  {comments_str}"
         )
 
     return "\n".join(lines)

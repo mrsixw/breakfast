@@ -371,8 +371,8 @@ def _group_prs_by(pr_details, group_by):
         group_by: ``"user"`` to group by author login, ``"repo"`` for repo name.
 
     Returns:
-        List of ``(name, url, count, oldest_age_days, total_comments)`` tuples
-        sorted by count descending.
+        List of ``(name, url, count, draft_count, oldest_age_days, total_comments)``
+        tuples sorted by count descending.
     """
     groups = {}
     for pr in pr_details:
@@ -388,16 +388,26 @@ def _group_prs_by(pr_details, group_by):
             groups[key] = {
                 "url": url,
                 "count": 0,
+                "draft_count": 0,
                 "oldest_age": 0,
                 "total_comments": 0,
             }
         groups[key]["count"] += 1
+        if pr.get("draft", False):
+            groups[key]["draft_count"] += 1
         age = get_pr_age_days(pr)
         groups[key]["oldest_age"] = max(groups[key]["oldest_age"], age)
         groups[key]["total_comments"] += pr.get("review_comments", 0)
     return sorted(
         [
-            (k, v["url"], v["count"], v["oldest_age"], v["total_comments"])
+            (
+                k,
+                v["url"],
+                v["count"],
+                v["draft_count"],
+                v["oldest_age"],
+                v["total_comments"],
+            )  # noqa: E501
             for k, v in groups.items()
         ],
         key=lambda x: x[2],

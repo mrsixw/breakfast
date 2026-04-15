@@ -29,6 +29,8 @@ The default output is a colour-coded terminal table with the following columns:
 | Comments | Number of review comments |
 | Age | Days since PR creation (only with `--age`) |
 | Checks | CI/check run status: pass, fail, pending, none (only with `--checks`) — clickable link to the PR's checks tab |
+| Head Branch | Source branch the PR was raised from (only with `--head-branch`) — clickable link to the branch on GitHub |
+| Base Branch | Target branch the PR merges into (only with `--base-branch`) — clickable link to the branch on GitHub |
 | Mergeable? | Whether the PR can be merged cleanly |
 | Link | Clickable link to the PR |
 

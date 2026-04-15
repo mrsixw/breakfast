@@ -73,6 +73,29 @@ Processing platform PRs...🍩🧇...Done
 +---------+----------------------------------+-----------------+--------+---------+-----------+-----------+------------+-----------+------+-----------------------+--------+
 ```
 
+### Navigate stacked PRs
+
+When working with stacked (chained) PRs, use `--base-branch` to see which branch each PR targets — quickly spotting PRs that merge into a feature branch rather than `main`:
+
+```text
+$ breakfast -o my-org -r platform --base-branch
+Fetching my-org PRs...🧇...Done
+Processing platform PRs...🍳🥐...Done
++---------+----------------+---------------------------+--------+---------+-------+---------+------------+----------+------------------------+--------------+--------+
+|         | Repo           | PR Title                  | Author | State   | Files | Commits |    +/-     | Comments | Base Branch            | Mergeable?   | Link   |
++---------+----------------+---------------------------+--------+---------+-------+---------+------------+----------+------------------------+--------------+--------+
+|       0 | platform-api   | Stack: Add user model     | alice  | open    |   5   |    2    |  +120/-0   |    0     | main                   | ✅ (clean)   | PR-145 |
+|       1 | platform-api   | Stack: Add user endpoints | alice  | open    |   4   |    1    |  +80/-5    |    0     | feature/user-model     | ✅ (clean)   | PR-146 |
+|       2 | platform-api   | Stack: Add user UI        | alice  | open    |   8   |    3    |  +200/-10  |    2     | feature/user-endpoints | ❌ (dirty)   | PR-147 |
++---------+----------------+---------------------------+--------+---------+-------+---------+------------+----------+------------------------+--------------+--------+
+```
+
+Combine with `--head-branch` for the full picture:
+
+```bash
+breakfast -o my-org -r platform --head-branch --base-branch
+```
+
 ### Get machine-readable output
 
 Progress messages go to stderr, so JSON can be piped cleanly:

@@ -58,6 +58,8 @@ _DROPPABLE_COLUMNS = [
     "Age",
     "Checks",
     "Apr",
+    "Head Branch",
+    "Base Branch",
 ]
 
 _ANSI_RE = re.compile(r"\x1b(?:\[[0-9;]*[a-zA-Z]|\]8;;.*?\x1b\\|\]8;;.*?\x07)")
@@ -199,6 +201,14 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
 
     # 3. Truncate Author
     pr_data = _truncate_col(pr_data, "Author", terminal_width, min_len=8)
+    if fits():
+        return pr_data
+
+    # 3b. Truncate Head Branch / Base Branch
+    pr_data = _truncate_col(pr_data, "Head Branch", terminal_width, min_len=8)
+    if fits():
+        return pr_data
+    pr_data = _truncate_col(pr_data, "Base Branch", terminal_width, min_len=8)
     if fits():
         return pr_data
 
@@ -482,6 +492,16 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     help="Include an approvals column showing review approval status for each PR.",
 )
 @click.option(
+    "--head-branch/--no-head-branch",
+    default=None,
+    help="Include a column showing the source branch the PR was raised from.",
+)
+@click.option(
+    "--base-branch/--no-base-branch",
+    default=None,
+    help="Include a column showing the target branch the PR merges into.",
+)
+@click.option(
     "--status-style",
     type=click.Choice(["emoji", "ascii"], case_sensitive=False),
     default=None,
@@ -633,6 +653,8 @@ def breakfast(
     json_output,
     checks,
     approvals,
+    head_branch,
+    base_branch,
     status_style,
     limit,
     workers,
@@ -695,6 +717,12 @@ def breakfast(
         json_output = cfg.get("format") == "json"
     checks = checks if checks is not None else cfg.get("checks", False)
     approvals = approvals if approvals is not None else cfg.get("approvals", False)
+    head_branch = (
+        head_branch if head_branch is not None else cfg.get("head-branch", False)
+    )
+    base_branch = (
+        base_branch if base_branch is not None else cfg.get("base-branch", False)
+    )
     if status_style is None:
         status_style = str(cfg.get("status-style", "emoji")).lower()
     max_title_length = (
@@ -1184,6 +1212,18 @@ def breakfast(
                 current_reviews=approval_detail.get("current"),
                 required_reviews=approval_detail.get("required"),
             )
+        if head_branch:
+            _hb_name = pr_detail["head"]["ref"]
+            _hb_owner = pr_detail["base"]["repo"]["owner"]["login"]
+            _hb_repo = pr_detail["base"]["repo"]["name"]
+            _hb_url = f"https://github.com/{_hb_owner}/{_hb_repo}/tree/{_hb_name}"
+            row["Head Branch"] = generate_terminal_url_anchor(_hb_url, _hb_name)
+        if base_branch:
+            _bb_name = pr_detail["base"]["ref"]
+            _bb_owner = pr_detail["base"]["repo"]["owner"]["login"]
+            _bb_repo = pr_detail["base"]["repo"]["name"]
+            _bb_url = f"https://github.com/{_bb_owner}/{_bb_repo}/tree/{_bb_name}"
+            row["Base Branch"] = generate_terminal_url_anchor(_bb_url, _bb_name)
         row["Mergeable?"] = format_mergeable_status(
             pr_detail["mergeable"],
             pr_detail["mergeable_state"],

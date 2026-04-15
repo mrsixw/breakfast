@@ -307,6 +307,58 @@ When approval counts are available, `"approval_current"` and
 }
 ```
 
+### `--head-branch`
+
+Add a "Head Branch" column showing the source branch the PR was raised from. Rendered as a clickable hyperlink to the branch on GitHub. Off by default.
+
+```text
+$ breakfast -o my-org -r platform --head-branch
+Fetching my-org PRs...🥐...Done
+Processing platform PRs...🍩🧇...Done
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+-----------------------+--------------+--------+
+|         | Repo           | PR Title        | Author | State   | Files | Commits |    +/-     | Comments | Head Branch           | Mergeable?   | Link   |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+-----------------------+--------------+--------+
+|       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | feature/user-search   | ✅ (clean)   | PR-142 |
+|       1 | platform-api   | Fix login bug   | bob    | open    |   1   |    1    |  +5/-2     |    3     | fix/login-bug         | ✅ (clean)   | PR-138 |
+|       2 | platform-ui    | Update nav bar  | carol  | open    |  12   |    4    |  +280/-95  |    1     | feat/nav-redesign     | ❌ (dirty)   | PR-87  |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+-----------------------+--------------+--------+
+```
+
+Enable in config:
+
+```toml
+head-branch = true
+```
+
+### `--base-branch`
+
+Add a "Base Branch" column showing the target branch the PR merges into. Rendered as a clickable hyperlink to the branch on GitHub. Off by default. Particularly useful when working with stacked PRs.
+
+```text
+$ breakfast -o my-org -r platform --base-branch
+Fetching my-org PRs...🥐...Done
+Processing platform PRs...🍩🧇...Done
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+-------------+--------------+--------+
+|         | Repo           | PR Title        | Author | State   | Files | Commits |    +/-     | Comments | Base Branch | Mergeable?   | Link   |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+-------------+--------------+--------+
+|       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | main        | ✅ (clean)   | PR-142 |
+|       1 | platform-api   | Fix login bug   | bob    | open    |   1   |    1    |  +5/-2     |    3     | main        | ✅ (clean)   | PR-138 |
+|       2 | platform-ui    | Update nav bar  | carol  | open    |  12   |    4    |  +280/-95  |    1     | develop     | ❌ (dirty)   | PR-87  |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+-------------+--------------+--------+
+```
+
+Enable in config:
+
+```toml
+base-branch = true
+```
+
+Both flags can be combined to show the full branch path at a glance:
+
+```bash
+breakfast -o my-org -r platform --head-branch --base-branch
+```
+
 ### `--status-style`
 
 Choose how the `Checks`, `Approved`, and `Mergeable?` columns are rendered in table output.

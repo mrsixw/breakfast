@@ -137,6 +137,98 @@ def test_cli_outputs_age_column_when_enabled(monkeypatch):
     assert "7" in result.output
 
 
+def _fake_pr_detail_with_branches():
+    return {
+        "base": {
+            "ref": "main",
+            "repo": {"name": "repo", "owner": {"login": "org"}},
+        },
+        "head": {"ref": "feature/my-branch", "sha": "abc123"},
+        "mergeable": True,
+        "mergeable_state": "clean",
+        "additions": 5,
+        "deletions": 2,
+        "title": "Test PR",
+        "user": {"login": "alice"},
+        "state": "open",
+        "changed_files": 1,
+        "commits": 1,
+        "review_comments": 0,
+        "created_at": "2026-01-10T00:00:00Z",
+        "html_url": "https://github.com/org/repo/pull/1",
+        "number": 1,
+    }
+
+
+def test_cli_outputs_head_branch_column_when_enabled(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda _org, _repo_filter: ["https://github.com/org/repo/pull/1"],
+    )
+    monkeypatch.setattr(
+        api,
+        "make_github_api_request",
+        lambda _path: _fake_pr_detail_with_branches(),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--head-branch"])
+
+    assert result.exit_code == 0
+    assert "Head Branch" in result.output
+    assert "feature/my-branch" in result.output
+
+
+def test_cli_outputs_base_branch_column_when_enabled(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda _org, _repo_filter: ["https://github.com/org/repo/pull/1"],
+    )
+    monkeypatch.setattr(
+        api,
+        "make_github_api_request",
+        lambda _path: _fake_pr_detail_with_branches(),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--base-branch"])
+
+    assert result.exit_code == 0
+    assert "Base Branch" in result.output
+    assert "main" in result.output
+
+
+def test_cli_head_and_base_branch_hidden_by_default(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda _org, _repo_filter: ["https://github.com/org/repo/pull/1"],
+    )
+    monkeypatch.setattr(
+        api,
+        "make_github_api_request",
+        lambda _path: _fake_pr_detail_with_branches(),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert "Head Branch" not in result.output
+    assert "Base Branch" not in result.output
+
+
 def test_cli_outputs_json(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])

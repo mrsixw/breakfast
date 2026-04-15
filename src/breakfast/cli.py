@@ -195,17 +195,12 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     if fits():
         return pr_data
 
-    # 2. Truncate Repo
-    pr_data = _truncate_col(pr_data, "Repo", terminal_width, min_len=8)
-    if fits():
-        return pr_data
-
-    # 3. Truncate Author
+    # 2. Truncate Author
     pr_data = _truncate_col(pr_data, "Author", terminal_width, min_len=8)
     if fits():
         return pr_data
 
-    # 3b. Truncate Head Branch / Base Branch
+    # 3. Truncate Head Branch / Base Branch (before Repo — branches matter less)
     pr_data = _truncate_col(pr_data, "Head Branch", terminal_width, min_len=8)
     if fits():
         return pr_data
@@ -213,7 +208,12 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     if fits():
         return pr_data
 
-    # 4. Compress Mergeable?: drop the reason suffix
+    # 4. Truncate Repo (last text column — repo identity should stay readable longest)
+    pr_data = _truncate_col(pr_data, "Repo", terminal_width, min_len=8)
+    if fits():
+        return pr_data
+
+    # 5. Compress Mergeable?: drop the reason suffix
     if "Mergeable?" in pr_data[0]:
 
         def _compress_mergeable(val):
@@ -230,7 +230,7 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     if fits():
         return pr_data
 
-    # 4b. Rename "Mergeable?" → "Mrg" (shorter header)
+    # 5b. Rename "Mergeable?" → "Mrg" (shorter header)
     if "Mergeable?" in pr_data[0]:
         pr_data = [
             {("Mrg" if k == "Mergeable?" else k): v for k, v in row.items()}
@@ -239,7 +239,7 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     if fits():
         return pr_data
 
-    # 5. Compress Checks: "✅ pass" → "✅" (preserving colour)
+    # 6. Compress Checks: "✅ pass" → "✅" (preserving colour)
     if "Checks" in pr_data[0]:
         pr_data = [
             {**row, "Checks": _compress_styled(row["Checks"])} for row in pr_data
@@ -247,7 +247,7 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     if fits():
         return pr_data
 
-    # 5b. Compress Approved: "✅ approved" → "✅", "✅ 1/2 approvals" → "✅ 1/2"
+    # 6b. Compress Approved: "✅ approved" → "✅", "✅ 1/2 approvals" → "✅ 1/2"
     if "Approved" in pr_data[0]:
         pr_data = [
             {**row, "Approved": _compress_styled(row["Approved"])} for row in pr_data
@@ -255,7 +255,7 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     if fits():
         return pr_data
 
-    # 6. Rename "Comments" → "Cmt" (shorter header)
+    # 7. Rename "Comments" → "Cmt" (shorter header)
     if "Comments" in pr_data[0]:
         pr_data = [
             {("Cmt" if k == "Comments" else k): v for k, v in row.items()}
@@ -264,7 +264,7 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     if fits():
         return pr_data
 
-    # 6b. Rename "Approved" → "Apr" (shorter header)
+    # 7b. Rename "Approved" → "Apr" (shorter header)
     if "Approved" in pr_data[0]:
         pr_data = [
             {("Apr" if k == "Approved" else k): v for k, v in row.items()}
@@ -273,7 +273,7 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     if fits():
         return pr_data
 
-    # 7. Drop low-priority columns as last resort
+    # 8. Drop low-priority columns as last resort
     for col in _DROPPABLE_COLUMNS:
         if fits():
             break

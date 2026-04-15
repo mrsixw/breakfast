@@ -235,3 +235,73 @@ def format_mergeable_status(is_mergeable, mergeable_state, style="emoji"):
 
 def generate_terminal_url_anchor(url, url_text="Link"):
     return f"\033]8;;{url}\033\\{url_text}\033]8;;\033\\"
+
+
+def render_pr_summary(groups, title, label_header, colour, seasonal_colours):
+    """Render a compact PR summary table as a string.
+
+    Args:
+        groups: List of ``(name, url, count, oldest_age_days, total_comments)``
+            tuples, sorted by count descending.
+        title: Heading line, e.g. ``"👤 PR Summary by Author"``.
+        label_header: Column label printed above the name column,
+            e.g. ``"Author"`` or ``"Repo"``.
+        colour: Whether ANSI colour output is enabled.
+        seasonal_colours: Whether seasonal colouring is applied to labels.
+
+    Returns:
+        A multi-line string ready to pass to ``click.echo()``.
+    """
+    if not groups:
+        return f"{title}\n\n  (no PRs to summarise)"
+
+    max_count = max(count for _, _, count, _, _ in groups)
+    max_name_len = max(len(name) for name, _, _, _, _ in groups)
+    bar_max_width = 20
+
+    lines = [title, ""]
+
+    for idx, (name, url, count, oldest_age, total_comments) in enumerate(groups):
+        # Bar width proportional to count; always at least 1 block
+        filled = max(1, int(count / max_count * bar_max_width)) if max_count else 1
+        bar_str = "█" * filled
+        bar_padding = " " * (bar_max_width - filled)
+
+        # Bar colour follows the same age gradient used for numeric columns
+        if oldest_age < 10:
+            bar_fg = "green"
+        elif oldest_age < 20:
+            bar_fg = "yellow"
+        elif oldest_age < 50:
+            bar_fg = 208  # orange (256-colour)
+        else:
+            bar_fg = "red"
+
+        if colour:
+            bar_display = click.style(bar_str, fg=bar_fg, bold=True) + bar_padding
+        else:
+            bar_display = bar_str + bar_padding
+
+        # Seasonal colour on label names, cycling by row index
+        if colour and seasonal_colours:
+            styled_name = apply_seasonal_colour(name, idx)
+        else:
+            styled_name = name
+
+        # Wrap name in an OSC 8 hyperlink when output supports colour
+        if colour:
+            label = generate_terminal_url_anchor(url, styled_name)
+        else:
+            label = name
+
+        name_padding = " " * (max_name_len - len(name))
+        count_str = f"{count} PR{'s' if count != 1 else ' '}"
+        age_str = f"oldest: {oldest_age}d"
+        comments_str = f"comments: {total_comments}"
+
+        lines.append(
+            f"  {label}{name_padding}  {bar_display}  "
+            f"{count_str:<8}  {age_str:<13}  {comments_str}"
+        )
+
+    return "\n".join(lines)

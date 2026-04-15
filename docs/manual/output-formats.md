@@ -122,6 +122,12 @@ $ breakfast -o my-org -r platform --json 2>/dev/null
 ]
 ```
 
+## Summary views (`--summarise-user-prs` / `--summarise-repo-prs`)
+
+Summary views replace the PR table with a compact at-a-glance breakdown.
+See the [Summary views](options.md#summary-views) section of the options
+reference for full details, including colour coding and config keys.
+
 ### Piping and scripting
 
 ```bash

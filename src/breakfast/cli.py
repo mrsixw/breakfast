@@ -45,6 +45,7 @@ from .ui import (
     format_mergeable_status,
     format_pr_state,
     generate_terminal_url_anchor,
+    render_pr_summary,
 )
 from .updater import check_for_update
 
@@ -362,6 +363,48 @@ def is_legendary(pr_detail, now=None):
     )
 
 
+def _group_prs_by(pr_details, group_by):
+    """Group PR details by author login or repo name.
+
+    Args:
+        pr_details: List of PR detail dicts.
+        group_by: ``"user"`` to group by author login, ``"repo"`` for repo name.
+
+    Returns:
+        List of ``(name, url, count, oldest_age_days, total_comments)`` tuples
+        sorted by count descending.
+    """
+    groups = {}
+    for pr in pr_details:
+        if group_by == "user":
+            author = pr["user"]
+            key = author["login"]
+            url = author.get("html_url") or f"https://github.com/{key}"
+        else:
+            repo = pr["base"]["repo"]
+            key = repo["name"]
+            url = repo.get("html_url") or pr["html_url"].split("/pull/")[0]
+        if key not in groups:
+            groups[key] = {
+                "url": url,
+                "count": 0,
+                "oldest_age": 0,
+                "total_comments": 0,
+            }
+        groups[key]["count"] += 1
+        age = get_pr_age_days(pr)
+        groups[key]["oldest_age"] = max(groups[key]["oldest_age"], age)
+        groups[key]["total_comments"] += pr.get("review_comments", 0)
+    return sorted(
+        [
+            (k, v["url"], v["count"], v["oldest_age"], v["total_comments"])
+            for k, v in groups.items()
+        ],
+        key=lambda x: x[2],
+        reverse=True,
+    )
+
+
 def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     """Fetch a PR's detail plus optional check and approval statuses in one shot.
 
@@ -636,6 +679,28 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
         " Also honoured via the NO_COLOR environment variable (no-color.org)."
     ),
 )
+@click.option(
+    "--summarise-user-prs",
+    "--summarize-user-prs",
+    "summarise_user_prs",
+    is_flag=True,
+    default=False,
+    help=(
+        "Instead of the PR table, print a summary grouped by author:"
+        " PR count, oldest age, and total comments per person."
+    ),
+)
+@click.option(
+    "--summarise-repo-prs",
+    "--summarize-repo-prs",
+    "summarise_repo_prs",
+    is_flag=True,
+    default=False,
+    help=(
+        "Instead of the PR table, print a summary grouped by repository:"
+        " PR count, oldest age, and total comments per repo."
+    ),
+)
 @click.version_option(package_name="breakfast")
 def breakfast(
     config,
@@ -672,6 +737,8 @@ def breakfast(
     search,
     api_stats,
     no_colour,
+    summarise_user_prs,
+    summarise_repo_prs,
 ):
     t0_total = time.monotonic()
     configure_logging()
@@ -741,6 +808,20 @@ def breakfast(
     no_colour = no_colour or cfg.get("no-colour", False)
     colour = not no_colour
     seasonal_colours = cfg.get("seasonal-colours", True)
+    summarise_user_prs = summarise_user_prs or cfg.get("summarise-user-prs", False)
+    summarise_repo_prs = summarise_repo_prs or cfg.get("summarise-repo-prs", False)
+
+    if summarise_user_prs and summarise_repo_prs:
+        click.echo(
+            click.style(
+                "Error: --summarise-user-prs and --summarise-repo-prs"
+                " are mutually exclusive.",
+                fg="red",
+                bold=True,
+            ),
+            color=colour,
+        )
+        sys.exit(1)
 
     # Cache is opt-in: CLI flag > config > default off.
     cache_enabled = cache if cache is not None else cfg.get("cache", False)
@@ -1100,6 +1181,35 @@ def breakfast(
         pr_details = [pr for pr in pr_details if is_legendary(pr)]
     if limit is not None:
         pr_details = pr_details[:limit]
+
+    if summarise_user_prs or summarise_repo_prs:
+        group_by = "user" if summarise_user_prs else "repo"
+        title = (
+            "👤 PR Summary by Author" if summarise_user_prs else "📦 PR Summary by Repo"
+        )
+        label_header = "Author" if summarise_user_prs else "Repo"
+        groups = _group_prs_by(pr_details, group_by)
+        logger.info(
+            "render format=summary group_by=%s groups=%d", group_by, len(groups)
+        )
+        click.echo(
+            render_pr_summary(groups, title, label_header, colour, seasonal_colours),
+            color=colour and _stdout_is_tty(),
+        )
+        if not no_update_check:
+            update_msg = check_for_update()
+            if update_msg:
+                logger.info("update_available msg=%r", update_msg)
+                click.echo(
+                    click.style(update_msg, fg="cyan", bold=True),
+                    err=True,
+                    color=colour,
+                )
+        if api_stats:
+            _print_debug_summary(
+                t0_total, len(pr_details), get_api_stats(), get_graphql_rate_limit()
+            )
+        return
 
     logger.info(
         "render format=%s row_count=%d",

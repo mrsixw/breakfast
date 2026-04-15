@@ -245,7 +245,7 @@ def test_render_pr_summary_draft_blocks_shown():
     result = ui.render_pr_summary(groups, "Title", "Author", False, False)
     alice_line = next(ln for ln in result.splitlines() if "alice" in ln)
     assert "█" in alice_line
-    assert "░" in alice_line
+    assert "▒" in alice_line
 
 
 def test_render_pr_summary_all_draft_bar_all_light():
@@ -253,4 +253,4 @@ def test_render_pr_summary_all_draft_bar_all_light():
     result = ui.render_pr_summary(groups, "Title", "Author", False, False)
     alice_line = next(ln for ln in result.splitlines() if "alice" in ln)
     assert "█" not in alice_line
-    assert "░" in alice_line
+    assert "▒" in alice_line

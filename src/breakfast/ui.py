@@ -267,12 +267,14 @@ def render_pr_summary(groups, title, label_header, colour, seasonal_colours):
         bar_str = "█" * filled
         bar_padding = " " * (bar_max_width - filled)
 
-        # Bar colour follows the same age gradient used for numeric columns
-        if oldest_age < 10:
+        # Bar colour: green (few) → yellow → orange → red (many),
+        # proportional to the group with the highest count.
+        ratio = count / max_count if max_count else 0
+        if ratio <= 0.25:
             bar_fg = "green"
-        elif oldest_age < 20:
+        elif ratio <= 0.5:
             bar_fg = "yellow"
-        elif oldest_age < 50:
+        elif ratio <= 0.75:
             bar_fg = 208  # orange (256-colour)
         else:
             bar_fg = "red"

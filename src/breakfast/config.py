@@ -81,6 +81,16 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Equivalent to: --approvals
 # approvals = false
 
+# Show a column with the source branch the PR was raised from (e.g. feature/my-thing).
+# Rendered as a clickable hyperlink to the branch on GitHub.
+# Equivalent to: --head-branch
+# head-branch = false
+
+# Show a column with the target branch the PR merges into (e.g. main).
+# Rendered as a clickable hyperlink to the branch on GitHub.
+# Equivalent to: --base-branch
+# base-branch = false
+
 # Truncate PR titles to this many characters (appends … when truncated).
 # Useful on narrow terminals. Unset means no truncation.
 # Equivalent to: --max-title-length <n>

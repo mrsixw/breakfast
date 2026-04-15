@@ -179,6 +179,22 @@ _DEFAULT_CONFIG_CONTENT = """\
 # NO_COLOR environment variable (https://no-color.org/).
 # Equivalent to: --no-colour
 # no-colour = false
+
+
+# -----------------------------------------------------------------------------
+# Summary views
+# Alternative output modes that replace the PR table with a compact summary.
+# -----------------------------------------------------------------------------
+
+# Instead of the table, print a summary grouped by PR author: count,
+# oldest PR age, and total comments per person.
+# Equivalent to: --summarise-user-prs
+# summarise-user-prs = false
+
+# Instead of the table, print a summary grouped by repository: count,
+# oldest PR age, and total comments per repo.
+# Equivalent to: --summarise-repo-prs
+# summarise-repo-prs = false
 """
 
 

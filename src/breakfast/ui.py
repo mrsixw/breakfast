@@ -235,3 +235,104 @@ def format_mergeable_status(is_mergeable, mergeable_state, style="emoji"):
 
 def generate_terminal_url_anchor(url, url_text="Link"):
     return f"\033]8;;{url}\033\\{url_text}\033]8;;\033\\"
+
+
+def render_pr_summary(groups, title, label_header, colour, seasonal_colours):
+    """Render a compact PR summary table as a string.
+
+    Args:
+        groups: List of
+            ``(name, url, count, draft_count, oldest_age_days, total_comments)``
+            tuples, sorted by count descending.
+        title: Heading line, e.g. ``"👤 PR Summary by Author"``.
+        label_header: Column label printed above the name column,
+            e.g. ``"Author"`` or ``"Repo"``.
+        colour: Whether ANSI colour output is enabled.
+        seasonal_colours: Whether seasonal colouring is applied to labels.
+
+    Returns:
+        A multi-line string ready to pass to ``click.echo()``.
+    """
+    if not groups:
+        return f"{title}\n\n  (no PRs to summarise)"
+
+    max_count = max(count for _, _, count, _, _, _ in groups)
+    max_name_len = max(len(name) for name, _, _, _, _, _ in groups)
+    bar_max_width = 20
+
+    # Pre-compute variable-width column strings so we can align all rows.
+    def _count_str(count, draft_count):
+        s = f"{count} PR{'s' if count != 1 else ' '}"
+        if draft_count:
+            s += f" ({draft_count} draft)"
+        return s
+
+    def _age_str(oldest_age):
+        return f"oldest: {oldest_age}d"
+
+    col_count_strs = [_count_str(c, d) for _, _, c, d, _, _ in groups]
+    col_age_strs = [_age_str(a) for _, _, _, _, a, _ in groups]
+    max_count_col = max(len(s) for s in col_count_strs)
+    max_age_col = max(len(s) for s in col_age_strs)
+
+    lines = [title, ""]
+
+    for idx, (name, url, count, draft_count, oldest_age, total_comments) in enumerate(
+        groups
+    ):
+        # Bar width proportional to count; always at least 1 block.
+        filled = max(1, int(count / max_count * bar_max_width)) if max_count else 1
+
+        # Split filled blocks: solid █ for open PRs, medium-shade ▒ for drafts.
+        if draft_count > 0 and count > 0:
+            draft_blocks = max(1, round(draft_count / count * filled))
+            draft_blocks = min(draft_blocks, filled)
+        else:
+            draft_blocks = 0
+        solid_blocks = filled - draft_blocks
+        bar_padding = " " * (bar_max_width - filled)
+
+        # Bar colour: green (few) → yellow → orange → red (many),
+        # proportional to the group with the highest count.
+        ratio = count / max_count if max_count else 0
+        if ratio <= 0.25:
+            bar_fg = "green"
+        elif ratio <= 0.5:
+            bar_fg = "yellow"
+        elif ratio <= 0.75:
+            bar_fg = 208  # orange (256-colour)
+        else:
+            bar_fg = "red"
+
+        if colour:
+            bar_display = (
+                click.style("█" * solid_blocks, fg=bar_fg, bold=True)
+                + click.style("▒" * draft_blocks, fg=245, bold=False)
+                + bar_padding
+            )
+        else:
+            bar_display = "█" * solid_blocks + "▒" * draft_blocks + bar_padding
+
+        # Seasonal colour on label names, cycling by row index.
+        if colour and seasonal_colours:
+            styled_name = apply_seasonal_colour(name, idx)
+        else:
+            styled_name = name
+
+        # Wrap name in an OSC 8 hyperlink when colour output is on.
+        if colour:
+            label = generate_terminal_url_anchor(url, styled_name)
+        else:
+            label = name
+
+        name_padding = " " * (max_name_len - len(name))
+        count_col = _count_str(count, draft_count).ljust(max_count_col)
+        age_col = _age_str(oldest_age).ljust(max_age_col)
+        comments_col = f"comments: {total_comments}"
+
+        lines.append(
+            f"  {label}{name_padding}  {bar_display}  "
+            f"{count_col}  {age_col}  {comments_col}"
+        )
+
+    return "\n".join(lines)

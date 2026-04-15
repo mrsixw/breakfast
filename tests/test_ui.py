@@ -149,3 +149,108 @@ def test_apply_seasonal_colour_wraps_and_resets():
         result = ui.apply_seasonal_colour("hello", 0)
     assert "\033[0m" in result
     assert "hello" in result
+
+
+# ---------------------------------------------------------------------------
+# render_pr_summary (#177)
+# ---------------------------------------------------------------------------
+
+
+_ALICE_URL = "https://github.com/alice"
+_BOB_URL = "https://github.com/bob"
+
+
+def test_render_pr_summary_contains_names():
+    groups = [
+        ("alice", _ALICE_URL, 8, 0, 42, 14),
+        ("bob", _BOB_URL, 5, 0, 7, 3),
+    ]
+    result = ui.render_pr_summary(
+        groups, "👤 PR Summary by Author", "Author", False, False
+    )
+    assert "alice" in result
+    assert "bob" in result
+    assert "8 PRs" in result
+    assert "5 PRs" in result
+
+
+def test_render_pr_summary_shows_title():
+    groups = [("alice", _ALICE_URL, 1, 0, 5, 0)]
+    result = ui.render_pr_summary(
+        groups, "👤 PR Summary by Author", "Author", False, False
+    )
+    assert "👤 PR Summary by Author" in result
+
+
+def test_render_pr_summary_shows_oldest_age_and_comments():
+    groups = [("alice", _ALICE_URL, 3, 0, 15, 7)]
+    result = ui.render_pr_summary(groups, "Title", "Author", False, False)
+    assert "oldest: 15d" in result
+    assert "comments: 7" in result
+
+
+def test_render_pr_summary_empty_groups():
+    result = ui.render_pr_summary([], "Title", "Author", False, False)
+    assert "no PRs" in result
+
+
+def test_render_pr_summary_singular_pr():
+    groups = [("alice", _ALICE_URL, 1, 0, 3, 0)]
+    result = ui.render_pr_summary(groups, "Title", "Author", False, False)
+    assert "1 PR " in result  # not "1 PRs"
+
+
+def test_render_pr_summary_no_ansi_when_colour_false():
+    groups = [("alice", _ALICE_URL, 5, 0, 50, 2), ("bob", _BOB_URL, 2, 0, 3, 0)]
+    result = ui.render_pr_summary(groups, "Title", "Author", False, False)
+    assert "\x1b[" not in result
+
+
+def test_render_pr_summary_hyperlink_when_colour_enabled():
+    groups = [("alice", _ALICE_URL, 1, 0, 3, 0)]
+    result = ui.render_pr_summary(groups, "Title", "Author", True, False)
+    assert _ALICE_URL in result
+
+
+def test_render_pr_summary_no_hyperlink_when_colour_disabled():
+    groups = [("alice", _ALICE_URL, 1, 0, 3, 0)]
+    result = ui.render_pr_summary(groups, "Title", "Author", False, False)
+    assert _ALICE_URL not in result
+
+
+def test_render_pr_summary_bar_proportional():
+    groups = [("alice", _ALICE_URL, 10, 0, 5, 0), ("bob", _BOB_URL, 5, 0, 5, 0)]
+    result = ui.render_pr_summary(groups, "Title", "Author", False, False)
+    lines = [ln for ln in result.splitlines() if "alice" in ln or "bob" in ln]
+    alice_bar = lines[0].count("█")
+    bob_bar = lines[1].count("█")
+    assert alice_bar > bob_bar
+
+
+def test_render_pr_summary_draft_shown_in_count():
+    groups = [("alice", _ALICE_URL, 5, 2, 10, 0)]
+    result = ui.render_pr_summary(groups, "Title", "Author", False, False)
+    assert "2 draft" in result
+
+
+def test_render_pr_summary_no_draft_suffix_when_zero():
+    groups = [("alice", _ALICE_URL, 5, 0, 10, 0)]
+    result = ui.render_pr_summary(groups, "Title", "Author", False, False)
+    assert "draft" not in result
+
+
+def test_render_pr_summary_draft_blocks_shown():
+    # 3 open, 2 draft — bar should contain both solid and light-shade blocks
+    groups = [("alice", _ALICE_URL, 5, 2, 10, 0)]
+    result = ui.render_pr_summary(groups, "Title", "Author", False, False)
+    alice_line = next(ln for ln in result.splitlines() if "alice" in ln)
+    assert "█" in alice_line
+    assert "▒" in alice_line
+
+
+def test_render_pr_summary_all_draft_bar_all_light():
+    groups = [("alice", _ALICE_URL, 3, 3, 5, 0)]
+    result = ui.render_pr_summary(groups, "Title", "Author", False, False)
+    alice_line = next(ln for ln in result.splitlines() if "alice" in ln)
+    assert "█" not in alice_line
+    assert "▒" in alice_line

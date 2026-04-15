@@ -619,6 +619,51 @@ Can also be enabled persistently via config:
 api-stats = true
 ```
 
+## Summary views
+
+### `--summarise-user-prs` / `--summarize-user-prs`
+
+Instead of the PR table, print a compact summary grouped by **author**. Each
+row shows the author's name, a bar chart proportional to their PR count, the
+number of open PRs, the age of their oldest PR, and total review comments.
+
+```text
+$ breakfast -o my-org --summarise-user-prs
+👤 PR Summary by Author
+
+  alice    ████████████████████  8 PRs    oldest: 42d    comments: 14
+  bob      █████████████        5 PRs    oldest: 7d     comments: 3
+  carol    █████                2 PRs    oldest: 1d     comments: 0
+```
+
+The bar and author name are colour-coded:
+
+- Bar colour follows the age-based gradient (green → yellow → orange → red)
+  based on the oldest open PR for that author.
+- Author names cycle through the current seasonal colour palette
+  when seasonal colours are enabled.
+
+Config key: `summarise-user-prs = true`
+
+### `--summarise-repo-prs` / `--summarize-repo-prs`
+
+Same as `--summarise-user-prs` but grouped by **repository** instead of author.
+
+```text
+$ breakfast -o my-org --summarise-repo-prs
+📦 PR Summary by Repo
+
+  payments-service    ████████████████████  10 PRs   oldest: 60d    comments: 22
+  api-gateway         ████████             4 PRs    oldest: 12d    comments: 5
+  frontend            ██                   1 PR     oldest: 3d     comments: 0
+```
+
+Config key: `summarise-repo-prs = true`
+
+> **Note:** `--summarise-user-prs` and `--summarise-repo-prs` are mutually
+> exclusive. All standard filter flags (`--author`, `--repo-filter`,
+> `--filter-state`, etc.) apply before the summary is computed.
+
 ## Other options
 
 ### `--version`

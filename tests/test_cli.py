@@ -2378,3 +2378,127 @@ def test_seasonal_colours_disabled_by_config(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert "Test PR" in result.output
+
+
+# ---------------------------------------------------------------------------
+# PR summary views (#177)
+# ---------------------------------------------------------------------------
+
+
+def _two_author_prs():
+    """Return a pair of PR detail URLs for two different authors."""
+    return [
+        "https://github.com/org/repo/pull/1",
+        "https://github.com/org/repo/pull/2",
+    ]
+
+
+def _fake_pr_for_summary(path):
+    pr_number = int(path.split("/pulls/")[1])
+    authors = {1: "alice", 2: "bob"}
+    repos = {1: "repo-a", 2: "repo-b"}
+    return {
+        "base": {
+            "repo": {
+                "name": repos[pr_number],
+                "html_url": f"https://github.com/org/{repos[pr_number]}",
+                "owner": {"login": "org"},
+            }
+        },
+        "head": {"ref": "feature", "sha": "abc123"},
+        "mergeable": True,
+        "mergeable_state": "clean",
+        "additions": 5,
+        "deletions": 2,
+        "title": f"PR by {authors[pr_number]}",
+        "user": {
+            "login": authors[pr_number],
+            "html_url": f"https://github.com/{authors[pr_number]}",
+        },
+        "state": "open",
+        "draft": False,
+        "changed_files": 1,
+        "commits": 1,
+        "review_comments": 0,
+        "created_at": "2026-01-10T00:00:00Z",
+        "html_url": f"https://github.com/org/{repos[pr_number]}/pull/{pr_number}",
+        "number": pr_number,
+        "id": pr_number,
+    }
+
+
+def test_summarise_user_prs_shows_author_summary(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "get_github_prs", lambda *_: _two_author_prs())
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_for_summary)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "--summarise-user-prs"])
+
+    assert result.exit_code == 0
+    assert "PR Summary by Author" in result.output
+    assert "alice" in result.output
+    assert "bob" in result.output
+    # Table columns must NOT appear
+    assert "PR Title" not in result.output
+
+
+def test_summarise_repo_prs_shows_repo_summary(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "get_github_prs", lambda *_: _two_author_prs())
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_for_summary)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "--summarise-repo-prs"])
+
+    assert result.exit_code == 0
+    assert "PR Summary by Repo" in result.output
+    assert "repo-a" in result.output
+    assert "repo-b" in result.output
+    assert "PR Title" not in result.output
+
+
+def test_summarise_user_and_repo_mutually_exclusive(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "--summarise-user-prs", "--summarise-repo-prs"],
+    )
+
+    assert result.exit_code == 1
+    assert "mutually exclusive" in result.output
+
+
+def test_summarise_user_prs_empty_shows_no_prs_message(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "get_github_prs", lambda *_: [])
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "--summarise-user-prs"])
+
+    assert result.exit_code == 0
+    assert "no PRs" in result.output
+
+
+def test_summarise_repo_prs_no_colour(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "get_github_prs", lambda *_: _two_author_prs())
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_for_summary)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "--summarise-repo-prs", "--no-colour"]
+    )
+
+    assert result.exit_code == 0
+    assert "\x1b[" not in result.output

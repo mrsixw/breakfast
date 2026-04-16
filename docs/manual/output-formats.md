@@ -1,5 +1,20 @@
 # Output Formats
 
+## stdout and stderr
+
+All data output — tables, JSON, and summary views — goes to **stdout**.
+All progress messages, spinner emoji, warnings, and errors go to **stderr**.
+
+This means every output format is safe to pipe or redirect independently:
+
+```bash
+breakfast -o my-org -r platform > prs.txt          # capture table only
+breakfast -o my-org -r platform --json | jq '...'  # pipe JSON cleanly
+```
+
+The `format` config key accepts `"table"` (default) or `"json"`. Any other value
+triggers a warning on stderr and falls back to `"table"`.
+
 ## Table output (default)
 
 ```text
@@ -51,7 +66,7 @@ The "Link" column uses [OSC 8 terminal hyperlinks](https://gist.github.com/egmon
 
 ## JSON output (`--json`)
 
-With `--json`, output is a JSON array of objects. Progress messages go to stderr.
+With `--json`, output is a JSON array of objects.
 
 ### Schema
 

@@ -48,7 +48,7 @@ def test_cli_search_invalid_regex():
     runner = CliRunner()
     result = runner.invoke(cli.breakfast, ["-o", "org", "--search", "[invalid"])
     assert result.exit_code == 1
-    assert "not valid regex" in result.output
+    assert "not valid regex" in result.stderr
 
 
 def test_cli_exits_when_token_missing(monkeypatch):
@@ -58,7 +58,7 @@ def test_cli_exits_when_token_missing(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
 
     assert result.exit_code == 1
-    assert "GITHUB_TOKEN not set" in result.output
+    assert "GITHUB_TOKEN not set" in result.stderr
 
 
 def test_cli_outputs_table(monkeypatch):
@@ -1577,7 +1577,7 @@ def test_invalid_cache_ttl_exits_with_code_1(monkeypatch):
     )
 
     assert result.exit_code == 1
-    assert "invalid" in result.output.lower() or "cache-ttl" in result.output.lower()
+    assert "invalid" in result.stderr.lower() or "cache-ttl" in result.stderr.lower()
 
 
 def test_config_cache_ttl_respected(monkeypatch, tmp_path):
@@ -1674,8 +1674,8 @@ def test_refresh_without_cache_exits_with_error(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh"])
 
     assert result.exit_code == 1
-    assert "requires the cache to be enabled" in result.output
-    assert "--cache" in result.output
+    assert "requires the cache to be enabled" in result.stderr
+    assert "--cache" in result.stderr
 
 
 def test_refresh_prs_without_cache_exits_with_error(monkeypatch):
@@ -1685,8 +1685,8 @@ def test_refresh_prs_without_cache_exits_with_error(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--refresh-prs"])
 
     assert result.exit_code == 1
-    assert "requires the cache to be enabled" in result.output
-    assert "--cache" in result.output
+    assert "requires the cache to be enabled" in result.stderr
+    assert "--cache" in result.stderr
 
 
 def test_refresh_ignores_cache_and_writes_fresh(monkeypatch, tmp_path):
@@ -2115,7 +2115,7 @@ def test_no_drafts_and_drafts_only_are_mutually_exclusive(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "--no-drafts", "--drafts-only"])
 
     assert result.exit_code == 1
-    assert "mutually exclusive" in result.output.lower()
+    assert "mutually exclusive" in result.stderr.lower()
 
 
 def test_styled_hyperlink_puts_colour_outside_osc8():
@@ -2509,7 +2509,7 @@ def test_summarise_user_and_repo_mutually_exclusive(monkeypatch):
     )
 
     assert result.exit_code == 1
-    assert "mutually exclusive" in result.output
+    assert "mutually exclusive" in result.stderr
 
 
 def test_summarise_user_prs_empty_shows_no_prs_message(monkeypatch):
@@ -2539,3 +2539,230 @@ def test_summarise_repo_prs_no_colour(monkeypatch):
 
     assert result.exit_code == 0
     assert "\x1b[" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# stdout / stderr separation
+# ---------------------------------------------------------------------------
+
+
+def _fake_pr_detail(_path):
+    return {
+        "base": {
+            "repo": {
+                "name": "repo",
+                "html_url": "https://github.com/org/repo",
+                "owner": {"login": "org"},
+            }
+        },
+        "mergeable": True,
+        "mergeable_state": "clean",
+        "additions": 5,
+        "deletions": 2,
+        "title": "My PR",
+        "user": {"login": "alice", "html_url": "https://github.com/alice"},
+        "state": "open",
+        "draft": False,
+        "changed_files": 1,
+        "commits": 1,
+        "review_comments": 0,
+        "created_at": "2026-01-10T00:00:00Z",
+        "updated_at": "2026-01-11T00:00:00Z",
+        "html_url": "https://github.com/org/repo/pull/1",
+        "number": 1,
+        "labels": [],
+        "requested_reviewers": [],
+        "id": 1001,
+        "head": {"sha": "abc123", "ref": "feature/x"},
+    }
+
+
+def test_table_output_goes_to_stdout_not_stderr(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert "PR-1" in result.stdout
+    assert "PR-1" not in result.stderr
+
+
+def test_progress_messages_go_to_stderr_in_table_mode(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert "Processing" in result.stderr
+    assert "Processing" not in result.stdout
+
+
+def test_progress_messages_go_to_stderr_in_json_mode(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--json"])
+
+    assert result.exit_code == 0
+    assert "Processing" in result.stderr
+    assert json.loads(result.stdout)  # stdout is valid JSON
+
+
+def test_json_stdout_is_clean_json(monkeypatch):
+    """stdout must contain only parseable JSON — no progress noise."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--json"])
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert len(data) == 1
+    assert data[0]["repo"] == "repo"
+
+
+def test_no_match_message_goes_to_stderr(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--search", "no-match-xyz"]
+    )
+
+    assert result.exit_code == 0
+    assert "No PRs matched" in result.stderr
+    assert "No PRs matched" not in result.stdout
+
+
+def test_no_match_with_json_stdout_stays_clean(monkeypatch):
+    """--json --search with no matches: stdout must be parseable empty JSON."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--json", "--search", "no-match-xyz"]
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == []
+
+
+def test_error_messages_go_to_stderr(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", None)
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org"])
+
+    assert result.exit_code == 1
+    assert "GITHUB_TOKEN" in result.stderr
+    assert "GITHUB_TOKEN" not in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# format config key validation
+# ---------------------------------------------------------------------------
+
+
+def test_config_format_json_enables_json_output(monkeypatch, tmp_path):
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('format = "json"\norganization = "org"\n')
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(cli.breakfast, ["--config", str(cfg_file)])
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data[0]["repo"] == "repo"
+
+
+def test_config_format_table_produces_table_output(monkeypatch, tmp_path):
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('format = "table"\norganization = "org"\n')
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(cli.breakfast, ["--config", str(cfg_file)])
+
+    assert result.exit_code == 0
+    assert "PR-1" in result.stdout
+
+
+def test_config_format_invalid_warns_and_falls_back_to_table(monkeypatch, tmp_path):
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('format = "csv"\norganization = "org"\n')
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(cli.breakfast, ["--config", str(cfg_file)])
+
+    assert result.exit_code == 0
+    assert "csv" in result.stderr
+    assert "table" in result.stderr.lower() or "Falling back" in result.stderr
+    assert "PR-1" in result.stdout
+
+
+def test_cli_no_json_flag_overrides_config_format_json(monkeypatch, tmp_path):
+    """--no-json on CLI overrides format = "json" in config."""
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('format = "json"\norganization = "org"\n')
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(cli.breakfast, ["--config", str(cfg_file), "--no-json"])
+
+    assert result.exit_code == 0
+    assert "PR-1" in result.stdout
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(result.stdout)

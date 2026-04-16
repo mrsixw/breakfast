@@ -291,7 +291,7 @@ def _handle_rate_limit(exc, json_output=False):
     """Print a friendly rate-limit message and exit non-zero."""
     click.echo(
         click.style(f"🥞 {exc}", fg="red", bold=True),
-        err=json_output,
+        err=True,
     )
     sys.exit(1)
 
@@ -763,6 +763,7 @@ def breakfast(
                     fg="red",
                     bold=True,
                 ),
+                err=True,
                 color=not no_colour,
             )
             sys.exit(1)
@@ -791,7 +792,18 @@ def breakfast(
     drafts_only = drafts_only or cfg.get("drafts-only", False)
     age = age if age is not None else cfg.get("age", False)
     if json_output is None:
-        json_output = cfg.get("format") == "json"
+        cfg_format = cfg.get("format")
+        if cfg_format is not None and cfg_format not in {"table", "json"}:
+            click.echo(
+                click.style(
+                    f"Warning: unrecognised format '{cfg_format}' in config"
+                    " — expected 'table' or 'json'. Falling back to 'table'.",
+                    fg="yellow",
+                ),
+                err=True,
+            )
+            cfg_format = "table"
+        json_output = cfg_format == "json"
     checks = checks if checks is not None else cfg.get("checks", False)
     approvals = approvals if approvals is not None else cfg.get("approvals", False)
     head_branch = (
@@ -829,6 +841,7 @@ def breakfast(
                 fg="red",
                 bold=True,
             ),
+            err=True,
             color=colour,
         )
         sys.exit(1)
@@ -844,6 +857,7 @@ def breakfast(
                 fg="red",
                 bold=True,
             ),
+            err=True,
             color=colour,
         )
         sys.exit(1)
@@ -855,6 +869,7 @@ def breakfast(
                 fg="red",
                 bold=True,
             ),
+            err=True,
             color=colour,
         )
         sys.exit(1)
@@ -866,7 +881,7 @@ def breakfast(
     except ValueError as exc:
         logger.error("invalid_cache_ttl value=%r error=%s", raw_ttl, exc)
         msg = f"Error: invalid --cache-ttl value: {exc}"
-        click.echo(click.style(msg, fg="red", bold=True), color=colour)
+        click.echo(click.style(msg, fg="red", bold=True), err=True, color=colour)
         sys.exit(1)
 
     if show_config:
@@ -939,6 +954,7 @@ def breakfast(
                 fg="red",
                 bold=True,
             ),
+            err=True,
             color=colour,
         )
         sys.exit(1)
@@ -948,12 +964,12 @@ def breakfast(
             "Organization must be provided via CLI (-o) "
             "or config file (organization)."
         )
-        click.echo(click.style(message, fg="red", bold=True), color=colour)
+        click.echo(click.style(message, fg="red", bold=True), err=True, color=colour)
         sys.exit(1)
 
     if SECRET_GITHUB_TOKEN is None:
         message = "GITHUB_TOKEN not set in environment - exiting..."
-        click.echo(click.style(message, fg="red", bold=True), color=colour)
+        click.echo(click.style(message, fg="red", bold=True), err=True, color=colour)
         sys.exit(1)
     current_user_login = None
     if mine_only:
@@ -1022,11 +1038,11 @@ def breakfast(
             if cache_enabled:
                 write_graphql_cache(organization, repo_filter, prs)
         else:
-            click.echo(f"Fetching {organization} PRs...⚡...Done", err=json_output)
+            click.echo(f"Fetching {organization} PRs...⚡...Done", err=True)
 
         pr_details = []
         failed_urls = []
-        click.echo(f"Processing {repo_filter} PRs...", nl=False, err=json_output)
+        click.echo(f"Processing {repo_filter} PRs...", nl=False, err=True)
         if prs:
             max_workers = min(workers, len(prs))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -1049,10 +1065,10 @@ def breakfast(
                         click.echo(
                             random.choices(BREAKFAST_ITEMS)[0],
                             nl=False,
-                            err=json_output,
+                            err=True,
                         )
                     except GitHubRateLimitError as exc:
-                        click.echo("", err=json_output)  # end the progress line
+                        click.echo("", err=True)  # end the progress line
                         _handle_rate_limit(exc, json_output)
                     except requests.exceptions.RequestException as exc:
                         logger.warning(
@@ -1060,7 +1076,7 @@ def breakfast(
                         )
                         failed_urls.append(url)
         statuses_from_bundle = True
-        click.echo("...Done", err=json_output)
+        click.echo("...Done", err=True)
         if failed_urls:
             examples = ", ".join(failed_urls[:3])
             suffix = " ..." if len(failed_urls) > 3 else ""
@@ -1072,7 +1088,7 @@ def breakfast(
         if cache_enabled:
             needs_cache_write = True
     else:
-        click.echo(f"Processing {repo_filter} PRs...⚡...Done", err=json_output)
+        click.echo(f"Processing {repo_filter} PRs...⚡...Done", err=True)
 
     # Fetch check statuses for cache-hit paths where statuses are absent.
     # In the live-fetch path statuses are already populated by _fetch_pr_bundle.
@@ -1155,7 +1171,7 @@ def breakfast(
             approval_details=approval_details or None,
         )
         if refresh or refresh_prs:
-            click.echo("🔄 Cache refreshed.", err=json_output)
+            click.echo("🔄 Cache refreshed.", err=True)
 
     before_filter = len(pr_details)
     pr_details = filter_pr_details(
@@ -1184,6 +1200,7 @@ def breakfast(
                 f"🔍 No PRs matched '{search}'",
                 fg="yellow",
             ),
+            err=True,
             color=colour,
         )
     pr_details.sort(key=lambda pr: pr["base"]["repo"]["name"])

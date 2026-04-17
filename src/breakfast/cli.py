@@ -72,11 +72,22 @@ _OSC8_FULL_RE = re.compile(
     r"\x1b]8;;(?:\x1b\\|\x07)"
     r"(?P<suffix>(?:\x1b\[[0-9;]*[a-zA-Z])*)$"
 )
+_OSC8_ANY_RE = re.compile(
+    r"\x1b]8;;(?P<url>.*?)(?:\x1b\\|\x07)(?P<text>.*?)\x1b]8;;(?:\x1b\\|\x07)"
+)
 _ANSI_RESET = "\x1b[0m"
 
 
 def _strip_ansi(s):
     return _ANSI_RE.sub("", str(s))
+
+
+def _osc8_to_markdown(s):
+    """Convert OSC 8 hyperlinks and ANSI codes in *s* to Markdown link syntax."""
+    result = _OSC8_ANY_RE.sub(
+        lambda m: f"[{m.group('text')}]({m.group('url')})", str(s)
+    )
+    return _strip_ansi(result)
 
 
 def _truncate_formatted_text(value, limit):
@@ -532,7 +543,23 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     "--json/--no-json",
     "json_output",
     default=None,
-    help="Output results as JSON instead of a table. Progress messages go to stderr.",
+    help="Output results as JSON. Alias for --format json / --format table.",
+)
+@click.option(
+    "--markdown/--no-markdown",
+    "markdown_flag",
+    default=None,
+    help="Output results as a Markdown table. Alias for --format markdown.",
+)
+@click.option(
+    "--format",
+    "output_format",
+    default=None,
+    type=click.Choice(["table", "json", "markdown"], case_sensitive=False),
+    help=(
+        "Output format: table (default), json, or markdown. "
+        "Overrides --json/--no-json/--markdown when both are given."
+    ),
 )
 @click.option(
     "--checks/--no-checks",
@@ -726,6 +753,8 @@ def breakfast(
     drafts_only,
     age,
     json_output,
+    markdown_flag,
+    output_format,
     checks,
     approvals,
     head_branch,
@@ -791,19 +820,27 @@ def breakfast(
     no_drafts = no_drafts or cfg.get("no-drafts", False)
     drafts_only = drafts_only or cfg.get("drafts-only", False)
     age = age if age is not None else cfg.get("age", False)
-    if json_output is None:
+    if output_format is not None:
+        fmt = output_format.lower()
+    elif json_output is not None:
+        fmt = "json" if json_output else "table"
+    elif markdown_flag is not None:
+        fmt = "markdown" if markdown_flag else "table"
+    else:
         cfg_format = cfg.get("format")
-        if cfg_format is not None and cfg_format not in {"table", "json"}:
+        if cfg_format is not None and cfg_format not in {"table", "json", "markdown"}:
             click.echo(
                 click.style(
                     f"Warning: unrecognised format '{cfg_format}' in config"
-                    " — expected 'table' or 'json'. Falling back to 'table'.",
+                    " — expected 'table', 'json', or 'markdown'."
+                    " Falling back to 'table'.",
                     fg="yellow",
                 ),
                 err=True,
             )
             cfg_format = "table"
-        json_output = cfg_format == "json"
+        fmt = cfg_format or "table"
+    json_output = fmt == "json"
     checks = checks if checks is not None else cfg.get("checks", False)
     approvals = approvals if approvals is not None else cfg.get("approvals", False)
     head_branch = (
@@ -894,7 +931,7 @@ def breakfast(
             "no-drafts": no_drafts,
             "drafts-only": drafts_only,
             "age": age,
-            "json": json_output,
+            "format": fmt,
             "checks": checks,
             "approvals": approvals,
             "status-style": status_style,
@@ -921,7 +958,7 @@ def breakfast(
         "startup org=%s repo_filter=%r mine_only=%s ignore_author=%r"
         " cache_enabled=%s cache_ttl=%ss refresh=%s refresh_prs=%s"
         " checks=%s approvals=%s age=%s legendary=%s legendary_only=%s"
-        " limit=%s max_title_length=%s status_style=%s json=%s"
+        " limit=%s max_title_length=%s status_style=%s format=%s"
         " filter_state=%r filter_check=%r filter_approval=%r search=%r api_stats=%s",
         organization,
         repo_filter,
@@ -939,7 +976,7 @@ def breakfast(
         limit,
         max_title_length,
         status_style,
-        json_output,
+        fmt,
         filter_state,
         filter_check,
         filter_approval,
@@ -1240,7 +1277,7 @@ def breakfast(
 
     logger.info(
         "render format=%s row_count=%d",
-        "json" if json_output else "table",
+        fmt,
         len(pr_details),
     )
     t_render = time.monotonic()
@@ -1294,6 +1331,96 @@ def breakfast(
         if api_stats:
             _print_debug_summary(
                 t0_total, len(json_data), get_api_stats(), get_graphql_rate_limit()
+            )
+        return
+
+    if fmt == "markdown":
+        md_data = []
+        for pr_detail in pr_details:
+            repo = pr_detail["base"]["repo"]
+            repo_url = repo.get("html_url") or pr_detail["html_url"].split("/pull/")[0]
+            author = pr_detail["user"]
+            author_url = (
+                author.get("html_url") or f"https://github.com/{author['login']}"
+            )
+            state_str = pr_detail["state"]
+            if pr_detail.get("draft"):
+                state_str = "draft"
+            adds = pr_detail["additions"]
+            subs = pr_detail["deletions"]
+            row = {
+                "Repo": f"[{repo['name']}]({repo_url})",
+                "PR Title": pr_detail["title"],
+                "Author": f"[{author['login']}]({author_url})",
+                "State": state_str,
+                "Files": str(pr_detail["changed_files"]),
+                "Commits": str(pr_detail["commits"]),
+                "+/-": f"+{adds}/-{subs}",
+                "Comments": str(pr_detail["review_comments"]),
+            }
+            if age:
+                row["Age"] = str(get_pr_age_days(pr_detail))
+            if checks:
+                row["Checks"] = _osc8_to_markdown(
+                    format_check_status(
+                        check_statuses.get(pr_detail["id"], "none"),
+                        style=status_style,
+                    )
+                )
+            if approvals:
+                approval_detail = approval_details.get(pr_detail["id"], {})
+                row["Approved"] = _osc8_to_markdown(
+                    format_approval_status(
+                        approval_statuses.get(pr_detail["id"], "pending"),
+                        style=status_style,
+                        current_reviews=approval_detail.get("current"),
+                        required_reviews=approval_detail.get("required"),
+                    )
+                )
+            if head_branch:
+                _hb_name = pr_detail["head"]["ref"]
+                _hb_owner = pr_detail["base"]["repo"]["owner"]["login"]
+                _hb_repo = pr_detail["base"]["repo"]["name"]
+                _hb_url = f"https://github.com/{_hb_owner}/{_hb_repo}/tree/{_hb_name}"
+                row["Head Branch"] = f"[{_hb_name}]({_hb_url})"
+            if base_branch:
+                _bb_name = pr_detail["base"]["ref"]
+                _bb_owner = pr_detail["base"]["repo"]["owner"]["login"]
+                _bb_repo = pr_detail["base"]["repo"]["name"]
+                _bb_url = f"https://github.com/{_bb_owner}/{_bb_repo}/tree/{_bb_name}"
+                row["Base Branch"] = f"[{_bb_name}]({_bb_url})"
+            row["Mergeable?"] = _osc8_to_markdown(
+                format_mergeable_status(
+                    pr_detail["mergeable"],
+                    pr_detail["mergeable_state"],
+                    style=status_style,
+                )
+            )
+            row["Link"] = f"[PR-{pr_detail['number']}]({pr_detail['html_url']})"
+            md_data.append(row)
+        click.echo(
+            tabulate(
+                md_data,
+                headers="keys",
+                tablefmt="github",
+                disable_numparse=True,
+            )
+        )
+        logger.info(
+            "render_complete elapsed_ms=%d", int((time.monotonic() - t_render) * 1000)
+        )
+        if not no_update_check:
+            update_msg = check_for_update()
+            if update_msg:
+                logger.info("update_available msg=%r", update_msg)
+                click.echo(
+                    click.style(update_msg, fg="cyan", bold=True),
+                    err=True,
+                    color=colour,
+                )
+        if api_stats:
+            _print_debug_summary(
+                t0_total, len(md_data), get_api_stats(), get_graphql_rate_limit()
             )
         return
 

@@ -104,7 +104,8 @@ _DEFAULT_CONFIG_CONTENT = """\
 
 # Output format. "table" renders a coloured terminal table (default).
 # "json" outputs machine-readable JSON — useful for scripting or piping.
-# Equivalent to: --json
+# "markdown" renders a GitHub-flavoured Markdown table — great for pasting into docs.
+# Equivalent to: --format table|json|markdown
 # format = "table"
 
 # How status columns (Checks, Approved, Mergeable?) are rendered.

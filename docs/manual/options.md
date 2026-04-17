@@ -174,9 +174,32 @@ Processing platform PRs...🍩🧇...Done
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+------+--------------+--------+
 ```
 
+### `--format`
+
+Choose the output format. Accepted values: `table` (default), `json`, `markdown`.
+
+```text
+breakfast -o my-org -r platform --format markdown
+breakfast -o my-org -r platform --format json
+```
+
+You can also set a persistent default in your config file:
+
+```toml
+format = "markdown"
+```
+
+### `--markdown`
+
+Alias for `--format markdown`. Renders a GitHub-flavoured Markdown table. Progress messages are sent to stderr so Markdown output can be redirected cleanly.
+
+```text
+breakfast -o my-org -r platform --markdown 2>/dev/null > prs.md
+```
+
 ### `--json`
 
-Output results as JSON instead of a terminal table. Progress messages are sent to stderr so JSON output can be piped cleanly.
+Alias for `--format json`. Output results as JSON instead of a terminal table. Progress messages are sent to stderr so JSON output can be piped cleanly.
 
 ```text
 $ breakfast -o my-org -r platform --json 2>/dev/null
@@ -695,8 +718,14 @@ Options:
   --no-drafts                     Exclude draft PRs from results.
   --drafts-only                   Show only draft PRs.
   --age / --no-age                Include an age column showing PR age in days.
-  --json / --no-json              Output results as JSON instead of a table.
+  --json / --no-json              Alias for --format json / --format table.
                                   Progress messages go to stderr.
+  --markdown / --no-markdown      Alias for --format markdown / --format
+                                  table.
+  --format [table|json|markdown]  Output format. table renders a coloured
+                                  terminal table (default), json outputs
+                                  machine-readable JSON, markdown renders a
+                                  GitHub-flavoured Markdown table.
   --checks / --no-checks          Include a checks column showing CI/check
                                   status for each PR.
   --approvals / --no-approvals    Include an approvals column showing review

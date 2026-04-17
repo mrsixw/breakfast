@@ -2766,3 +2766,129 @@ def test_cli_no_json_flag_overrides_config_format_json(monkeypatch, tmp_path):
     assert "PR-1" in result.stdout
     with pytest.raises(json.JSONDecodeError):
         json.loads(result.stdout)
+
+
+# ---------------------------------------------------------------------------
+# --format markdown
+# ---------------------------------------------------------------------------
+
+
+def test_format_markdown_produces_gfm_table(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--format", "markdown"]
+    )
+
+    assert result.exit_code == 0
+    assert "| Repo" in result.stdout
+    assert "|---" in result.stdout
+    assert "[repo](https://github.com/org/repo)" in result.stdout
+    assert "[PR-1](https://github.com/org/repo/pull/1)" in result.stdout
+
+
+def test_format_markdown_strips_ansi_codes(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--format", "markdown"]
+    )
+
+    assert result.exit_code == 0
+    assert "\x1b[" not in result.stdout
+    assert "\x1b]8;;" not in result.stdout
+
+
+def test_format_markdown_output_goes_to_stdout(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--format", "markdown"]
+    )
+
+    assert result.exit_code == 0
+    assert "Processing" in result.stderr
+    assert "Processing" not in result.stdout
+    assert "[repo]" in result.stdout
+
+
+def test_config_format_markdown_produces_markdown_output(monkeypatch, tmp_path):
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('format = "markdown"\norganization = "org"\n')
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(cli.breakfast, ["--config", str(cfg_file)])
+
+    assert result.exit_code == 0
+    assert "| Repo" in result.stdout
+    assert "[PR-1]" in result.stdout
+
+
+def test_format_markdown_includes_optional_columns(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    def fake_api_request(path):
+        if "check-runs" in path:
+            return {"check_runs": [{"status": "completed", "conclusion": "success"}]}
+        return _fake_pr_detail(path)
+
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--format", "markdown", "--checks", "--age"],
+    )
+
+    assert result.exit_code == 0
+    assert "| Checks" in result.stdout
+    assert "| Age" in result.stdout
+
+
+def test_format_flag_overrides_json_flag(monkeypatch):
+    """--format markdown takes precedence over --json."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--json", "--format", "markdown"],
+    )
+
+    assert result.exit_code == 0
+    assert "| Repo" in result.stdout
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(result.stdout)

@@ -2,18 +2,19 @@
 
 ## stdout and stderr
 
-All data output — tables, JSON, and summary views — goes to **stdout**.
+All data output — tables, JSON, Markdown, and summary views — goes to **stdout**.
 All progress messages, spinner emoji, warnings, and errors go to **stderr**.
 
 This means every output format is safe to pipe or redirect independently:
 
 ```bash
-breakfast -o my-org -r platform > prs.txt          # capture table only
-breakfast -o my-org -r platform --json | jq '...'  # pipe JSON cleanly
+breakfast -o my-org -r platform > prs.txt                    # capture table only
+breakfast -o my-org -r platform --json | jq '...'            # pipe JSON cleanly
+breakfast -o my-org -r platform --format markdown > prs.md   # capture Markdown
 ```
 
-The `format` config key accepts `"table"` (default) or `"json"`. Any other value
-triggers a warning on stderr and falls back to `"table"`.
+The `format` config key accepts `"table"` (default), `"json"`, or `"markdown"`.
+Any other value triggers a warning on stderr and falls back to `"table"`.
 
 ## Table output (default)
 
@@ -64,9 +65,26 @@ Numeric columns (Files, Commits, Comments, Age) are colour-graded:
 
 The "Link" column uses [OSC 8 terminal hyperlinks](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda), supported by most modern terminals (iTerm2, GNOME Terminal, Windows Terminal, etc.). Click the link to open the PR in your browser.
 
-## JSON output (`--json`)
+## Markdown output (`--format markdown`)
 
-With `--json`, output is a JSON array of objects.
+With `--format markdown`, output is a GitHub-flavoured Markdown table — ready to paste into PR descriptions, issue comments, Confluence pages, or any Markdown renderer.
+
+```text
+$ breakfast -o my-org -r platform --format markdown 2>/dev/null
+| Repo         | PR Title        | Author | State | Files | Commits | +/-       | Comments | Mergeable?  | Link                                                |
+|---|---|---|---|---|---|---|---|---|---|
+| [platform-api](https://github.com/my-org/platform-api) | Add user search | [alice](https://github.com/alice) | open  | 3     | 1       | +42/-10   | 0        | ✅ (clean)  | [PR-142](https://github.com/my-org/platform-api/pull/142) |
+| [platform-api](https://github.com/my-org/platform-api) | Fix login bug   | [bob](https://github.com/bob)   | open  | 1     | 1       | +5/-2     | 3        | ✅ (clean)  | [PR-138](https://github.com/my-org/platform-api/pull/138) |
+```
+
+- ANSI colour codes are stripped — Markdown renderers don't support them.
+- OSC 8 terminal hyperlinks are converted to `[text](url)` Markdown links.
+- Optional columns (`--age`, `--checks`, `--approvals`, `--head-branch`, `--base-branch`) are included when their flags are set.
+- Progress messages still go to stderr, so the output can be redirected cleanly.
+
+## JSON output (`--json` / `--format json`)
+
+With `--format json` (or the `--json` alias), output is a JSON array of objects.
 
 ### Schema
 

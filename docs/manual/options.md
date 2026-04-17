@@ -189,6 +189,14 @@ You can also set a persistent default in your config file:
 format = "markdown"
 ```
 
+### `--markdown`
+
+Alias for `--format markdown`. Renders a GitHub-flavoured Markdown table. Progress messages are sent to stderr so Markdown output can be redirected cleanly.
+
+```text
+breakfast -o my-org -r platform --markdown 2>/dev/null > prs.md
+```
+
 ### `--json`
 
 Alias for `--format json`. Output results as JSON instead of a terminal table. Progress messages are sent to stderr so JSON output can be piped cleanly.
@@ -712,6 +720,8 @@ Options:
   --age / --no-age                Include an age column showing PR age in days.
   --json / --no-json              Alias for --format json / --format table.
                                   Progress messages go to stderr.
+  --markdown / --no-markdown      Alias for --format markdown / --format
+                                  table.
   --format [table|json|markdown]  Output format. table renders a coloured
                                   terminal table (default), json outputs
                                   machine-readable JSON, markdown renders a

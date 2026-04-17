@@ -546,13 +546,19 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     help="Output results as JSON. Alias for --format json / --format table.",
 )
 @click.option(
+    "--markdown/--no-markdown",
+    "markdown_flag",
+    default=None,
+    help="Output results as a Markdown table. Alias for --format markdown.",
+)
+@click.option(
     "--format",
     "output_format",
     default=None,
     type=click.Choice(["table", "json", "markdown"], case_sensitive=False),
     help=(
         "Output format: table (default), json, or markdown. "
-        "Overrides --json/--no-json when both are given."
+        "Overrides --json/--no-json/--markdown when both are given."
     ),
 )
 @click.option(
@@ -747,6 +753,7 @@ def breakfast(
     drafts_only,
     age,
     json_output,
+    markdown_flag,
     output_format,
     checks,
     approvals,
@@ -817,6 +824,8 @@ def breakfast(
         fmt = output_format.lower()
     elif json_output is not None:
         fmt = "json" if json_output else "table"
+    elif markdown_flag is not None:
+        fmt = "markdown" if markdown_flag else "table"
     else:
         cfg_format = cfg.get("format")
         if cfg_format is not None and cfg_format not in {"table", "json", "markdown"}:

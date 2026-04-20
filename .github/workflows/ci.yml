@@ -144,7 +144,7 @@ jobs:
           fish -c "source completions/breakfast.fish && echo 'fish ok'"
 
   release:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore: bump version')
+    if: "github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore: bump version')"
     runs-on: ubuntu-latest
     needs: [build, man, completions]
     permissions:
@@ -197,7 +197,7 @@ jobs:
         run: utils/create_release.sh "${{ steps.bump.outputs.version }}"
 
   verify-release:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore: bump version')
+    if: "github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore: bump version')"
     runs-on: ubuntu-latest
     needs: release
     steps:

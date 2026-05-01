@@ -613,6 +613,29 @@ Can also be set persistently in config:
 no-colour = true
 ```
 
+### `--colour-diagnostics` / `--color-diagnostics`
+
+Print a colour swatch page showing every colour and gradient used in the breakfast UI, then exit. No GitHub token or organisation is required.
+
+```bash
+breakfast --colour-diagnostics
+breakfast --color-diagnostics    # US spelling alias
+```
+
+The swatch page covers:
+
+- **Seasonal palettes** — all five (January purple, Easter yellow, October orange, December red/green) with all four shades each
+- **PR state** — open (green), draft (grey), closed (red)
+- **Check status** — pass, fail, pending, none
+- **Approval status** — approved, changes requested, pending
+- **Mergeable status** — yes / no
+- **Number gradient** — the colour scale used for files, commits, comments, and age columns
+- **Summary bar gradient** — the bar colours used in `--summarise-*-prs` views
+- **UI / system colours** — cyan (update notifications), yellow (warnings), red (errors), green (success)
+- **+/- column** — additions (green) and deletions (red)
+
+Each row shows filled blocks rendered in the actual colour alongside the ANSI code or name, so you can see exactly what each one looks like in your terminal.
+
 ## Diagnostics
 
 ### `--api-stats`

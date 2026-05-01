@@ -111,26 +111,40 @@ def test_easter_month_known_years():
         (4, "yellow"),  # 2026 Easter is in April
         (10, "orange"),
         (12, "red"),
-        (6, "green"),
-        (8, "green"),
     ],
 )
-def test_seasonal_palette_by_month(month, expected_key):
+def test_seasonal_palette_by_special_month(month, expected_key):
     with patch("breakfast.ui.datetime") as mock_dt:
         mock_dt.date.today.return_value = _today(month)
         palette = ui._seasonal_palette()
     assert palette == ui.SEASONAL_PALETTES[expected_key]
 
 
+@pytest.mark.parametrize("month", [2, 3, 5, 6, 7, 8, 9, 11])
+def test_seasonal_palette_non_special_months_return_none(month):
+    with patch("breakfast.ui.datetime") as mock_dt:
+        mock_dt.date.today.return_value = _today(month)
+        palette = ui._seasonal_palette()
+    assert palette is None
+
+
 def test_apply_seasonal_colour_shade_from_pr_number():
     with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = _today(6)  # June → green
+        mock_dt.date.today.return_value = _today(1)  # January → purple
         for pr_num in range(8):
             result = ui.apply_seasonal_colour("alice", pr_num)
-            expected_colour = ui.SEASONAL_PALETTES["green"][pr_num % 4]
+            expected_colour = ui.SEASONAL_PALETTES["purple"][pr_num % 4]
             assert result.startswith(expected_colour)
             assert result.endswith("\033[0m")
             assert "alice" in result
+
+
+def test_apply_seasonal_colour_non_special_month_returns_plain():
+    with patch("breakfast.ui.datetime") as mock_dt:
+        mock_dt.date.today.return_value = _today(6)  # June → no seasonal theme
+        for pr_num in range(4):
+            result = ui.apply_seasonal_colour("alice", pr_num)
+            assert result == "alice"
 
 
 def test_apply_seasonal_colour_christmas_alternates():

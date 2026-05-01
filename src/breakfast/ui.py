@@ -69,8 +69,12 @@ def _easter_month(year: int) -> int:
     return (h + ll - 7 * m + 114) // 31
 
 
-def _seasonal_palette() -> list[str]:
-    """Return the 4-shade ANSI palette for the current calendar month."""
+def _seasonal_palette() -> list[str] | None:
+    """Return the 4-shade ANSI palette for the current calendar month, or None.
+
+    Returns None for months with no seasonal theme, so callers can skip
+    colouring and fall back to the default terminal colour.
+    """
     today = datetime.date.today()
     month = today.month
     if month == 1:
@@ -81,16 +85,17 @@ def _seasonal_palette() -> list[str]:
         return SEASONAL_PALETTES["orange"]
     if month == 12:
         return SEASONAL_PALETTES["red"]
-    return SEASONAL_PALETTES["green"]
+    return None
 
 
 def apply_seasonal_colour(text: str, pr_number: int) -> str:
     """Wrap *text* in a seasonal ANSI 256-colour based on the current month.
 
     December 🎄 alternates rows between red and green (candy-cane style).
-    All other months use a 4-shade gradient keyed by ``pr_number % 4``.
-    Returns the original text unchanged if called when no colour is needed —
-    callers are expected to guard with the ``no-colour`` setting.
+    Special months (Jan, Easter, Oct, Dec) use a 4-shade gradient keyed by
+    ``pr_number % 4``. Non-special months return text unstyled so it renders
+    in the default terminal colour, consistent with all other table columns.
+    Callers are expected to guard with the ``no-colour`` setting.
     """
     today = datetime.date.today()
     if today.month == 12:
@@ -99,9 +104,11 @@ def apply_seasonal_colour(text: str, pr_number: int) -> str:
             if pr_number % 2 == 0
             else SEASONAL_PALETTES["green"][2]
         )
-    else:
-        palette = _seasonal_palette()
-        colour = palette[pr_number % 4]
+        return f"{colour}{text}\033[0m"
+    palette = _seasonal_palette()
+    if palette is None:
+        return text
+    colour = palette[pr_number % 4]
     return f"{colour}{text}\033[0m"
 
 

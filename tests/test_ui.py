@@ -152,6 +152,35 @@ def test_apply_seasonal_colour_wraps_and_resets():
 
 
 # ---------------------------------------------------------------------------
+# render_colour_diagnostics (#189)
+# ---------------------------------------------------------------------------
+
+
+def test_render_colour_diagnostics_contains_section_headings():
+    result = ui.render_colour_diagnostics()
+    assert "Seasonal palettes" in result
+    assert "PR state" in result
+    assert "Check status" in result
+    assert "Approval status" in result
+    assert "Mergeable status" in result
+    assert "Number gradient" in result
+    assert "Summary bar gradient" in result
+    assert "UI / system colours" in result
+    assert "+/- column" in result
+
+
+def test_render_colour_diagnostics_contains_ansi_codes():
+    result = ui.render_colour_diagnostics()
+    assert "\033[" in result
+
+
+def test_render_colour_diagnostics_is_string():
+    result = ui.render_colour_diagnostics()
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+# ---------------------------------------------------------------------------
 # render_pr_summary (#177)
 # ---------------------------------------------------------------------------
 

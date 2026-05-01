@@ -45,6 +45,7 @@ from .ui import (
     format_mergeable_status,
     format_pr_state,
     generate_terminal_url_anchor,
+    render_colour_diagnostics,
     render_pr_summary,
 )
 from .updater import check_for_update
@@ -717,6 +718,18 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     ),
 )
 @click.option(
+    "--colour-diagnostics",
+    "--color-diagnostics",
+    "colour_diagnostics",
+    is_flag=True,
+    default=False,
+    help=(
+        "Print a colour swatch page showing every colour and gradient used in"
+        " the breakfast UI, then exit. Useful for tuning palette choices in"
+        " your terminal."
+    ),
+)
+@click.option(
     "--summarise-user-prs",
     "--summarize-user-prs",
     "summarise_user_prs",
@@ -776,11 +789,16 @@ def breakfast(
     search,
     api_stats,
     no_colour,
+    colour_diagnostics,
     summarise_user_prs,
     summarise_repo_prs,
 ):
     t0_total = time.monotonic()
     configure_logging()
+
+    if colour_diagnostics:
+        click.echo(render_colour_diagnostics(), color=True)
+        sys.exit(0)
 
     if search is not None:
         try:

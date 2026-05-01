@@ -244,6 +244,138 @@ def generate_terminal_url_anchor(url, url_text="Link"):
     return f"\033]8;;{url}\033\\{url_text}\033]8;;\033\\"
 
 
+def render_colour_diagnostics() -> str:
+    """Render a swatch page showing every colour used in the breakfast UI.
+
+    Returns a multi-line string ready to pass to ``click.echo()``.
+    Useful for tuning palette choices in a specific terminal.
+    """
+
+    def _ansi256(code: int, text: str) -> str:
+        return f"\033[38;5;{code}m{text}\033[0m"
+
+    def _named(name: str, text: str) -> str:
+        return click.style(text, fg=name, bold=True)
+
+    def _named_dim(name, text: str) -> str:
+        return click.style(text, fg=name, bold=False)
+
+    BLOCK = "████"
+
+    lines = [click.style("🎨 breakfast colour diagnostics", fg="cyan", bold=True), ""]
+
+    # ------------------------------------------------------------------
+    # Seasonal palettes (author / PR title gradient)
+    # ------------------------------------------------------------------
+    lines.append(click.style("Seasonal palettes  (author & PR title)", bold=True))
+    palette_rows = [
+        ("January 🗓️", "purple"),
+        ("Easter 🐣", "yellow"),
+        ("October 🎃", "orange"),
+        ("December 🎄 (red)", "red"),
+        ("December 🎄 (green)", "green"),
+    ]
+    for label, key in palette_rows:
+
+        def _swatch(code: str) -> str:
+            n = code.split(";")[2].rstrip("m")
+            return f"{_ansi256(int(n), BLOCK)} {n}"
+
+        swatches = "  ".join(_swatch(c) for c in SEASONAL_PALETTES[key])
+        lines.append(f"  {label:<22}  {swatches}")
+    lines.append("")
+
+    # ------------------------------------------------------------------
+    # PR state
+    # ------------------------------------------------------------------
+    lines.append(click.style("PR state", bold=True))
+    lines.append(
+        f"  {_named('green', BLOCK)} open        "
+        f"  {_named_dim(246, BLOCK)} draft (246)  "
+        f"  {_named('red', BLOCK)} closed"
+    )
+    lines.append("")
+
+    # ------------------------------------------------------------------
+    # Check status
+    # ------------------------------------------------------------------
+    lines.append(click.style("Check status", bold=True))
+    lines.append(
+        f"  {_named('green', BLOCK)} pass    "
+        f"  {_named('red', BLOCK)} fail    "
+        f"  {_named('yellow', BLOCK)} pending  "
+        f"  {_named('white', BLOCK)} none"
+    )
+    lines.append("")
+
+    # ------------------------------------------------------------------
+    # Approval status
+    # ------------------------------------------------------------------
+    lines.append(click.style("Approval status", bold=True))
+    lines.append(
+        f"  {_named('green', BLOCK)} approved  "
+        f"  {_named('red', BLOCK)} changes   "
+        f"  {_named('yellow', BLOCK)} pending"
+    )
+    lines.append("")
+
+    # ------------------------------------------------------------------
+    # Mergeable status
+    # ------------------------------------------------------------------
+    lines.append(click.style("Mergeable status", bold=True))
+    lines.append(f"  {_named('green', BLOCK)} yes  " f"  {_named('red', BLOCK)} no")
+    lines.append("")
+
+    # ------------------------------------------------------------------
+    # Number gradient (files, commits, comments, age)
+    # ------------------------------------------------------------------
+    lines.append(
+        click.style("Number gradient  (files / commits / comments / age)", bold=True)
+    )
+    lines.append(
+        f"  {_named('green', BLOCK)} <10      "
+        f"  {_named('yellow', BLOCK)} 10–19    "
+        f"  {_ansi256(208, BLOCK)} 20–49 (208)  "
+        f"  {_named('red', BLOCK)} 50+"
+    )
+    lines.append("")
+
+    # ------------------------------------------------------------------
+    # Summary bar gradient (--summarise-user-prs / --summarise-repo-prs)
+    # ------------------------------------------------------------------
+    lines.append(click.style("Summary bar gradient  (--summarise-*-prs)", bold=True))
+    lines.append(
+        f"  {_named('green', BLOCK)} ≤25%     "
+        f"  {_named('yellow', BLOCK)} ≤50%     "
+        f"  {_ansi256(208, BLOCK)} ≤75% (208)   "
+        f"  {_named('red', BLOCK)} >75%"
+    )
+    lines.append(f"  {_ansi256(245, BLOCK)} draft blocks (245)")
+    lines.append("")
+
+    # ------------------------------------------------------------------
+    # UI / system colours
+    # ------------------------------------------------------------------
+    lines.append(click.style("UI / system colours", bold=True))
+    lines.append(
+        f"  {_named('cyan', BLOCK)} update notifications  "
+        f"  {_named('yellow', BLOCK)} warnings  "
+        f"  {_named('red', BLOCK)} errors  "
+        f"  {_named('green', BLOCK)} success"
+    )
+    lines.append("")
+
+    # ------------------------------------------------------------------
+    # Additions / deletions (+/- column)
+    # ------------------------------------------------------------------
+    lines.append(click.style("+/- column", bold=True))
+    lines.append(
+        f"  {_named('green', BLOCK)} additions  " f"  {_named('red', BLOCK)} deletions"
+    )
+
+    return "\n".join(lines)
+
+
 def render_pr_summary(groups, title, label_header, colour, seasonal_colours):
     """Render a compact PR summary table as a string.
 

@@ -289,7 +289,7 @@ def render_colour_diagnostics() -> str:
     ]
 
     def _seasonal_swatch(code: str) -> str:
-        """Render a coloured block swatch for a raw ANSI escape code (named or 256-colour)."""
+        """Render a coloured block swatch for a raw ANSI escape code."""
         parts = code.split(";")
         if len(parts) >= 3:
             n = parts[2].rstrip("m")
@@ -394,17 +394,19 @@ def render_colour_diagnostics() -> str:
     # ------------------------------------------------------------------
     # 256-colour reference — all hues, full shade range
     # ------------------------------------------------------------------
-    lines.append(click.style("256-colour reference  (all hues, dark → bright)", bold=True))
+    lines.append(
+        click.style("256-colour reference  (all hues, dark → bright)", bold=True)
+    )
     hue_rows = [
-        ("Greens",   [22, 28, 34, 40, 46, 82, 118, 154, 190]),
-        ("Yellows",  [100, 106, 136, 142, 178, 184, 190, 220, 226]),
-        ("Oranges",  [94, 130, 136, 166, 172, 202, 208, 214]),
-        ("Reds",     [52, 88, 124, 160, 196, 197, 203, 210]),
-        ("Purples",  [54, 55, 56, 90, 91, 92, 93, 129, 135, 141, 147]),
-        ("Blues",    [17, 18, 19, 20, 21, 57, 63, 69, 75, 81]),
-        ("Cyans",    [23, 30, 37, 44, 51, 86, 87, 122, 123]),
+        ("Greens", [22, 28, 34, 40, 46, 82, 118, 154, 190]),
+        ("Yellows", [100, 106, 136, 142, 178, 184, 190, 220, 226]),
+        ("Oranges", [94, 130, 136, 166, 172, 202, 208, 214]),
+        ("Reds", [52, 88, 124, 160, 196, 197, 203, 210]),
+        ("Purples", [54, 55, 56, 90, 91, 92, 93, 129, 135, 141, 147]),
+        ("Blues", [17, 18, 19, 20, 21, 57, 63, 69, 75, 81]),
+        ("Cyans", [23, 30, 37, 44, 51, 86, 87, 122, 123]),
         ("Magentas", [53, 89, 125, 126, 161, 162, 197, 198, 199, 207]),
-        ("Greys",    [232, 235, 238, 240, 242, 244, 246, 248, 250, 252, 254]),
+        ("Greys", [232, 235, 238, 240, 242, 244, 246, 248, 250, 252, 254]),
     ]
     for label, codes in hue_rows:
         swatches = "  ".join(f"{_ansi256(n, BLOCK)} {n:<3}" for n in codes)

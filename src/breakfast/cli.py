@@ -1463,7 +1463,7 @@ def breakfast(
             return text
 
         def _sc_link(url: str, text: str) -> str:
-            """Apply seasonal colour to a hyperlinked label when seasonal colouring is active."""
+            """Apply seasonal colour to a hyperlinked label when active."""
             if seasonal_colours and colour:
                 return _styled_hyperlink(url, apply_seasonal_colour(text, pr_num))
             return generate_terminal_url_anchor(url, text)

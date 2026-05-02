@@ -1,13 +1,14 @@
 import datetime
+import unicodedata
 
 import click
 
 SEASONAL_PALETTES = {
-    "green": ["\033[38;5;22m", "\033[38;5;34m", "\033[38;5;40m", "\033[38;5;46m"],
-    "purple": ["\033[38;5;54m", "\033[38;5;90m", "\033[38;5;129m", "\033[38;5;165m"],
-    "yellow": ["\033[38;5;100m", "\033[38;5;184m", "\033[38;5;220m", "\033[38;5;226m"],
-    "orange": ["\033[38;5;130m", "\033[38;5;166m", "\033[38;5;202m", "\033[38;5;208m"],
-    "red": ["\033[38;5;88m", "\033[38;5;124m", "\033[38;5;160m", "\033[38;5;196m"],
+    "green": "\033[32m",
+    "purple": "\033[38;5;141m",
+    "yellow": "\033[38;5;226m",
+    "orange": "\033[38;5;208m",
+    "red": "\033[31m",
 }
 
 BREAKFAST_ITEMS = [
@@ -69,8 +70,8 @@ def _easter_month(year: int) -> int:
     return (h + ll - 7 * m + 114) // 31
 
 
-def _seasonal_palette() -> list[str] | None:
-    """Return the 4-shade ANSI palette for the current calendar month, or None.
+def _seasonal_colour() -> str | None:
+    """Return the ANSI colour code for the current calendar month, or None.
 
     Returns None for months with no seasonal theme, so callers can skip
     colouring and fall back to the default terminal colour.
@@ -89,26 +90,24 @@ def _seasonal_palette() -> list[str] | None:
 
 
 def apply_seasonal_colour(text: str, pr_number: int) -> str:
-    """Wrap *text* in a seasonal ANSI 256-colour based on the current month.
+    """Wrap *text* in a seasonal ANSI colour based on the current month.
 
     December 🎄 alternates rows between red and green (candy-cane style).
-    Special months (Jan, Easter, Oct, Dec) use a 4-shade gradient keyed by
-    ``pr_number % 4``. Non-special months return text unstyled so it renders
-    in the default terminal colour, consistent with all other table columns.
-    Callers are expected to guard with the ``no-colour`` setting.
+    Non-special months return text unstyled so it renders in the default
+    terminal colour. Callers are expected to guard with the ``no-colour``
+    setting.
     """
     today = datetime.date.today()
     if today.month == 12:
         colour = (
-            SEASONAL_PALETTES["red"][2]
+            SEASONAL_PALETTES["red"]
             if pr_number % 2 == 0
-            else SEASONAL_PALETTES["green"][2]
+            else SEASONAL_PALETTES["green"]
         )
         return f"{colour}{text}\033[0m"
-    palette = _seasonal_palette()
-    if palette is None:
+    colour = _seasonal_colour()
+    if colour is None:
         return text
-    colour = palette[pr_number % 4]
     return f"{colour}{text}\033[0m"
 
 
@@ -260,14 +259,27 @@ def render_colour_diagnostics() -> str:
     def _named_dim(name, text: str) -> str:
         return click.style(text, fg=name, bold=False)
 
+    def _vpad(text: str, width: int) -> str:
+        """Pad text to visual width, accounting for double-wide emoji."""
+        vlen = 0
+        for ch in text:
+            cat = unicodedata.category(ch)
+            if cat in ("Mn", "Cf"):
+                pass  # variation selectors and zero-width marks
+            elif unicodedata.east_asian_width(ch) in ("W", "F") or ord(ch) > 0x1F000:
+                vlen += 2
+            else:
+                vlen += 1
+        return text + " " * max(0, width - vlen)
+
     BLOCK = "████"
 
     lines = [click.style("🎨 breakfast colour diagnostics", fg="cyan", bold=True), ""]
 
     # ------------------------------------------------------------------
-    # Seasonal palettes (author / PR title gradient)
+    # Seasonal colours (author / PR title)
     # ------------------------------------------------------------------
-    lines.append(click.style("Seasonal palettes  (author & PR title)", bold=True))
+    lines.append(click.style("Seasonal colours  (author & PR title)", bold=True))
     palette_rows = [
         ("January 🗓️", "purple"),
         ("Easter 🐣", "yellow"),
@@ -275,14 +287,18 @@ def render_colour_diagnostics() -> str:
         ("December 🎄 (red)", "red"),
         ("December 🎄 (green)", "green"),
     ]
-    for label, key in palette_rows:
 
-        def _swatch(code: str) -> str:
-            n = code.split(";")[2].rstrip("m")
+    def _seasonal_swatch(code: str) -> str:
+        parts = code.split(";")
+        if len(parts) >= 3:
+            n = parts[2].rstrip("m")
             return f"{_ansi256(int(n), BLOCK)} {n}"
+        n = code[2:-1]
+        return f"{code}{BLOCK}\033[0m {n}"
 
-        swatches = "  ".join(_swatch(c) for c in SEASONAL_PALETTES[key])
-        lines.append(f"  {label:<22}  {swatches}")
+    for label, key in palette_rows:
+        swatch = _seasonal_swatch(SEASONAL_PALETTES[key])
+        lines.append(f"  {_vpad(label, 22)}  {swatch}")
     lines.append("")
 
     # ------------------------------------------------------------------
@@ -372,6 +388,26 @@ def render_colour_diagnostics() -> str:
     lines.append(
         f"  {_named('green', BLOCK)} additions  " f"  {_named('red', BLOCK)} deletions"
     )
+    lines.append("")
+
+    # ------------------------------------------------------------------
+    # 256-colour reference — all hues, full shade range
+    # ------------------------------------------------------------------
+    lines.append(click.style("256-colour reference  (all hues, dark → bright)", bold=True))
+    hue_rows = [
+        ("Greens",   [22, 28, 34, 40, 46, 82, 118, 154, 190]),
+        ("Yellows",  [100, 106, 136, 142, 178, 184, 190, 220, 226]),
+        ("Oranges",  [94, 130, 136, 166, 172, 202, 208, 214]),
+        ("Reds",     [52, 88, 124, 160, 196, 197, 203, 210]),
+        ("Purples",  [54, 55, 56, 90, 91, 92, 93, 129, 135, 141, 147]),
+        ("Blues",    [17, 18, 19, 20, 21, 57, 63, 69, 75, 81]),
+        ("Cyans",    [23, 30, 37, 44, 51, 86, 87, 122, 123]),
+        ("Magentas", [53, 89, 125, 126, 161, 162, 197, 198, 199, 207]),
+        ("Greys",    [232, 235, 238, 240, 242, 244, 246, 248, 250, 252, 254]),
+    ]
+    for label, codes in hue_rows:
+        swatches = "  ".join(f"{_ansi256(n, BLOCK)} {n:<3}" for n in codes)
+        lines.append(f"  {label:<10}  {swatches}")
 
     return "\n".join(lines)
 

@@ -2378,7 +2378,7 @@ def test_colour_diagnostics_flag_exits_zero_and_outputs_swatches():
     runner = CliRunner()
     result = runner.invoke(cli.breakfast, ["--colour-diagnostics"])
     assert result.exit_code == 0
-    assert "Seasonal palettes" in result.output
+    assert "Seasonal colours" in result.output
     assert "Check status" in result.output
     assert "Number gradient" in result.output
 
@@ -2388,7 +2388,7 @@ def test_color_diagnostics_alias_works():
     runner = CliRunner()
     result = runner.invoke(cli.breakfast, ["--color-diagnostics"])
     assert result.exit_code == 0
-    assert "Seasonal palettes" in result.output
+    assert "Seasonal colours" in result.output
 
 
 # ---------------------------------------------------------------------------

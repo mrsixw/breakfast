@@ -289,6 +289,7 @@ def render_colour_diagnostics() -> str:
     ]
 
     def _seasonal_swatch(code: str) -> str:
+        """Render a coloured block swatch for a raw ANSI escape code (named or 256-colour)."""
         parts = code.split(";")
         if len(parts) >= 3:
             n = parts[2].rstrip("m")

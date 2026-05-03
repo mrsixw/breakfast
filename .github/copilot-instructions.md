@@ -70,7 +70,11 @@ When updating project rules, update **all four files** to keep them consistent.
 
 ## Code Quality
 - Use `ruff` (lint + import sorting) and `black` (formatting).
-- Before committing and pushing changes, run `make test`, `make lint`, and `make format` locally.
+- **Before every commit and push, you MUST run all three of these in order — no exceptions:**
+  1. `make format` — auto-fix formatting
+  2. `make lint` — must exit clean
+  3. `make test` — all tests must pass
+  Skipping any of these steps is not acceptable, even for small or documentation-only changes.
 
 ## Documentation
 - If CLI options, features, or user-visible behaviors change, you MUST update the relevant manual pages in `docs/manual/` (`options.md`, `usage.md`, etc.).

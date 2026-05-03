@@ -35,7 +35,11 @@ When updating project rules, update **all four files** to keep them consistent.
 
 ## Technical Integrity & Validation
 - **Project Structure:** Logic is decomposed into modules within `src/breakfast/`; tests are module-specific in `tests/`.
-- **Pre-commit Checks:** Always run `make test`, `make lint`, and `make format` before committing.
+- **Pre-commit Checks:** Before every commit and push, you MUST run all three in order — no exceptions:
+  1. `make format` — auto-fix formatting
+  2. `make lint` — must exit clean
+  3. `make test` — all tests must pass
+  Skipping any of these is not acceptable, even for small or documentation-only changes.
 - **No bare `except Exception`:** Always catch the most specific exception type(s) (e.g. `requests.exceptions.RequestException`, `OSError`, `json.JSONDecodeError`, `KeyError`, `ValueError`, `PackageNotFoundError`). Bare `except Exception` hides bugs and swallows unexpected errors silently.
 - **stdout/stderr discipline:** All data output (table, JSON, summary views) must go to **stdout**. All progress messages, spinner emoji, warnings, and errors must go to **stderr** (`err=True` in Click). This keeps every output format safe to pipe or redirect independently. Tests must assert data on `result.stdout` and status/error messages on `result.stderr`.
 - **Testing with Cache:** Since caching is implemented, all manual testing must be performed both *with* the cache enabled and *without* the cache (e.g., clearing the cache or disabling it).

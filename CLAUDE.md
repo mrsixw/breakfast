@@ -79,7 +79,11 @@ When updating project rules, update **all four files** to keep them consistent.
 ## Code Quality
 - Use `ruff` (lint + import sorting) and `black` (formatting).
 - Prefer running checks via CI and pre-commit hooks where possible.
-- Before committing and pushing changes, run `make test`, `make lint`, and `make format` locally.
+- **Before every commit and push, you MUST run all three of these in order — no exceptions:**
+  1. `make format` — auto-fix formatting
+  2. `make lint` — must exit clean
+  3. `make test` — all tests must pass
+  Skipping any of these steps is not acceptable, even for small or documentation-only changes.
 - **Never use bare `except Exception`.** Always catch the most specific exception type(s) possible (e.g. `requests.exceptions.RequestException`, `OSError`, `json.JSONDecodeError`, `KeyError`, `ValueError`, `PackageNotFoundError`). Bare `except Exception` hides bugs and swallows unexpected errors silently.
 - **stdout/stderr discipline:** All data output (table, JSON, summary views) must go to **stdout**. All progress messages, spinner emoji, warnings, and errors must go to **stderr** (`err=True` in Click). This keeps every output format safe to pipe or redirect independently. Tests must assert data on `result.stdout` and status/error messages on `result.stderr`.
 

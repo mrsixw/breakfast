@@ -113,28 +113,27 @@ def test_easter_month_known_years():
         (12, "red"),
     ],
 )
-def test_seasonal_palette_by_special_month(month, expected_key):
+def test_seasonal_colour_by_special_month(month, expected_key):
     with patch("breakfast.ui.datetime") as mock_dt:
         mock_dt.date.today.return_value = _today(month)
-        palette = ui._seasonal_palette()
-    assert palette == ui.SEASONAL_PALETTES[expected_key]
+        colour = ui._seasonal_colour()
+    assert colour == ui.SEASONAL_PALETTES[expected_key]
 
 
 @pytest.mark.parametrize("month", [2, 3, 5, 6, 7, 8, 9, 11])
-def test_seasonal_palette_non_special_months_return_none(month):
+def test_seasonal_colour_non_special_months_return_none(month):
     with patch("breakfast.ui.datetime") as mock_dt:
         mock_dt.date.today.return_value = _today(month)
-        palette = ui._seasonal_palette()
-    assert palette is None
+        colour = ui._seasonal_colour()
+    assert colour is None
 
 
-def test_apply_seasonal_colour_shade_from_pr_number():
+def test_apply_seasonal_colour_uses_single_colour():
     with patch("breakfast.ui.datetime") as mock_dt:
         mock_dt.date.today.return_value = _today(1)  # January → purple
         for pr_num in range(8):
             result = ui.apply_seasonal_colour("alice", pr_num)
-            expected_colour = ui.SEASONAL_PALETTES["purple"][pr_num % 4]
-            assert result.startswith(expected_colour)
+            assert result.startswith(ui.SEASONAL_PALETTES["purple"])
             assert result.endswith("\033[0m")
             assert "alice" in result
 
@@ -153,8 +152,8 @@ def test_apply_seasonal_colour_christmas_alternates():
         even_result = ui.apply_seasonal_colour("Test PR", 2)
         odd_result = ui.apply_seasonal_colour("Test PR", 3)
     # Even PR numbers → red, odd → green
-    assert even_result.startswith(ui.SEASONAL_PALETTES["red"][2])
-    assert odd_result.startswith(ui.SEASONAL_PALETTES["green"][2])
+    assert even_result.startswith(ui.SEASONAL_PALETTES["red"])
+    assert odd_result.startswith(ui.SEASONAL_PALETTES["green"])
 
 
 def test_apply_seasonal_colour_wraps_and_resets():
@@ -172,7 +171,7 @@ def test_apply_seasonal_colour_wraps_and_resets():
 
 def test_render_colour_diagnostics_contains_section_headings():
     result = ui.render_colour_diagnostics()
-    assert "Seasonal palettes" in result
+    assert "Seasonal colours" in result
     assert "PR state" in result
     assert "Check status" in result
     assert "Approval status" in result

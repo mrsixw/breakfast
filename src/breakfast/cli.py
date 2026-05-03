@@ -1456,26 +1456,26 @@ def breakfast(
         author_url = author.get("html_url") or f"https://github.com/{author['login']}"
         pr_num = pr_detail["number"]
 
-        def _sc(text: str) -> str:
+        def _seasonal_colour(text: str) -> str:
             """Apply seasonal colour to plain text when seasonal colouring is active."""
             if seasonal_colours and colour:
                 return apply_seasonal_colour(text, pr_num)
             return text
 
-        def _sc_link(url: str, text: str) -> str:
+        def _seasonal_colour_link(url: str, text: str) -> str:
             """Apply seasonal colour to a hyperlinked label when active."""
             if seasonal_colours and colour:
                 return _styled_hyperlink(url, apply_seasonal_colour(text, pr_num))
             return generate_terminal_url_anchor(url, text)
 
         row = {
-            "Repo": _sc_link(repo_url, repo["name"]),
-            "PR Title": _sc(pr_detail["title"]),
-            "Author": _sc_link(author_url, author["login"]),
+            "Repo": _seasonal_colour_link(repo_url, repo["name"]),
+            "PR Title": _seasonal_colour(pr_detail["title"]),
+            "Author": _seasonal_colour_link(author_url, author["login"]),
             "State": state_label,
             "Files": click_colour_grade_number(pr_detail["changed_files"]),
             "Commits": click_colour_grade_number(pr_detail["commits"]),
-            "+/-": _sc(f"{adds}/{subs}"),
+            "+/-": _seasonal_colour(f"{adds}/{subs}"),
             "Comments": click_colour_grade_number(pr_detail["review_comments"]),
         }
         if age:
@@ -1501,19 +1501,21 @@ def breakfast(
             _hb_owner = pr_detail["base"]["repo"]["owner"]["login"]
             _hb_repo = pr_detail["base"]["repo"]["name"]
             _hb_url = f"https://github.com/{_hb_owner}/{_hb_repo}/tree/{_hb_name}"
-            row["Head Branch"] = _sc_link(_hb_url, _hb_name)
+            row["Head Branch"] = _seasonal_colour_link(_hb_url, _hb_name)
         if base_branch:
             _bb_name = pr_detail["base"]["ref"]
             _bb_owner = pr_detail["base"]["repo"]["owner"]["login"]
             _bb_repo = pr_detail["base"]["repo"]["name"]
             _bb_url = f"https://github.com/{_bb_owner}/{_bb_repo}/tree/{_bb_name}"
-            row["Base Branch"] = _sc_link(_bb_url, _bb_name)
+            row["Base Branch"] = _seasonal_colour_link(_bb_url, _bb_name)
         row["Mergeable?"] = format_mergeable_status(
             pr_detail["mergeable"],
             pr_detail["mergeable_state"],
             style=status_style,
         )
-        row["Link"] = _sc_link(pr_detail["html_url"], f"PR-{pr_detail['number']}")
+        row["Link"] = _seasonal_colour_link(
+            pr_detail["html_url"], f"PR-{pr_detail['number']}"
+        )
         pr_data.append(row)
 
     # Apply explicit title truncation, then auto-fit to terminal if interactive

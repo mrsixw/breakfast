@@ -9,6 +9,44 @@ SEASONAL_PALETTES = {
     "yellow": "\033[38;5;226m",
     "orange": "\033[38;5;208m",
     "red": "\033[31m",
+    "pink": "\033[38;5;218m",
+    "lny": "\033[38;5;214m",
+}
+
+# Pride Month 🏳️‍🌈 rainbow: one colour per row, cycling by PR number.
+PRIDE_RAINBOW = [
+    "\033[31m",  # red
+    "\033[38;5;208m",  # orange
+    "\033[38;5;226m",  # yellow
+    "\033[32m",  # green
+    "\033[38;5;63m",  # blue
+    "\033[38;5;141m",  # purple
+]
+
+# Lunar New Year dates (year → (month, day)) for 2024–2045.
+_LUNAR_NEW_YEAR: dict[int, tuple[int, int]] = {
+    2024: (2, 10),
+    2025: (1, 29),
+    2026: (2, 17),
+    2027: (2, 6),
+    2028: (1, 26),
+    2029: (2, 13),
+    2030: (2, 3),
+    2031: (1, 23),
+    2032: (2, 11),
+    2033: (1, 31),
+    2034: (2, 19),
+    2035: (2, 8),
+    2036: (1, 28),
+    2037: (2, 15),
+    2038: (2, 4),
+    2039: (1, 24),
+    2040: (2, 12),
+    2041: (2, 1),
+    2042: (1, 22),
+    2043: (2, 10),
+    2044: (1, 30),
+    2045: (2, 17),
 }
 
 BREAKFAST_ITEMS = [
@@ -70,6 +108,11 @@ def _easter_month(year: int) -> int:
     return (h + ll - 7 * m + 114) // 31
 
 
+def _lny_date(year: int) -> tuple[int, int] | None:
+    """Return (month, day) for Lunar New Year in *year*, or None if unknown."""
+    return _LUNAR_NEW_YEAR.get(year)
+
+
 def _seasonal_colour() -> str | None:
     """Return the ANSI colour code for the current calendar month, or None.
 
@@ -79,7 +122,7 @@ def _seasonal_colour() -> str | None:
     today = datetime.date.today()
     month = today.month
     if month == 1:
-        return SEASONAL_PALETTES["purple"]
+        return SEASONAL_PALETTES["purple"]  # 🎂 Steve's birthday month
     if month == _easter_month(today.year):
         return SEASONAL_PALETTES["yellow"]
     if month == 10:
@@ -90,21 +133,40 @@ def _seasonal_colour() -> str | None:
 
 
 def apply_seasonal_colour(text: str, pr_number: int) -> str:
-    """Wrap *text* in a seasonal ANSI colour based on the current month.
+    """Wrap *text* in a seasonal ANSI colour based on the current date.
 
-    December 🎄 alternates rows between red and green (candy-cane style).
-    Non-special months return text unstyled so it renders in the default
-    terminal colour. Callers are expected to guard with the ``no-colour``
-    setting.
+    Special behaviours:
+    - December 🎄: alternates red / green (candy-cane) by PR number.
+    - June 🏳️‍🌈: cycles through Pride rainbow by PR number.
+    - 14 February 💕: Valentine's Day pink (date-specific).
+    - Lunar New Year 🧧: gold accent, February only — January stays purple
+      for Steve's birthday month and is never overridden.
+    Non-special dates return text unstyled. Callers guard with ``no-colour``.
     """
     today = datetime.date.today()
-    if today.month == 12:
+    month = today.month
+    day = today.day
+
+    if month == 12:
         colour = (
             SEASONAL_PALETTES["red"]
             if pr_number % 2 == 0
             else SEASONAL_PALETTES["green"]
         )
         return f"{colour}{text}\033[0m"
+
+    if month == 6:
+        colour = PRIDE_RAINBOW[pr_number % len(PRIDE_RAINBOW)]
+        return f"{colour}{text}\033[0m"
+
+    if month == 2 and day == 14:
+        return f"{SEASONAL_PALETTES['pink']}{text}\033[0m"
+
+    # LNY only when it falls in February; January purple is never overridden.
+    lny = _lny_date(today.year)
+    if lny is not None and lny == (month, day) and month == 2:
+        return f"{SEASONAL_PALETTES['lny']}{text}\033[0m"
+
     colour = _seasonal_colour()
     if colour is None:
         return text
@@ -282,6 +344,8 @@ def render_colour_diagnostics() -> str:
     lines.append(click.style("Seasonal colours  (author & PR title)", bold=True))
     palette_rows = [
         ("January 🗓️", "purple"),
+        ("Valentine's Day 💕 (14 Feb)", "pink"),
+        ("Lunar New Year 🧧 (Feb)", "lny"),
         ("Easter 🐣", "yellow"),
         ("October 🎃", "orange"),
         ("December 🎄 (red)", "red"),
@@ -299,7 +363,11 @@ def render_colour_diagnostics() -> str:
 
     for label, key in palette_rows:
         swatch = _seasonal_swatch(SEASONAL_PALETTES[key])
-        lines.append(f"  {_vpad(label, 22)}  {swatch}")
+        lines.append(f"  {_vpad(label, 28)}  {swatch}")
+
+    # Pride Month rainbow — one swatch per colour in the cycle.
+    pride_swatches = "  ".join(f"{code}{BLOCK}\033[0m" for code in PRIDE_RAINBOW)
+    lines.append(f"  {_vpad('Pride Month 🌈 (June)', 28)}  {pride_swatches}")
     lines.append("")
 
     # ------------------------------------------------------------------

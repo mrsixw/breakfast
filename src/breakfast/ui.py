@@ -1,4 +1,5 @@
 import datetime
+import math
 import unicodedata
 
 import click
@@ -23,31 +24,6 @@ PRIDE_RAINBOW = [
     "\033[38;5;141m",  # purple
 ]
 
-# Lunar New Year dates (year → (month, day)) for 2024–2045.
-_LUNAR_NEW_YEAR: dict[int, tuple[int, int]] = {
-    2024: (2, 10),
-    2025: (1, 29),
-    2026: (2, 17),
-    2027: (2, 6),
-    2028: (1, 26),
-    2029: (2, 13),
-    2030: (2, 3),
-    2031: (1, 23),
-    2032: (2, 11),
-    2033: (1, 31),
-    2034: (2, 19),
-    2035: (2, 8),
-    2036: (1, 28),
-    2037: (2, 15),
-    2038: (2, 4),
-    2039: (1, 24),
-    2040: (2, 12),
-    2041: (2, 1),
-    2042: (1, 22),
-    2043: (2, 10),
-    2044: (1, 30),
-    2045: (2, 17),
-}
 
 BREAKFAST_ITEMS = [
     "☕️",
@@ -108,9 +84,75 @@ def _easter_month(year: int) -> int:
     return (h + ll - 7 * m + 114) // 31
 
 
-def _lny_date(year: int) -> tuple[int, int] | None:
-    """Return (month, day) for Lunar New Year in *year*, or None if unknown."""
-    return _LUNAR_NEW_YEAR.get(year)
+def _new_moon_jde(k: float) -> float:
+    """Julian Ephemeris Day of new moon k (Meeus, Astronomical Algorithms, ch. 49).
+
+    k=0 is the new moon of 6 January 2000.
+    """
+    T = k / 1236.85
+    jde = (
+        2451550.09766
+        + 29.530588861 * k
+        + 0.00015437 * T**2
+        - 0.000000150 * T**3
+        + 0.00000000073 * T**4
+    )
+    M = math.radians(2.5534 + 29.10535670 * k - 0.0000014 * T**2)
+    Mp = math.radians(
+        201.5643 + 385.81693528 * k + 0.0107582 * T**2 + 0.00001238 * T**3
+    )
+    F = math.radians(160.7108 + 390.67050284 * k - 0.0016118 * T**2 - 0.00000227 * T**3)
+    Om = math.radians(124.7746 - 1.56375588 * k + 0.0020672 * T**2)
+    E = 1 - 0.002516 * T - 0.0000074 * T**2
+    corr = (
+        -0.40720 * math.sin(Mp)
+        + 0.17241 * E * math.sin(M)
+        + 0.01608 * math.sin(2 * Mp)
+        + 0.01039 * math.sin(2 * F)
+        + 0.00739 * E * math.sin(Mp - M)
+        - 0.00514 * E * math.sin(Mp + M)
+        + 0.00208 * E**2 * math.sin(2 * M)
+        - 0.00111 * math.sin(Mp - 2 * F)
+        - 0.00057 * math.sin(Mp + 2 * F)
+        + 0.00056 * E * math.sin(2 * Mp + M)
+        - 0.00042 * math.sin(3 * Mp)
+        + 0.00042 * E * math.sin(M + 2 * F)
+        + 0.00038 * E * math.sin(M - 2 * F)
+        - 0.00024 * E * math.sin(2 * Mp - M)
+        - 0.00017 * math.sin(Om)
+    )
+    return jde + corr
+
+
+def _jde_to_date_cst(jde: float) -> tuple[int, int, int]:
+    """Convert a Julian Ephemeris Day to Gregorian (year, month, day) in CST (UTC+8)."""
+    jd = jde + 8.0 / 24.0  # shift to Chinese Standard Time
+    Z = int(jd + 0.5)
+    alpha = int((Z - 1867216.25) / 36524.25)
+    A = Z + 1 + alpha - alpha // 4
+    B = A + 1524
+    C = int((B - 122.1) / 365.25)
+    D = int(365.25 * C)
+    E_val = int((B - D) / 30.6001)
+    day = B - D - int(30.6001 * E_val)
+    month = E_val - 1 if E_val < 14 else E_val - 13
+    year = C - 4716 if month > 2 else C - 4715
+    return year, month, day
+
+
+def _lny_date(year: int) -> tuple[int, int]:
+    """Return (month, day) of Lunar New Year for *year* in Chinese Standard Time.
+
+    Chinese New Year is the new moon between Jan 21 and Feb 20.
+    Uses the Meeus new-moon algorithm (Astronomical Algorithms, ch. 49).
+    """
+    k_approx = round((year - 2000) * 12.3685)
+    for dk in range(-2, 4):
+        jde = _new_moon_jde(k_approx + dk)
+        y, m, d = _jde_to_date_cst(jde)
+        if y == year and ((m == 1 and d >= 21) or (m == 2 and d <= 20)):
+            return m, d
+    raise ValueError(f"Could not calculate Lunar New Year for {year}")
 
 
 def _seasonal_colour() -> str | None:
@@ -164,7 +206,7 @@ def apply_seasonal_colour(text: str, pr_number: int) -> str:
 
     # LNY only when it falls in February; January purple is never overridden.
     lny = _lny_date(today.year)
-    if lny is not None and lny == (month, day) and month == 2:
+    if lny == (month, day) and month == 2:
         return f"{SEASONAL_PALETTES['lny']}{text}\033[0m"
 
     colour = _seasonal_colour()

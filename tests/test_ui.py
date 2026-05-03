@@ -194,7 +194,9 @@ def test_lny_date_known_years():
     assert ui._lny_date(2024) == (2, 10)
     assert ui._lny_date(2025) == (1, 29)
     assert ui._lny_date(2026) == (2, 17)
-    assert ui._lny_date(9999) is None
+    assert ui._lny_date(2028) == (1, 26)
+    assert ui._lny_date(2031) == (1, 23)
+    assert ui._lny_date(2034) == (2, 19)
 
 
 def test_apply_seasonal_colour_lny_february():

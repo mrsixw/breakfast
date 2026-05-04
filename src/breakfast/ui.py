@@ -1,4 +1,5 @@
 import datetime
+import math
 import unicodedata
 
 import click
@@ -9,7 +10,20 @@ SEASONAL_PALETTES = {
     "yellow": "\033[38;5;226m",
     "orange": "\033[38;5;208m",
     "red": "\033[31m",
+    "pink": "\033[38;5;218m",
+    "lny": "\033[38;5;214m",
 }
+
+# Pride Month 🏳️‍🌈 rainbow: one colour per row, cycling by PR number.
+PRIDE_RAINBOW = [
+    "\033[31m",  # red
+    "\033[38;5;208m",  # orange
+    "\033[38;5;226m",  # yellow
+    "\033[32m",  # green
+    "\033[38;5;63m",  # blue
+    "\033[38;5;141m",  # purple
+]
+
 
 BREAKFAST_ITEMS = [
     "☕️",
@@ -70,6 +84,77 @@ def _easter_month(year: int) -> int:
     return (h + ll - 7 * m + 114) // 31
 
 
+def _new_moon_jde(k: float) -> float:
+    """Julian Ephemeris Day of new moon k (Meeus, Astronomical Algorithms, ch. 49).
+
+    k=0 is the new moon of 6 January 2000.
+    """
+    T = k / 1236.85
+    jde = (
+        2451550.09766
+        + 29.530588861 * k
+        + 0.00015437 * T**2
+        - 0.000000150 * T**3
+        + 0.00000000073 * T**4
+    )
+    M = math.radians(2.5534 + 29.10535670 * k - 0.0000014 * T**2)
+    Mp = math.radians(
+        201.5643 + 385.81693528 * k + 0.0107582 * T**2 + 0.00001238 * T**3
+    )
+    F = math.radians(160.7108 + 390.67050284 * k - 0.0016118 * T**2 - 0.00000227 * T**3)
+    Om = math.radians(124.7746 - 1.56375588 * k + 0.0020672 * T**2)
+    E = 1 - 0.002516 * T - 0.0000074 * T**2
+    corr = (
+        -0.40720 * math.sin(Mp)
+        + 0.17241 * E * math.sin(M)
+        + 0.01608 * math.sin(2 * Mp)
+        + 0.01039 * math.sin(2 * F)
+        + 0.00739 * E * math.sin(Mp - M)
+        - 0.00514 * E * math.sin(Mp + M)
+        + 0.00208 * E**2 * math.sin(2 * M)
+        - 0.00111 * math.sin(Mp - 2 * F)
+        - 0.00057 * math.sin(Mp + 2 * F)
+        + 0.00056 * E * math.sin(2 * Mp + M)
+        - 0.00042 * math.sin(3 * Mp)
+        + 0.00042 * E * math.sin(M + 2 * F)
+        + 0.00038 * E * math.sin(M - 2 * F)
+        - 0.00024 * E * math.sin(2 * Mp - M)
+        - 0.00017 * math.sin(Om)
+    )
+    return jde + corr
+
+
+def _jde_to_date_cst(jde: float) -> tuple[int, int, int]:
+    """Convert a Julian Ephemeris Day to Gregorian (year, month, day) in CST (UTC+8)."""
+    jd = jde + 8.0 / 24.0  # shift to Chinese Standard Time
+    Z = int(jd + 0.5)
+    alpha = int((Z - 1867216.25) / 36524.25)
+    A = Z + 1 + alpha - alpha // 4
+    B = A + 1524
+    C = int((B - 122.1) / 365.25)
+    D = int(365.25 * C)
+    E_val = int((B - D) / 30.6001)
+    day = B - D - int(30.6001 * E_val)
+    month = E_val - 1 if E_val < 14 else E_val - 13
+    year = C - 4716 if month > 2 else C - 4715
+    return year, month, day
+
+
+def _lny_date(year: int) -> tuple[int, int]:
+    """Return (month, day) of Lunar New Year for *year* in Chinese Standard Time.
+
+    Chinese New Year is the new moon between Jan 21 and Feb 20.
+    Uses the Meeus new-moon algorithm (Astronomical Algorithms, ch. 49).
+    """
+    k_approx = round((year - 2000) * 12.3685)
+    for dk in range(-2, 4):
+        jde = _new_moon_jde(k_approx + dk)
+        y, m, d = _jde_to_date_cst(jde)
+        if y == year and ((m == 1 and d >= 21) or (m == 2 and d <= 20)):
+            return m, d
+    raise ValueError(f"Could not calculate Lunar New Year for {year}")
+
+
 def _seasonal_colour() -> str | None:
     """Return the ANSI colour code for the current calendar month, or None.
 
@@ -90,21 +175,40 @@ def _seasonal_colour() -> str | None:
 
 
 def apply_seasonal_colour(text: str, pr_number: int) -> str:
-    """Wrap *text* in a seasonal ANSI colour based on the current month.
+    """Wrap *text* in a seasonal ANSI colour based on the current date.
 
-    December 🎄 alternates rows between red and green (candy-cane style).
-    Non-special months return text unstyled so it renders in the default
-    terminal colour. Callers are expected to guard with the ``no-colour``
-    setting.
+    Special behaviours:
+    - December 🎄: alternates red / green (candy-cane) by PR number.
+    - June 🏳️‍🌈: cycles through Pride rainbow by PR number.
+    - 14 February 💕: Valentine's Day pink (date-specific).
+    - Lunar New Year 🧧: gold accent, February only — January stays purple
+      for Steve's birthday month and is never overridden.
+    Non-special dates return text unstyled. Callers guard with ``no-colour``.
     """
     today = datetime.date.today()
-    if today.month == 12:
+    month = today.month
+    day = today.day
+
+    if month == 12:
         colour = (
             SEASONAL_PALETTES["red"]
             if pr_number % 2 == 0
             else SEASONAL_PALETTES["green"]
         )
         return f"{colour}{text}\033[0m"
+
+    if month == 6:
+        colour = PRIDE_RAINBOW[pr_number % len(PRIDE_RAINBOW)]
+        return f"{colour}{text}\033[0m"
+
+    if month == 2 and day == 14:
+        return f"{SEASONAL_PALETTES['pink']}{text}\033[0m"
+
+    # LNY only when it falls in February; January purple is never overridden.
+    lny = _lny_date(today.year)
+    if lny == (month, day) and month == 2:
+        return f"{SEASONAL_PALETTES['lny']}{text}\033[0m"
+
     colour = _seasonal_colour()
     if colour is None:
         return text
@@ -282,6 +386,8 @@ def render_colour_diagnostics() -> str:
     lines.append(click.style("Seasonal colours  (author & PR title)", bold=True))
     palette_rows = [
         ("January 🗓️", "purple"),
+        ("Valentine's Day 💕 (14 Feb)", "pink"),
+        ("Lunar New Year 🧧 (Feb)", "lny"),
         ("Easter 🐣", "yellow"),
         ("October 🎃", "orange"),
         ("December 🎄 (red)", "red"),
@@ -299,7 +405,11 @@ def render_colour_diagnostics() -> str:
 
     for label, key in palette_rows:
         swatch = _seasonal_swatch(SEASONAL_PALETTES[key])
-        lines.append(f"  {_vpad(label, 22)}  {swatch}")
+        lines.append(f"  {_vpad(label, 28)}  {swatch}")
+
+    # Pride Month rainbow — one swatch per colour in the cycle.
+    pride_swatches = "  ".join(f"{code}{BLOCK}\033[0m" for code in PRIDE_RAINBOW)
+    lines.append(f"  {_vpad('Pride Month 🌈 (June)', 28)}  {pride_swatches}")
     lines.append("")
 
     # ------------------------------------------------------------------

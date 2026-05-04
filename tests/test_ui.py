@@ -140,7 +140,7 @@ def test_apply_seasonal_colour_uses_single_colour():
 
 def test_apply_seasonal_colour_non_special_month_returns_plain():
     with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = _today(6)  # June → no seasonal theme
+        mock_dt.date.today.return_value = _today(7)  # July → no seasonal theme
         for pr_num in range(4):
             result = ui.apply_seasonal_colour("alice", pr_num)
             assert result == "alice"
@@ -162,6 +162,80 @@ def test_apply_seasonal_colour_wraps_and_resets():
         result = ui.apply_seasonal_colour("hello", 0)
     assert "\033[0m" in result
     assert "hello" in result
+
+
+# ---------------------------------------------------------------------------
+# Valentine's Day 💕
+# ---------------------------------------------------------------------------
+
+
+def test_apply_seasonal_colour_valentines_day():
+    with patch("breakfast.ui.datetime") as mock_dt:
+        mock_dt.date.today.return_value = _today(2, day=14)  # Feb 14
+        result = ui.apply_seasonal_colour("alice", 0)
+    assert result.startswith(ui.SEASONAL_PALETTES["pink"])
+    assert result.endswith("\033[0m")
+    assert "alice" in result
+
+
+def test_apply_seasonal_colour_not_valentines_day():
+    with patch("breakfast.ui.datetime") as mock_dt:
+        mock_dt.date.today.return_value = _today(2, day=15)  # Feb 15 — plain
+        result = ui.apply_seasonal_colour("alice", 0)
+    assert result == "alice"
+
+
+# ---------------------------------------------------------------------------
+# Lunar New Year 🧧
+# ---------------------------------------------------------------------------
+
+
+def test_lny_date_known_years():
+    assert ui._lny_date(2024) == (2, 10)
+    assert ui._lny_date(2025) == (1, 29)
+    assert ui._lny_date(2026) == (2, 17)
+    assert ui._lny_date(2028) == (1, 26)
+    assert ui._lny_date(2031) == (1, 23)
+    assert ui._lny_date(2034) == (2, 19)
+
+
+def test_apply_seasonal_colour_lny_february():
+    # 2026 LNY is 17 February — should show gold.
+    with patch("breakfast.ui.datetime") as mock_dt:
+        mock_dt.date.today.return_value = datetime.date(2026, 2, 17)
+        result = ui.apply_seasonal_colour("alice", 0)
+    assert result.startswith(ui.SEASONAL_PALETTES["lny"])
+    assert result.endswith("\033[0m")
+
+
+def test_apply_seasonal_colour_lny_january_stays_purple():
+    # 2025 LNY is 29 January — January purple (birthday) must NOT be overridden.
+    with patch("breakfast.ui.datetime") as mock_dt:
+        mock_dt.date.today.return_value = datetime.date(2025, 1, 29)
+        result = ui.apply_seasonal_colour("alice", 0)
+    assert result.startswith(ui.SEASONAL_PALETTES["purple"])
+    assert not result.startswith(ui.SEASONAL_PALETTES["lny"])
+
+
+# ---------------------------------------------------------------------------
+# Pride Month 🌈
+# ---------------------------------------------------------------------------
+
+
+def test_apply_seasonal_colour_pride_cycles_rainbow():
+    with patch("breakfast.ui.datetime") as mock_dt:
+        mock_dt.date.today.return_value = _today(6)  # June → Pride
+        for i, expected_colour in enumerate(ui.PRIDE_RAINBOW):
+            result = ui.apply_seasonal_colour("alice", i)
+            assert result.startswith(expected_colour)
+            assert result.endswith("\033[0m")
+
+
+def test_apply_seasonal_colour_pride_wraps():
+    with patch("breakfast.ui.datetime") as mock_dt:
+        mock_dt.date.today.return_value = _today(6)
+        n = len(ui.PRIDE_RAINBOW)
+        assert ui.apply_seasonal_colour("x", 0) == ui.apply_seasonal_colour("x", n)
 
 
 # ---------------------------------------------------------------------------

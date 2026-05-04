@@ -79,7 +79,7 @@ def _seasonal_colour() -> str | None:
     today = datetime.date.today()
     month = today.month
     if month == 1:
-        return SEASONAL_PALETTES["purple"]
+        return SEASONAL_PALETTES["purple"]  # 🎂 Steve's birthday month
     if month == _easter_month(today.year):
         return SEASONAL_PALETTES["yellow"]
     if month == 10:

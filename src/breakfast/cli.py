@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 import random
 import re
@@ -556,7 +558,7 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     "--format",
     "output_format",
     default=None,
-    type=click.Choice(["table", "json", "markdown"], case_sensitive=False),
+    type=click.Choice(["table", "json", "markdown", "csv"], case_sensitive=False),
     help=(
         "Output format: table (default), json, or markdown. "
         "Overrides --json/--no-json/--markdown when both are given."
@@ -846,11 +848,16 @@ def breakfast(
         fmt = "markdown" if markdown_flag else "table"
     else:
         cfg_format = cfg.get("format")
-        if cfg_format is not None and cfg_format not in {"table", "json", "markdown"}:
+        if cfg_format is not None and cfg_format not in {
+            "table",
+            "json",
+            "markdown",
+            "csv",
+        }:
             click.echo(
                 click.style(
                     f"Warning: unrecognised format '{cfg_format}' in config"
-                    " — expected 'table', 'json', or 'markdown'."
+                    " — expected 'table', 'json', 'markdown', or 'csv'."
                     " Falling back to 'table'.",
                     fg="yellow",
                 ),
@@ -1439,6 +1446,86 @@ def breakfast(
         if api_stats:
             _print_debug_summary(
                 t0_total, len(md_data), get_api_stats(), get_graphql_rate_limit()
+            )
+        return
+
+    if fmt == "csv":
+        buf = io.StringIO()
+        fieldnames = [
+            "repo",
+            "pr_number",
+            "title",
+            "author",
+            "url",
+            "state",
+            "draft",
+            "created_at",
+            "updated_at",
+            "additions",
+            "deletions",
+            "changed_files",
+            "commits",
+            "review_comments",
+            "labels",
+            "requested_reviewers",
+        ]
+        if age:
+            fieldnames.append("age_days")
+        if checks:
+            fieldnames.append("checks")
+        if approvals:
+            fieldnames.append("approval")
+            fieldnames.append("approval_current")
+            fieldnames.append("approval_required")
+        writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for pr_detail in pr_details:
+            row = {
+                "repo": pr_detail["base"]["repo"]["name"],
+                "pr_number": pr_detail["number"],
+                "title": pr_detail["title"],
+                "author": pr_detail["user"]["login"],
+                "url": pr_detail["html_url"],
+                "state": pr_detail["state"],
+                "draft": pr_detail.get("draft", False),
+                "created_at": pr_detail.get("created_at", ""),
+                "updated_at": pr_detail.get("updated_at", ""),
+                "additions": pr_detail.get("additions", ""),
+                "deletions": pr_detail.get("deletions", ""),
+                "changed_files": pr_detail.get("changed_files", ""),
+                "commits": pr_detail.get("commits", ""),
+                "review_comments": pr_detail.get("review_comments", ""),
+                "labels": "|".join(lb["name"] for lb in pr_detail.get("labels", [])),
+                "requested_reviewers": "|".join(
+                    r["login"] for r in pr_detail.get("requested_reviewers", [])
+                ),
+            }
+            if age:
+                row["age_days"] = get_pr_age_days(pr_detail)
+            if checks:
+                row["checks"] = check_statuses.get(pr_detail["id"], "none")
+            if approvals:
+                approval_detail = approval_details.get(pr_detail["id"], {})
+                row["approval"] = approval_statuses.get(pr_detail["id"], "pending")
+                row["approval_current"] = approval_detail.get("current", "")
+                row["approval_required"] = approval_detail.get("required", "")
+            writer.writerow(row)
+        click.echo(buf.getvalue(), nl=False)
+        logger.info(
+            "render_complete elapsed_ms=%d", int((time.monotonic() - t_render) * 1000)
+        )
+        if not no_update_check:
+            update_msg = check_for_update()
+            if update_msg:
+                logger.info("update_available msg=%r", update_msg)
+                click.echo(
+                    click.style(update_msg, fg="cyan", bold=True),
+                    err=True,
+                    color=colour,
+                )
+        if api_stats:
+            _print_debug_summary(
+                t0_total, len(pr_details), get_api_stats(), get_graphql_rate_limit()
             )
         return
 

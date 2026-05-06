@@ -176,7 +176,7 @@ def make_paginated_github_api_request(query_string, rate=100):
     return all_data
 
 
-def make_github_graphql_request(query, variables={}):
+def make_github_graphql_request(query, variables=None):
     headers = {
         "Authorization": f"Bearer {SECRET_GITHUB_TOKEN}",
         "Content-Type": "application/json",
@@ -491,10 +491,14 @@ def get_approval_status(owner, repo, pr_number, base_branch=None):
 def get_check_status(owner, repo, sha):
     # Check Runs API (GitHub Actions, newer CI integrations)
     cr_data = make_github_api_request(f"/repos/{owner}/{repo}/commits/{sha}/check-runs")
+    if not isinstance(cr_data, dict):
+        return "none"
     check_runs = cr_data.get("check_runs", [])
 
     # Commit Status API (Jenkins, older CI integrations)
     status_data = make_github_api_request(f"/repos/{owner}/{repo}/commits/{sha}/status")
+    if not isinstance(status_data, dict):
+        return "none"
     statuses = status_data.get("statuses", [])
 
     if not check_runs and not statuses:

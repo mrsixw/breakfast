@@ -22,10 +22,21 @@ echo -e "${BOLD}${BLUE}🍳 Serving up breakfast...${RESET}"
 
 # Find the latest release
 echo -e "${YELLOW}Finding the latest version...${RESET}"
-LATEST_RELEASE_JSON=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest")
-LATEST_RELEASE_URL=$(echo "${LATEST_RELEASE_JSON}" | grep -o "https://github.com/${REPO}/releases/download/[^/ ]*/${BINARY_NAME}" | head -n 1)
-LATEST_TAG=$(echo "${LATEST_RELEASE_JSON}" | grep -o '"tag_name": *"[^"]*"' | grep -o '"[^"]*"$' | tr -d '"')
+LATEST_RELEASE_JSON=$(curl -sf "https://api.github.com/repos/${REPO}/releases/latest") || {
+    echo -e "${BOLD}\033[31m❌ Failed to fetch release info for ${REPO}.${RESET}"
+    exit 1
+}
+LATEST_TAG=$(printf '%s' "${LATEST_RELEASE_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])") || {
+    echo -e "${BOLD}\033[31m❌ Failed to parse release tag for ${REPO}.${RESET}"
+    exit 1
+}
 RELEASE_BASE_URL="https://github.com/${REPO}/releases/download/${LATEST_TAG}"
+LATEST_RELEASE_URL=$(printf '%s' "${LATEST_RELEASE_JSON}" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+urls = [a['browser_download_url'] for a in data.get('assets', []) if a['name'] == '${BINARY_NAME}']
+print(urls[0] if urls else '')
+")
 
 if [ -z "${LATEST_RELEASE_URL}" ]; then
     echo -e "${BOLD}\033[31m❌ Failed to find the latest release for ${REPO}.${RESET}"
@@ -38,7 +49,10 @@ echo -e "${GREEN}Found latest release! Downloading...${RESET}"
 mkdir -p "${INSTALL_DIR}"
 
 # Download the binary
-curl -sL "${LATEST_RELEASE_URL}" -o "${EXECUTABLE_PATH}"
+if ! curl -sfL "${LATEST_RELEASE_URL}" -o "${EXECUTABLE_PATH}"; then
+    echo -e "${BOLD}\033[31m❌ Failed to download binary from ${LATEST_RELEASE_URL}.${RESET}"
+    exit 1
+fi
 chmod +x "${EXECUTABLE_PATH}"
 
 echo -e "${BOLD}${GREEN}✅ Successfully installed ${BINARY_NAME} to ${EXECUTABLE_PATH}!${RESET}"

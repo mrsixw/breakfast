@@ -55,5 +55,8 @@ completions: .venv
 	uv sync
 	mkdir -p completions
 	_BREAKFAST_COMPLETE=bash_source uv run breakfast > completions/breakfast.bash
+	sed -i.bak 's/_BREAKFAST_COMPLETE=bash_complete $$1)/_BREAKFAST_COMPLETE=bash_complete "$$1")/' completions/breakfast.bash
+	sed -i.bak 's/COMPREPLY+=($$value)/COMPREPLY+=("$$value")/' completions/breakfast.bash
+	rm -f completions/breakfast.bash.bak
 	_BREAKFAST_COMPLETE=zsh_source uv run breakfast > completions/_breakfast
 	_BREAKFAST_COMPLETE=fish_source uv run breakfast > completions/breakfast.fish

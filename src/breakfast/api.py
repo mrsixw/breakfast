@@ -272,7 +272,7 @@ def get_github_prs(organization, repo_filter):
 
     gql_responses = []
 
-    click.echo(f"Fetching {organization} PRs...", nl=False)
+    click.echo(f"Fetching {organization} PRs...", nl=False, err=True)
     while True:
         response = make_github_graphql_request(base_query, variables)
         gql_responses.append(response)
@@ -280,8 +280,8 @@ def get_github_prs(organization, repo_filter):
         if not page_info["hasNextPage"]:
             break
         variables["cursor"] = page_info["endCursor"]
-        click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False)
-    click.echo("...Done")
+        click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
+    click.echo("...Done", err=True)
 
     prs = []
     for response in gql_responses:

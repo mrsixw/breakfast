@@ -1409,8 +1409,8 @@ def breakfast(
                 row["Base Branch"] = f"[{_bb_name}]({_bb_url})"
             row["Mergeable?"] = _osc8_to_markdown(
                 format_mergeable_status(
-                    pr_detail["mergeable"],
-                    pr_detail["mergeable_state"],
+                    pr_detail.get("mergeable"),
+                    pr_detail.get("mergeable_state"),
                     style=status_style,
                 )
             )
@@ -1509,8 +1509,8 @@ def breakfast(
             _bb_url = f"https://github.com/{_bb_owner}/{_bb_repo}/tree/{_bb_name}"
             row["Base Branch"] = _seasonal_colour_link(_bb_url, _bb_name)
         row["Mergeable?"] = format_mergeable_status(
-            pr_detail["mergeable"],
-            pr_detail["mergeable_state"],
+            pr_detail.get("mergeable"),
+            pr_detail.get("mergeable_state"),
             style=status_style,
         )
         row["Link"] = _seasonal_colour_link(

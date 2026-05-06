@@ -27,7 +27,7 @@ def _read_version_cache():
         if age > _CACHE_TTL_SECONDS:
             return None
         return data.get("latest_version")
-    except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
+    except (OSError, json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
         logger.debug("version_cache_read_error error=%r", str(exc))
         return None
 

@@ -87,7 +87,7 @@ def read_graphql_cache(org: str, repo_filter: str, ttl: int) -> list | None:
             len(data["urls"]),
         )
         return data["urls"]
-    except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
+    except (OSError, json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
         logger.warning(
             "cache_read_error layer=graphql path=%s error=%r", path, str(exc)
         )
@@ -174,7 +174,7 @@ def read_pr_cache(org: str, repo_filter: str, ttl: int) -> dict | None:
                 else None
             ),
         }
-    except (OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
+    except (OSError, json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
         logger.warning(
             "cache_read_error layer=pr_detail path=%s error=%r", path, str(exc)
         )

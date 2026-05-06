@@ -1163,7 +1163,12 @@ def breakfast(
             for pr_id, future in check_futures:
                 try:
                     check_statuses[pr_id] = future.result()
-                except requests.exceptions.RequestException as exc:
+                except (
+                    KeyError,
+                    ValueError,
+                    AttributeError,
+                    requests.exceptions.RequestException,
+                ) as exc:
                     logger.warning(
                         "check_status_fetch_failed pr_id=%s error=%r",
                         pr_id,

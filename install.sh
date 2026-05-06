@@ -22,7 +22,7 @@ echo -e "${BOLD}${BLUE}🍳 Serving up breakfast...${RESET}"
 
 # Find the latest release
 echo -e "${YELLOW}Finding the latest version...${RESET}"
-LATEST_RELEASE_JSON=$(curl -s "https://api.github.com/repos/${REPO}/releases/latest")
+LATEST_RELEASE_JSON=$(curl -sf "https://api.github.com/repos/${REPO}/releases/latest")
 LATEST_RELEASE_URL=$(echo "${LATEST_RELEASE_JSON}" | grep -o "https://github.com/${REPO}/releases/download/[^/ ]*/${BINARY_NAME}" | head -n 1)
 LATEST_TAG=$(echo "${LATEST_RELEASE_JSON}" | grep -o '"tag_name": *"[^"]*"' | grep -o '"[^"]*"$' | tr -d '"')
 RELEASE_BASE_URL="https://github.com/${REPO}/releases/download/${LATEST_TAG}"
@@ -38,7 +38,10 @@ echo -e "${GREEN}Found latest release! Downloading...${RESET}"
 mkdir -p "${INSTALL_DIR}"
 
 # Download the binary
-curl -sL "${LATEST_RELEASE_URL}" -o "${EXECUTABLE_PATH}"
+if ! curl -sfL "${LATEST_RELEASE_URL}" -o "${EXECUTABLE_PATH}"; then
+    echo -e "${BOLD}\033[31m❌ Failed to download binary from ${LATEST_RELEASE_URL}.${RESET}"
+    exit 1
+fi
 chmod +x "${EXECUTABLE_PATH}"
 
 echo -e "${BOLD}${GREEN}✅ Successfully installed ${BINARY_NAME} to ${EXECUTABLE_PATH}!${RESET}"

@@ -1163,7 +1163,12 @@ def breakfast(
             for pr_id, future in check_futures:
                 try:
                     check_statuses[pr_id] = future.result()
-                except requests.exceptions.RequestException as exc:
+                except (
+                    KeyError,
+                    ValueError,
+                    AttributeError,
+                    requests.exceptions.RequestException,
+                ) as exc:
                     logger.warning(
                         "check_status_fetch_failed pr_id=%s error=%r",
                         pr_id,
@@ -1364,8 +1369,8 @@ def breakfast(
             state_str = pr_detail["state"]
             if pr_detail.get("draft"):
                 state_str = "draft"
-            adds = pr_detail["additions"]
-            subs = pr_detail["deletions"]
+            adds = pr_detail.get("additions", 0)
+            subs = pr_detail.get("deletions", 0)
             row = {
                 "Repo": f"[{repo['name']}]({repo_url})",
                 "PR Title": pr_detail["title"],
@@ -1409,8 +1414,8 @@ def breakfast(
                 row["Base Branch"] = f"[{_bb_name}]({_bb_url})"
             row["Mergeable?"] = _osc8_to_markdown(
                 format_mergeable_status(
-                    pr_detail["mergeable"],
-                    pr_detail["mergeable_state"],
+                    pr_detail.get("mergeable"),
+                    pr_detail.get("mergeable_state"),
                     style=status_style,
                 )
             )
@@ -1443,8 +1448,12 @@ def breakfast(
         return
 
     for pr_detail in pr_details:
-        adds = click.style("+" + str(pr_detail["additions"]), fg="green", bold=True)
-        subs = click.style("-" + str(pr_detail["deletions"]), fg="red", bold=True)
+        adds = click.style(
+            "+" + str(pr_detail.get("additions", 0)), fg="green", bold=True
+        )
+        subs = click.style(
+            "-" + str(pr_detail.get("deletions", 0)), fg="red", bold=True
+        )
 
         state_label = format_pr_state(pr_detail["state"], pr_detail.get("draft", False))
         if legendary and is_legendary(pr_detail):
@@ -1509,8 +1518,8 @@ def breakfast(
             _bb_url = f"https://github.com/{_bb_owner}/{_bb_repo}/tree/{_bb_name}"
             row["Base Branch"] = _seasonal_colour_link(_bb_url, _bb_name)
         row["Mergeable?"] = format_mergeable_status(
-            pr_detail["mergeable"],
-            pr_detail["mergeable_state"],
+            pr_detail.get("mergeable"),
+            pr_detail.get("mergeable_state"),
             style=status_style,
         )
         row["Link"] = _seasonal_colour_link(

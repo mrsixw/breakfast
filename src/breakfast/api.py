@@ -121,9 +121,9 @@ def make_github_api_request(query_string):
             result = req.json()
             with _api_stats_lock:
                 _api_stats["rest_calls"] += 1
-                headers = getattr(req, "headers", {})
-                remaining = headers.get("X-RateLimit-Remaining")
-                reset_ts = headers.get("X-RateLimit-Reset")
+                resp_headers = getattr(req, "headers", {})
+                remaining = resp_headers.get("X-RateLimit-Remaining")
+                reset_ts = resp_headers.get("X-RateLimit-Reset")
                 if remaining is not None:
                     _api_stats["rest_rate_limit_remaining"] = int(remaining)
                 if reset_ts is not None:
@@ -176,7 +176,7 @@ def make_paginated_github_api_request(query_string, rate=100):
     return all_data
 
 
-def make_github_graphql_request(query, variables={}):
+def make_github_graphql_request(query, variables=None):
     headers = {
         "Authorization": f"Bearer {SECRET_GITHUB_TOKEN}",
         "Content-Type": "application/json",
@@ -272,7 +272,7 @@ def get_github_prs(organization, repo_filter):
 
     gql_responses = []
 
-    click.echo(f"Fetching {organization} PRs...", nl=False)
+    click.echo(f"Fetching {organization} PRs...", nl=False, err=True)
     while True:
         response = make_github_graphql_request(base_query, variables)
         gql_responses.append(response)
@@ -280,8 +280,8 @@ def get_github_prs(organization, repo_filter):
         if not page_info["hasNextPage"]:
             break
         variables["cursor"] = page_info["endCursor"]
-        click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False)
-    click.echo("...Done")
+        click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
+    click.echo("...Done", err=True)
 
     prs = []
     for response in gql_responses:

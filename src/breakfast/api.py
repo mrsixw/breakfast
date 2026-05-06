@@ -176,7 +176,7 @@ def make_paginated_github_api_request(query_string, rate=100):
     return all_data
 
 
-def make_github_graphql_request(query, variables={}):
+def make_github_graphql_request(query, variables=None):
     headers = {
         "Authorization": f"Bearer {SECRET_GITHUB_TOKEN}",
         "Content-Type": "application/json",

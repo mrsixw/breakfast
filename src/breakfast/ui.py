@@ -324,13 +324,17 @@ def format_mergeable_status(is_mergeable, mergeable_state, style="emoji"):
     """Return a colour-coded mergeability label for table output.
 
     Args:
-        is_mergeable: Whether GitHub reports the PR as mergeable.
+        is_mergeable: Whether GitHub reports the PR as mergeable, or None if
+            GitHub is still computing it (common on freshly-updated PRs).
         mergeable_state: GitHub's mergeable-state detail such as ``clean``.
         style: Rendering style, either ``emoji`` or ``ascii``.
 
     Returns:
-        A styled label such as ``✅ (clean)`` or ``yes (clean)``.
+        A styled label such as ``✅ (clean)``, ``❌ (dirty)``, or ``⏳ computing``.
     """
+    if is_mergeable is None:
+        label = "computing" if style == "ascii" else "⏳ computing"
+        return click.style(label, fg=246, bold=False)
     colour = "green" if is_mergeable else "red"
     if style == "ascii":
         prefix = "yes" if is_mergeable else "no"

@@ -18,7 +18,10 @@ if git rev-parse -q --verify "refs/tags/v${version}" >/dev/null; then
   version=$(python utils/read_version.py)
   git add pyproject.toml
   git commit -m "chore: bump version to ${version}" >/dev/null
-  git push origin "HEAD:${branch_name}" >/dev/null
+  if ! git push origin "HEAD:${branch_name}"; then
+    echo "git push failed; version bump commit not pushed" >&2
+    exit 1
+  fi
 fi
 
 printf '%s\n' "$version"

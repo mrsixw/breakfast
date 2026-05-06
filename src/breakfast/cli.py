@@ -1369,8 +1369,8 @@ def breakfast(
             state_str = pr_detail["state"]
             if pr_detail.get("draft"):
                 state_str = "draft"
-            adds = pr_detail["additions"]
-            subs = pr_detail["deletions"]
+            adds = pr_detail.get("additions", 0)
+            subs = pr_detail.get("deletions", 0)
             row = {
                 "Repo": f"[{repo['name']}]({repo_url})",
                 "PR Title": pr_detail["title"],
@@ -1448,8 +1448,12 @@ def breakfast(
         return
 
     for pr_detail in pr_details:
-        adds = click.style("+" + str(pr_detail["additions"]), fg="green", bold=True)
-        subs = click.style("-" + str(pr_detail["deletions"]), fg="red", bold=True)
+        adds = click.style(
+            "+" + str(pr_detail.get("additions", 0)), fg="green", bold=True
+        )
+        subs = click.style(
+            "-" + str(pr_detail.get("deletions", 0)), fg="red", bold=True
+        )
 
         state_label = format_pr_state(pr_detail["state"], pr_detail.get("draft", False))
         if legendary and is_legendary(pr_detail):

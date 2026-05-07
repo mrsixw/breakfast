@@ -46,6 +46,19 @@ def test_format_mergeable_status():
     assert "yes (clean)" in ui.format_mergeable_status(True, "clean", style="ascii")
 
 
+def test_format_mergeable_status_amber_states():
+    for state in ("behind", "unstable", "blocked"):
+        result = ui.format_mergeable_status(True, state)
+        assert "⚠️" in result, f"expected ⚠️ for state={state!r}"
+        assert state in result
+
+
+def test_format_mergeable_status_amber_ascii():
+    result = ui.format_mergeable_status(True, "behind", style="ascii")
+    assert "~" in result
+    assert "behind" in result
+
+
 def test_format_mergeable_status_merged_pr():
     result = ui.format_mergeable_status(None, None, pr_state="closed", merged=True)
     assert "🏁 merged" in result

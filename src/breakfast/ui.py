@@ -320,7 +320,9 @@ def format_approval_status(
     return click.style(text, fg=colour, bold=True)
 
 
-def format_mergeable_status(is_mergeable, mergeable_state, style="emoji"):
+def format_mergeable_status(
+    is_mergeable, mergeable_state, style="emoji", pr_state=None, merged=False
+):
     """Return a colour-coded mergeability label for table output.
 
     Args:
@@ -328,10 +330,18 @@ def format_mergeable_status(is_mergeable, mergeable_state, style="emoji"):
             GitHub is still computing it (common on freshly-updated PRs).
         mergeable_state: GitHub's mergeable-state detail such as ``clean``.
         style: Rendering style, either ``emoji`` or ``ascii``.
+        pr_state: GitHub PR state string (``open`` or ``closed``).
+        merged: Whether the PR was merged.
 
     Returns:
         A styled label such as ``✅ (clean)``, ``❌ (dirty)``, or ``⏳ computing``.
     """
+    if pr_state == "closed":
+        if merged:
+            label = "merged" if style == "ascii" else "🏁 merged"
+            return click.style(label, fg="green", bold=False)
+        label = "closed" if style == "ascii" else "🚫 closed"
+        return click.style(label, fg=246, bold=False)
     if is_mergeable is None:
         label = "computing" if style == "ascii" else "⏳ computing"
         return click.style(label, fg=246, bold=False)

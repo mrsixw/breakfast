@@ -1417,6 +1417,8 @@ def breakfast(
                     pr_detail.get("mergeable"),
                     pr_detail.get("mergeable_state"),
                     style=status_style,
+                    pr_state=pr_detail.get("state"),
+                    merged=pr_detail.get("merged", False),
                 )
             )
             row["Link"] = f"[PR-{pr_detail['number']}]({pr_detail['html_url']})"
@@ -1521,6 +1523,8 @@ def breakfast(
             pr_detail.get("mergeable"),
             pr_detail.get("mergeable_state"),
             style=status_style,
+            pr_state=pr_detail.get("state"),
+            merged=pr_detail.get("merged", False),
         )
         row["Link"] = _seasonal_colour_link(
             pr_detail["html_url"], f"PR-{pr_detail['number']}"

@@ -345,16 +345,20 @@ def format_mergeable_status(
     if is_mergeable is None:
         label = "computing" if style == "ascii" else "⏳ computing"
         return click.style(label, fg=246, bold=False)
-    colour = "green" if is_mergeable else "red"
-    if style == "ascii":
-        prefix = "yes" if is_mergeable else "no"
-    else:
-        prefix = "✅" if is_mergeable else "❌"
-    if mergeable_state:
-        text = f"{prefix} ({mergeable_state})"
-    else:
-        text = prefix
-    return click.style(text, fg=colour, bold=True)
+    if not is_mergeable:
+        prefix = "no" if style == "ascii" else "❌"
+        text = f"{prefix} ({mergeable_state})" if mergeable_state else prefix
+        return click.style(text, fg="red", bold=True)
+    # is_mergeable is True — but only "clean" means genuinely ready to merge.
+    # "behind", "unstable", "blocked" etc. are amber warnings.
+    _AMBER_STATES = {"behind", "unstable", "blocked", "unknown"}
+    if mergeable_state in _AMBER_STATES:
+        prefix = "~" if style == "ascii" else "⚠️"
+        text = f"{prefix} ({mergeable_state})" if mergeable_state else prefix
+        return click.style(text, fg="yellow", bold=True)
+    prefix = "yes" if style == "ascii" else "✅"
+    text = f"{prefix} ({mergeable_state})" if mergeable_state else prefix
+    return click.style(text, fg="green", bold=True)
 
 
 def generate_terminal_url_anchor(url, url_text="Link"):

@@ -47,7 +47,7 @@ The default output is a colour-coded terminal table with the following columns:
 | Checks | CI/check run status: pass, fail, pending, none (only with `--checks`) — clickable link to the PR's checks tab |
 | Head Branch | Source branch the PR was raised from (only with `--head-branch`) — clickable link to the branch on GitHub |
 | Base Branch | Target branch the PR merges into (only with `--base-branch`) — clickable link to the branch on GitHub |
-| Mergeable? | Whether the PR can be merged cleanly. Shows `🏁 merged` for merged PRs, `🚫 closed` for closed-but-not-merged PRs, `⏳ computing` while GitHub calculates mergeability |
+| Mergeable? | Whether the PR can be merged cleanly. `✅` means truly ready (`clean`); `⚠️` means no conflicts but not ready (`behind`, `unstable`, or `blocked`); `❌` means conflicts exist. Also shows `🏁 merged`, `🚫 closed`, or `⏳ computing` as appropriate |
 | Link | Clickable link to the PR |
 
 Use `--status-style ascii` if your terminal font renders the status emoji with uneven column widths.

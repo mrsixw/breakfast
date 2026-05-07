@@ -46,6 +46,27 @@ def test_format_mergeable_status():
     assert "yes (clean)" in ui.format_mergeable_status(True, "clean", style="ascii")
 
 
+def test_format_mergeable_status_merged_pr():
+    result = ui.format_mergeable_status(None, None, pr_state="closed", merged=True)
+    assert "🏁 merged" in result
+
+
+def test_format_mergeable_status_closed_pr():
+    result = ui.format_mergeable_status(None, None, pr_state="closed", merged=False)
+    assert "🚫 closed" in result
+
+
+def test_format_mergeable_status_closed_ascii():
+    merged = ui.format_mergeable_status(
+        None, None, style="ascii", pr_state="closed", merged=True
+    )
+    closed = ui.format_mergeable_status(
+        None, None, style="ascii", pr_state="closed", merged=False
+    )
+    assert "merged" in merged
+    assert "closed" in closed
+
+
 def test_format_approval_status():
     result = ui.format_approval_status("approved")
     assert "✅ approved" in result

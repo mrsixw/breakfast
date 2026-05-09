@@ -250,7 +250,7 @@ def load_config(config_path=None):
             with open(path, "rb") as f:
                 try:
                     data = tomllib.load(f)
-                except Exception as e:
+                except tomllib.TOMLDecodeError as e:
                     logger.warning("config_parse_error path=%s error=%r", path, str(e))
                     msg = f"Warning: Failed to parse config {path}: {e}"
                     click.echo(click.style(msg, fg="yellow"), err=True)

@@ -416,4 +416,39 @@ def test_update_config_cli_flag(tmp_path, monkeypatch):
     runner = CliRunner()
     result = runner.invoke(cli.breakfast, ["--update-config"])
     assert result.exit_code == 0
-    assert "No config file found" in result.output
+
+
+def test_load_config_invalid_toml_emits_stderr_warning(tmp_path, monkeypatch):
+    """TOMLDecodeError is caught; a warning is sent to stderr, and {} is returned."""
+    cfg_file = tmp_path / ".breakfast.toml"
+    cfg_file.write_text("this is not [ valid toml !!!")
+
+    echo_calls = []
+    monkeypatch.setattr(
+        config.click, "echo", lambda msg, **kw: echo_calls.append((msg, kw))
+    )
+
+    result = config.load_config(str(cfg_file))
+
+    assert result == {}
+    warning_calls = [c for c in echo_calls if "Failed to parse" in str(c[0])]
+    assert len(warning_calls) == 1
+    assert warning_calls[0][1].get("err") is True
+
+
+def test_load_config_continues_after_invalid_toml(tmp_path, monkeypatch):
+    """A bad config file is skipped; valid files at other paths still load."""
+    bad_file = tmp_path / "bad.toml"
+    bad_file.write_text("not valid [[[ toml")
+    good_file = tmp_path / "good.toml"
+    good_file.write_text('organization = "test-org"')
+
+    monkeypatch.setattr(
+        config,
+        "get_config_paths",
+        lambda: [bad_file, good_file],
+    )
+    monkeypatch.setattr(config.click, "echo", lambda *a, **kw: None)
+
+    result = config.load_config()
+    assert result.get("organization") == "test-org"

@@ -1,8 +1,9 @@
 import hashlib
 import json
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+import click
 
 from .logger import logger
 from .xdg import get_cache_dir
@@ -91,7 +92,10 @@ def read_graphql_cache(org: str, repo_filter: str, ttl: int) -> list | None:
         logger.warning(
             "cache_read_error layer=graphql path=%s error=%r", path, str(exc)
         )
-        print(f"Warning: failed to read GraphQL cache: {exc}", file=sys.stderr)
+        click.echo(
+            click.style(f"Warning: failed to read GraphQL cache: {exc}", fg="yellow"),
+            err=True,
+        )
         return None
 
 
@@ -115,7 +119,10 @@ def write_graphql_cache(org: str, repo_filter: str, urls: list) -> None:
             graphql_cache_path(org, repo_filter),
             str(exc),
         )
-        print(f"Warning: failed to write GraphQL cache: {exc}", file=sys.stderr)
+        click.echo(
+            click.style(f"Warning: failed to write GraphQL cache: {exc}", fg="yellow"),
+            err=True,
+        )
 
 
 def read_pr_cache(org: str, repo_filter: str, ttl: int) -> dict | None:
@@ -178,7 +185,10 @@ def read_pr_cache(org: str, repo_filter: str, ttl: int) -> dict | None:
         logger.warning(
             "cache_read_error layer=pr_detail path=%s error=%r", path, str(exc)
         )
-        print(f"Warning: failed to read PR cache: {exc}", file=sys.stderr)
+        click.echo(
+            click.style(f"Warning: failed to read PR cache: {exc}", fg="yellow"),
+            err=True,
+        )
         return None
 
 
@@ -222,4 +232,7 @@ def write_pr_cache(
             cache_path(org, repo_filter),
             str(exc),
         )
-        print(f"Warning: failed to write PR cache: {exc}", file=sys.stderr)
+        click.echo(
+            click.style(f"Warning: failed to write PR cache: {exc}", fg="yellow"),
+            err=True,
+        )

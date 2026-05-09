@@ -240,10 +240,95 @@ def test_graphql_cache_expired(tmp_path, monkeypatch):
 def test_graphql_cache_corrupt_json(tmp_path, monkeypatch):
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     cache.graphql_cache_path("org", "filter").parent.mkdir(parents=True, exist_ok=True)
-    cache.graphql_cache_path("org", "filter").write_text("}{bad json")
+    cache.graphql_cache_path("org", "filter").write_text("}{ bad json")
     assert cache.read_graphql_cache("org", "filter", 300) is None
 
 
 def test_graphql_cache_uses_separate_file(tmp_path, monkeypatch):
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     assert cache.graphql_cache_path("org", "f") != cache.cache_path("org", "f")
+
+
+# ---------------------------------------------------------------------------
+# click.echo(err=True) for cache warnings (#240)
+# ---------------------------------------------------------------------------
+
+
+def test_read_graphql_cache_corrupt_warns_to_stderr(tmp_path, monkeypatch):
+    """Corrupt GraphQL cache emits warning via click.echo(err=True)."""
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.graphql_cache_path("org", "f").parent.mkdir(parents=True, exist_ok=True)
+    cache.graphql_cache_path("org", "f").write_text("}{ bad json")
+
+    echo_calls = []
+    monkeypatch.setattr(
+        cache.click, "echo", lambda msg, **kw: echo_calls.append((msg, kw))
+    )
+    monkeypatch.setattr(cache.click, "style", lambda msg, **kw: msg)
+
+    result = cache.read_graphql_cache("org", "f", 300)
+
+    assert result is None
+    warning_calls = [c for c in echo_calls if "Warning" in str(c[0])]
+    assert len(warning_calls) == 1
+    assert warning_calls[0][1].get("err") is True
+
+
+def test_write_graphql_cache_failure_warns_to_stderr(tmp_path, monkeypatch):
+    """Failed GraphQL cache write emits warning via click.echo(err=True)."""
+    # Place a file at _CACHE_DIR so mkdir() raises NotADirectoryError (OSError subclass)
+    blocker = tmp_path / "cache_dir"
+    blocker.write_text("not a directory")
+    monkeypatch.setattr(cache, "_CACHE_DIR", blocker)
+
+    echo_calls = []
+    monkeypatch.setattr(
+        cache.click, "echo", lambda msg, **kw: echo_calls.append((msg, kw))
+    )
+    monkeypatch.setattr(cache.click, "style", lambda msg, **kw: msg)
+
+    cache.write_graphql_cache("org", "f", ["url1"])
+
+    warning_calls = [c for c in echo_calls if "Warning" in str(c[0])]
+    assert len(warning_calls) == 1
+    assert warning_calls[0][1].get("err") is True
+
+
+def test_read_pr_cache_corrupt_warns_to_stderr(tmp_path, monkeypatch):
+    """Corrupt PR cache emits warning via click.echo(err=True)."""
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.cache_path("org", "f").parent.mkdir(parents=True, exist_ok=True)
+    cache.cache_path("org", "f").write_text("}{ bad json")
+
+    echo_calls = []
+    monkeypatch.setattr(
+        cache.click, "echo", lambda msg, **kw: echo_calls.append((msg, kw))
+    )
+    monkeypatch.setattr(cache.click, "style", lambda msg, **kw: msg)
+
+    result = cache.read_pr_cache("org", "f", 300)
+
+    assert result is None
+    warning_calls = [c for c in echo_calls if "Warning" in str(c[0])]
+    assert len(warning_calls) == 1
+    assert warning_calls[0][1].get("err") is True
+
+
+def test_write_pr_cache_failure_warns_to_stderr(tmp_path, monkeypatch):
+    """Failed PR cache write emits warning via click.echo(err=True)."""
+    # Place a file at _CACHE_DIR so mkdir() raises NotADirectoryError (OSError subclass)
+    blocker = tmp_path / "cache_dir"
+    blocker.write_text("not a directory")
+    monkeypatch.setattr(cache, "_CACHE_DIR", blocker)
+
+    echo_calls = []
+    monkeypatch.setattr(
+        cache.click, "echo", lambda msg, **kw: echo_calls.append((msg, kw))
+    )
+    monkeypatch.setattr(cache.click, "style", lambda msg, **kw: msg)
+
+    cache.write_pr_cache("org", "f", [{"id": 1}])
+
+    warning_calls = [c for c in echo_calls if "Warning" in str(c[0])]
+    assert len(warning_calls) == 1
+    assert warning_calls[0][1].get("err") is True

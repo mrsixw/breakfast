@@ -506,7 +506,7 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     ),
 )
 @click.option("--organization", "-o", help="One or multiple organizations to report on")
-@click.option("--repo-filter", "-r", help="Filter for specific repp(s)")
+@click.option("--repo-filter", "-r", help="Filter for specific repo(s)")
 @click.option(
     "--ignore-author",
     multiple=True,

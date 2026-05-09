@@ -733,7 +733,7 @@ Options:
   --show-config                   Print the resolved config and exit.
   --init-config                   Generate a default config file and exit.
   -o, --organization TEXT         One or multiple organizations to report on
-  -r, --repo-filter TEXT          Filter for specific repp(s)
+  -r, --repo-filter TEXT          Filter for specific repo(s)
   --ignore-author TEXT            Ignore PRs raised by one or more authors
                                   (case-insensitive). Repeat for multiple
                                   authors, e.g. --ignore-author

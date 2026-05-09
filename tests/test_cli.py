@@ -1,3 +1,5 @@
+import csv
+import io
 import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -2754,7 +2756,7 @@ def test_config_format_table_produces_table_output(monkeypatch, tmp_path):
 
 def test_config_format_invalid_warns_and_falls_back_to_table(monkeypatch, tmp_path):
     cfg_file = tmp_path / "config.toml"
-    cfg_file.write_text('format = "csv"\norganization = "org"\n')
+    cfg_file.write_text('format = "tofu"\norganization = "org"\n')
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
@@ -2766,8 +2768,8 @@ def test_config_format_invalid_warns_and_falls_back_to_table(monkeypatch, tmp_pa
     result = CliRunner().invoke(cli.breakfast, ["--config", str(cfg_file)])
 
     assert result.exit_code == 0
-    assert "csv" in result.stderr
-    assert "table" in result.stderr.lower() or "Falling back" in result.stderr
+    assert "tofu" in result.stderr
+    assert "Falling back" in result.stderr
     assert "PR-1" in result.stdout
 
 
@@ -2915,3 +2917,136 @@ def test_format_flag_overrides_json_flag(monkeypatch):
     assert "| Repo" in result.stdout
     with pytest.raises(json.JSONDecodeError):
         json.loads(result.stdout)
+
+
+# ---------------------------------------------------------------------------
+# CSV format (#182)
+# ---------------------------------------------------------------------------
+
+
+def test_format_csv_produces_header_row(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--format", "csv"]
+    )
+
+    assert result.exit_code == 0
+    lines = result.stdout.splitlines()
+    assert lines[0].startswith("repo,pr_number,title,author,url")
+
+
+def test_format_csv_contains_pr_data(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--format", "csv"]
+    )
+
+    assert result.exit_code == 0
+    assert "repo" in result.stdout
+    assert "https://github.com/org/repo/pull/1" in result.stdout
+
+
+def test_format_csv_strips_ansi_codes(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--format", "csv"]
+    )
+
+    assert result.exit_code == 0
+    assert "\x1b[" not in result.stdout
+    assert "\x1b]8;;" not in result.stdout
+
+
+def test_format_csv_output_goes_to_stdout(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--format", "csv"]
+    )
+
+    assert result.exit_code == 0
+    assert "Processing" in result.stderr
+    assert "Processing" not in result.stdout
+    assert "repo,pr_number" in result.stdout
+
+
+def test_format_csv_is_valid_csv(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--format", "csv"]
+    )
+
+    assert result.exit_code == 0
+    rows = list(csv.DictReader(io.StringIO(result.stdout)))
+    assert len(rows) == 1
+    assert rows[0]["repo"] == "repo"
+    assert rows[0]["pr_number"] == "1"
+
+
+def test_format_csv_includes_optional_age_column(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--format", "csv", "--age"]
+    )
+
+    assert result.exit_code == 0
+    rows = list(csv.DictReader(io.StringIO(result.stdout)))
+    assert "age_days" in rows[0]
+
+
+def test_config_format_csv_produces_csv_output(monkeypatch, tmp_path):
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('format = "csv"\norganization = "org"\n')
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(cli.breakfast, ["--config", str(cfg_file)])
+
+    assert result.exit_code == 0
+    assert result.stdout.startswith("repo,pr_number")

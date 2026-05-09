@@ -2,7 +2,7 @@
 
 ## stdout and stderr
 
-All data output — tables, JSON, Markdown, and summary views — goes to **stdout**.
+All data output — tables, JSON, Markdown, CSV, and summary views — goes to **stdout**.
 All progress messages, spinner emoji, warnings, and errors go to **stderr**.
 
 This means every output format is safe to pipe or redirect independently:
@@ -11,9 +11,10 @@ This means every output format is safe to pipe or redirect independently:
 breakfast -o my-org -r platform > prs.txt                    # capture table only
 breakfast -o my-org -r platform --json | jq '...'            # pipe JSON cleanly
 breakfast -o my-org -r platform --format markdown > prs.md   # capture Markdown
+breakfast -o my-org -r platform --format csv > prs.csv       # capture CSV
 ```
 
-The `format` config key accepts `"table"` (default), `"json"`, or `"markdown"`.
+The `format` config key accepts `"table"` (default), `"json"`, `"markdown"`, or `"csv"`.
 Any other value triggers a warning on stderr and falls back to `"table"`.
 
 ## Table output (default)
@@ -81,6 +82,45 @@ $ breakfast -o my-org -r platform --format markdown 2>/dev/null
 - OSC 8 terminal hyperlinks are converted to `[text](url)` Markdown links.
 - Optional columns (`--age`, `--checks`, `--approvals`, `--head-branch`, `--base-branch`) are included when their flags are set.
 - Progress messages still go to stderr, so the output can be redirected cleanly.
+
+## CSV output (`--format csv`)
+
+With `--format csv`, output is RFC 4180-compliant CSV — ready to import into Excel, Google Sheets, or any tool that accepts CSV.
+
+```text
+$ breakfast -o my-org -r platform --format csv 2>/dev/null
+repo,pr_number,title,author,url,state,draft,created_at,updated_at,additions,deletions,changed_files,commits,review_comments,labels,requested_reviewers
+platform-api,142,Add user search,alice,https://github.com/my-org/platform-api/pull/142,open,False,2026-03-05T10:30:00Z,2026-03-06T14:00:00Z,42,10,3,1,0,,bob
+platform-api,138,Fix login bug,bob,https://github.com/my-org/platform-api/pull/138,open,False,2026-02-21T09:15:00Z,2026-03-04T16:30:00Z,5,2,1,1,3,bug,
+```
+
+- Header row is always present.
+- ANSI colour codes are stripped — all values are plain text.
+- Multi-value fields (`labels`, `requested_reviewers`) are joined with `|` within the cell.
+- Optional columns (`--age`, `--checks`, `--approvals`) are appended when their flags are set.
+- Progress messages still go to stderr, so the output can be redirected cleanly.
+- `format = "csv"` in `config.toml` sets CSV as the persistent default.
+
+### Optional columns in CSV
+
+| Flag | Added column(s) |
+| --- | --- |
+| `--age` | `age_days` |
+| `--checks` | `checks` |
+| `--approvals` | `approval`, `approval_current`, `approval_required` |
+
+### Shell examples
+
+```bash
+# Import to Google Sheets or Excel
+breakfast -o my-org -r platform --format csv 2>/dev/null > prs.csv
+
+# Count PRs per author with awk
+breakfast -o my-org -r platform --format csv 2>/dev/null | awk -F, 'NR>1 {print $4}' | sort | uniq -c
+
+# Filter with csvkit
+breakfast -o my-org -r platform --format csv 2>/dev/null | csvgrep -c author -m alice
+```
 
 ## JSON output (`--json` / `--format json`)
 

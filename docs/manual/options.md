@@ -176,18 +176,21 @@ Processing platform PRs...🍩🧇...Done
 
 ### `--format`
 
-Choose the output format. Accepted values: `table` (default), `json`, `markdown`.
+Choose the output format. Accepted values: `table` (default), `json`, `markdown`, `csv`.
 
 ```text
 breakfast -o my-org -r platform --format markdown
 breakfast -o my-org -r platform --format json
+breakfast -o my-org -r platform --format csv
 ```
 
 You can also set a persistent default in your config file:
 
 ```toml
-format = "markdown"
+format = "csv"
 ```
+
+See [Output Formats](output-formats.md) for full details on each format.
 
 ### `--markdown`
 

@@ -238,6 +238,9 @@ def _key_present_in_file(key: str, content: str) -> bool:
     return bool(re.search(pattern, content, re.MULTILINE))
 
 
+_LIST_KEYS = {"ignore-author", "repo-filter"}
+
+
 def load_config(config_path=None):
     if config_path:
         paths = [Path(config_path).expanduser().resolve()]
@@ -255,6 +258,23 @@ def load_config(config_path=None):
                     msg = f"Warning: Failed to parse config {path}: {e}"
                     click.echo(click.style(msg, fg="yellow"), err=True)
                     continue
+            for key in _LIST_KEYS:
+                if key in data and not isinstance(data[key], list):
+                    logger.warning(
+                        "config_scalar_for_list_key path=%s key=%s value=%r",
+                        path,
+                        key,
+                        data[key],
+                    )
+                    click.echo(
+                        click.style(
+                            f"Warning: config key '{key}' should be a list "
+                            f'(e.g. ["{data[key]}"]), wrapping scalar automatically.',
+                            fg="yellow",
+                        ),
+                        err=True,
+                    )
+                    data[key] = [data[key]]
             for key, value in data.items():
                 if isinstance(value, list) and isinstance(merged.get(key), list):
                     merged[key] = value + merged[key]

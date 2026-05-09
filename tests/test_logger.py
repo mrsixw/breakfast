@@ -42,12 +42,8 @@ def test_log_file_overwritten_on_second_configure(tmp_path, monkeypatch):
     for h in logger_module.logger.handlers:
         h.flush()
 
-    # Reset handlers to simulate a second invocation
-    for h in logger_module.logger.handlers[:]:
-        h.close()
-        logger_module.logger.removeHandler(h)
-
-    # Second run — should overwrite
+    # Second run — configure() now replaces handlers itself, so no manual
+    # cleanup is required between invocations.
     logger_module.configure()
     logger_module.logger.info("second run message")
     for h in logger_module.logger.handlers:
@@ -56,6 +52,20 @@ def test_log_file_overwritten_on_second_configure(tmp_path, monkeypatch):
     content = log_path.read_text()
     assert "second run message" in content
     assert "first run message" not in content
+
+
+def test_configure_replaces_existing_handlers(tmp_path, monkeypatch):
+    """Calling configure() twice should leave exactly one handler attached."""
+    log_path = tmp_path / "breakfast.log"
+    monkeypatch.setattr(logger_module, "_get_log_path", lambda: log_path)
+
+    logger_module.configure()
+    first_handler = logger_module.logger.handlers[0]
+    assert len(logger_module.logger.handlers) == 1
+
+    logger_module.configure()
+    assert len(logger_module.logger.handlers) == 1
+    assert logger_module.logger.handlers[0] is not first_handler
 
 
 def test_log_contains_startup_message(tmp_path, monkeypatch):

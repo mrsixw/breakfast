@@ -5,7 +5,7 @@ import random
 import threading
 import time
 from functools import lru_cache
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import click
 import requests
@@ -145,10 +145,12 @@ def make_github_api_request(query_string):
 
 
 def _fetch_pr_detail(pr_url):
-    url_parts = pr_url.split("/")
-    return make_github_api_request(
-        f"/repos/{url_parts[3]}/{url_parts[4]}/pulls/{url_parts[6]}"
-    )
+    parsed = urlparse(pr_url)
+    parts = [p for p in parsed.path.split("/") if p]
+    if len(parts) < 4:
+        raise ValueError(f"Unexpected PR URL format: {pr_url!r}")
+    owner, repo, pr_num = parts[0], parts[1], parts[3]
+    return make_github_api_request(f"/repos/{owner}/{repo}/pulls/{pr_num}")
 
 
 def make_paginated_github_api_request(query_string, rate=100):

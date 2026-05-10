@@ -14,6 +14,27 @@ def test_parse_version_tuple():
     assert updater._parse_version_tuple(None) == ()
 
 
+def test_parse_version_tuple_prerelease_alpha():
+    assert updater._parse_version_tuple("1.0.0a1") == (1, 0, 0)
+
+
+def test_parse_version_tuple_prerelease_dash():
+    assert updater._parse_version_tuple("1.0.0-beta") == (1, 0, 0)
+
+
+def test_parse_version_tuple_prerelease_rc():
+    assert updater._parse_version_tuple("2.1.0rc3") == (2, 1, 0)
+
+
+def test_parse_version_tuple_prerelease_compared_correctly():
+    assert updater._parse_version_tuple("1.0.0a1") < updater._parse_version_tuple(
+        "1.0.1"
+    )
+    assert updater._parse_version_tuple("2.0.0-beta") < updater._parse_version_tuple(
+        "2.0.1"
+    )
+
+
 def test_check_for_update_newer_available(monkeypatch):
     monkeypatch.setattr(updater, "pkg_version", lambda _name: "0.9.0")
     monkeypatch.setattr(updater, "get_latest_version", lambda: "0.10.0")

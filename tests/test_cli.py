@@ -96,9 +96,9 @@ def test_cli_outputs_table(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
 
     assert result.exit_code == 0
-    assert "PR-1" in result.output
-    assert "repo" in result.output
-    assert "✅ (clean)" in result.output
+    assert "PR-1" in result.stdout
+    assert "repo" in result.stdout
+    assert "✅ (clean)" in result.stdout
 
 
 def test_cli_outputs_age_column_when_enabled(monkeypatch):
@@ -135,8 +135,8 @@ def test_cli_outputs_age_column_when_enabled(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--age"])
 
     assert result.exit_code == 0
-    assert "Age" in result.output
-    assert "7" in result.output
+    assert "Age" in result.stdout
+    assert "7" in result.stdout
 
 
 def _fake_pr_detail_with_branches():
@@ -181,8 +181,8 @@ def test_cli_outputs_head_branch_column_when_enabled(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--head-branch"])
 
     assert result.exit_code == 0
-    assert "Head Branch" in result.output
-    assert "feature/my-branch" in result.output
+    assert "Head Branch" in result.stdout
+    assert "feature/my-branch" in result.stdout
 
 
 def test_cli_outputs_base_branch_column_when_enabled(monkeypatch):
@@ -204,8 +204,8 @@ def test_cli_outputs_base_branch_column_when_enabled(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--base-branch"])
 
     assert result.exit_code == 0
-    assert "Base Branch" in result.output
-    assert "main" in result.output
+    assert "Base Branch" in result.stdout
+    assert "main" in result.stdout
 
 
 def test_cli_head_and_base_branch_hidden_by_default(monkeypatch):
@@ -227,8 +227,8 @@ def test_cli_head_and_base_branch_hidden_by_default(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
 
     assert result.exit_code == 0
-    assert "Head Branch" not in result.output
-    assert "Base Branch" not in result.output
+    assert "Head Branch" not in result.stdout
+    assert "Base Branch" not in result.stdout
 
 
 def test_cli_outputs_json(monkeypatch):
@@ -268,7 +268,7 @@ def test_cli_outputs_json(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--json"])
 
     assert result.exit_code == 0
-    data = json.loads(result.output[result.output.index("[") :])
+    data = json.loads(result.stdout[result.stdout.index("[") :])
     assert len(data) == 1
     pr = data[0]
     assert pr["repo"] == "repo"
@@ -294,7 +294,7 @@ def test_cli_json_output_is_valid_json_when_empty(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--json"])
 
     assert result.exit_code == 0
-    assert json.loads(result.output[result.output.index("[") :]) == []
+    assert json.loads(result.stdout[result.stdout.index("[") :]) == []
 
 
 def test_cli_continues_when_one_pr_fetch_fails(monkeypatch):
@@ -343,9 +343,10 @@ def test_cli_continues_when_one_pr_fetch_fails(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
 
     assert result.exit_code == 0
-    assert "Good PR" in result.output
-    assert "Warning" in result.output
-    assert "1 PR(s)" in result.output
+    assert "Good PR" in result.stdout
+    assert "Warning" in result.stderr
+    assert "Warning" not in result.stdout
+    assert "1 PR(s)" in result.stderr
 
 
 def test_cli_mine_only_filters_to_authenticated_user(monkeypatch):
@@ -391,8 +392,8 @@ def test_cli_mine_only_filters_to_authenticated_user(monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert "Alice PR" in result.output
-    assert "Bob PR" not in result.output
+    assert "Alice PR" in result.stdout
+    assert "Bob PR" not in result.stdout
 
 
 def test_cli_mine_only_exits_cleanly_on_rate_limit(monkeypatch):
@@ -411,8 +412,8 @@ def test_cli_mine_only_exits_cleanly_on_rate_limit(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--mine-only"])
 
     assert result.exit_code == 1
-    assert "rate limit" in result.output.lower()
-    assert "2026-04-10 16:04:48" in result.output
+    assert "rate limit" in result.stderr.lower()
+    assert "2026-04-10 16:04:48" in result.stderr
 
 
 def test_cli_outputs_checks_column(monkeypatch):
@@ -461,8 +462,8 @@ def test_cli_outputs_checks_column(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--checks"])
 
     assert result.exit_code == 0
-    assert "Checks" in result.output
-    assert "✅ pass" in result.output
+    assert "Checks" in result.stdout
+    assert "✅ pass" in result.stdout
 
 
 def test_cli_checks_no_collision_across_repos(monkeypatch):
@@ -539,8 +540,8 @@ def test_cli_checks_no_collision_across_repos(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--checks"])
 
     assert result.exit_code == 0
-    assert "pass" in result.output
-    assert "fail" in result.output
+    assert "pass" in result.stdout
+    assert "fail" in result.stdout
 
 
 def test_cli_checks_not_shown_by_default(monkeypatch):
@@ -576,7 +577,7 @@ def test_cli_checks_not_shown_by_default(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
 
     assert result.exit_code == 0
-    assert "Checks" not in result.output
+    assert "Checks" not in result.stdout
 
 
 def test_cli_show_config_includes_status_style_from_config(tmp_path):
@@ -592,7 +593,7 @@ def test_cli_show_config_includes_status_style_from_config(tmp_path):
     result = runner.invoke(cli.breakfast, ["--config", str(cfg_path), "--show-config"])
 
     assert result.exit_code == 0
-    assert "status-style: ascii" in result.output
+    assert "status-style: ascii" in result.stdout
 
 
 def test_cli_json_includes_checks_when_enabled(monkeypatch):
@@ -647,7 +648,7 @@ def test_cli_json_includes_checks_when_enabled(monkeypatch):
     )
 
     assert result.exit_code == 0
-    data = json.loads(result.output[result.output.index("[") :])
+    data = json.loads(result.stdout[result.stdout.index("[") :])
     assert data[0]["checks"] == "fail"
 
 
@@ -688,7 +689,7 @@ def test_cli_json_excludes_checks_by_default(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--json"])
 
     assert result.exit_code == 0
-    data = json.loads(result.output[result.output.index("[") :])
+    data = json.loads(result.stdout[result.stdout.index("[") :])
     assert "checks" not in data[0]
 
 
@@ -752,8 +753,8 @@ def test_cli_outputs_approvals_column(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--approvals"])
 
     assert result.exit_code == 0
-    assert "Approved" in result.output
-    assert "✅ approved" in result.output
+    assert "Approved" in result.stdout
+    assert "✅ approved" in result.stdout
 
 
 def test_cli_renders_review_required_for_incomplete_reviews(monkeypatch):
@@ -789,7 +790,7 @@ def test_cli_renders_review_required_for_incomplete_reviews(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--approvals"])
 
     assert result.exit_code == 0
-    assert "⏳ pending" in result.output
+    assert "⏳ pending" in result.stdout
 
 
 def test_cli_renders_approval_counts_for_multi_review_branch(monkeypatch):
@@ -826,7 +827,7 @@ def test_cli_renders_approval_counts_for_multi_review_branch(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--approvals"])
 
     assert result.exit_code == 0
-    assert "✅ 1/2 approvals" in result.output
+    assert "✅ 1/2 approvals" in result.stdout
 
 
 def test_cli_approvals_not_shown_by_default(monkeypatch):
@@ -845,7 +846,7 @@ def test_cli_approvals_not_shown_by_default(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
 
     assert result.exit_code == 0
-    assert "Approved" not in result.output
+    assert "Approved" not in result.stdout
 
 
 def test_cli_json_includes_approval_when_enabled(monkeypatch):
@@ -880,7 +881,7 @@ def test_cli_json_includes_approval_when_enabled(monkeypatch):
     )
 
     assert result.exit_code == 0
-    data = json.loads(result.output[result.output.index("[") :])
+    data = json.loads(result.stdout[result.stdout.index("[") :])
     assert data[0]["approval"] == "changes"
 
 
@@ -918,7 +919,7 @@ def test_cli_json_includes_approval_counts_when_available(monkeypatch):
     )
 
     assert result.exit_code == 0
-    data = json.loads(result.output[result.output.index("[") :])
+    data = json.loads(result.stdout[result.stdout.index("[") :])
     assert data[0]["approval"] == "pending"
     assert data[0]["approval_current"] == 1
     assert data[0]["approval_required"] == 2
@@ -940,7 +941,7 @@ def test_cli_json_excludes_approval_by_default(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--json"])
 
     assert result.exit_code == 0
-    data = json.loads(result.output[result.output.index("[") :])
+    data = json.loads(result.stdout[result.stdout.index("[") :])
     assert "approval" not in data[0]
 
 
@@ -954,7 +955,7 @@ def test_cli_approvals_config_file(tmp_path):
     result = runner.invoke(cli.breakfast, ["--config", str(cfg_path), "--show-config"])
 
     assert result.exit_code == 0
-    assert "approvals: True" in result.output
+    assert "approvals: True" in result.stdout
 
 
 def test_no_update_check_flag_skips_update(monkeypatch):
@@ -1037,8 +1038,8 @@ def test_cli_truncates_title_when_max_title_length_set(monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert long_title not in result.output
-    assert "A" * 19 + "…" in result.output
+    assert long_title not in result.stdout
+    assert "A" * 19 + "…" in result.stdout
 
 
 def test_cli_does_not_truncate_title_when_max_title_length_unset(monkeypatch):
@@ -1076,7 +1077,7 @@ def test_cli_does_not_truncate_title_when_max_title_length_unset(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
 
     assert result.exit_code == 0
-    assert long_title in result.output
+    assert long_title in result.stdout
 
 
 def test_cli_limit_caps_results(monkeypatch):
@@ -1113,7 +1114,7 @@ def test_cli_limit_caps_results(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--limit", "2"])
 
     assert result.exit_code == 0
-    assert result.output.count("PR number") == 2
+    assert result.stdout.count("PR number") == 2
 
 
 def _make_pr_fixture(title="Test PR", number=1):
@@ -1236,17 +1237,17 @@ def test_cli_status_columns_use_ascii_to_keep_rows_aligned(monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert "yes (clean)" in result.output
-    assert "no (dirty)" in result.output
-    assert "pending" in result.output
-    assert "✅" not in result.output
-    assert "❌" not in result.output
-    assert "⚠️" not in result.output
-    assert "➖" not in result.output
+    assert "yes (clean)" in result.stdout
+    assert "no (dirty)" in result.stdout
+    assert "pending" in result.stdout
+    assert "✅" not in result.stdout
+    assert "❌" not in result.stdout
+    assert "⚠️" not in result.stdout
+    assert "➖" not in result.stdout
 
     table_lines = [
         cli._strip_ansi(line)
-        for line in result.output.splitlines()
+        for line in result.stdout.splitlines()
         if line.startswith(("+", "|"))
     ]
     widths = {len(line) for line in table_lines}
@@ -1272,8 +1273,8 @@ def test_auto_fit_truncates_title_to_terminal_width(monkeypatch):
         result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
 
     assert result.exit_code == 0
-    assert "A" * 200 not in result.output
-    assert "…" in result.output
+    assert "A" * 200 not in result.stdout
+    assert "…" in result.stdout
 
 
 def test_auto_fit_skips_truncation_when_title_fits(monkeypatch):
@@ -1294,7 +1295,7 @@ def test_auto_fit_skips_truncation_when_title_fits(monkeypatch):
         result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
 
     assert result.exit_code == 0
-    assert "Short title" in result.output
+    assert "Short title" in result.stdout
 
 
 def test_auto_fit_truncates_repo_and_author_before_dropping(monkeypatch):
@@ -1320,7 +1321,7 @@ def test_auto_fit_truncates_repo_and_author_before_dropping(monkeypatch):
         result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
 
     assert result.exit_code == 0
-    visible_output = cli._strip_ansi(result.output)
+    visible_output = cli._strip_ansi(result.stdout)
     # Full long names should have been truncated
     assert "a-very-long-repository-name" not in visible_output
     assert "a-very-long-author-name" not in visible_output
@@ -1344,7 +1345,7 @@ def test_auto_fit_compresses_mergeable_before_dropping(monkeypatch):
 
     assert result.exit_code == 0
     # "(clean)" reason should be gone if compression kicked in
-    assert "(clean)" not in result.output
+    assert "(clean)" not in result.stdout
 
 
 def test_auto_fit_truncates_branches_before_repo():
@@ -1411,7 +1412,7 @@ def test_auto_fit_drops_columns_when_very_narrow(monkeypatch):
 
     assert result.exit_code == 0
     # At least one droppable column should be absent
-    assert "State" not in result.output or "Commits" not in result.output
+    assert "State" not in result.stdout or "Commits" not in result.stdout
 
 
 def test_auto_fit_noop_when_not_tty(monkeypatch):
@@ -1431,7 +1432,7 @@ def test_auto_fit_noop_when_not_tty(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
 
     assert result.exit_code == 0
-    assert "A" * 200 in result.output
+    assert "A" * 200 in result.stdout
 
 
 def test_explicit_max_title_length_overrides_auto_fit(monkeypatch):
@@ -1454,7 +1455,7 @@ def test_explicit_max_title_length_overrides_auto_fit(monkeypatch):
         )
 
     assert result.exit_code == 0
-    assert "A" * 19 + "…" in result.output
+    assert "A" * 19 + "…" in result.stdout
 
 
 def test_cli_init_config(monkeypatch):
@@ -1523,7 +1524,7 @@ def test_cache_hit_skips_get_github_prs(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert len(api_called) == 0, "get_github_prs should not be called on a cache hit"
-    assert "PR number 1" in result.output
+    assert "PR number 1" in result.stdout
 
 
 def test_no_cache_flag_always_fetches(monkeypatch, tmp_path):
@@ -1635,7 +1636,7 @@ def test_corrupt_cache_falls_back_to_live_fetch(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert len(api_called) == 1, "corrupt cache should fall back to live fetch"
-    assert "PR number 1" in result.output
+    assert "PR number 1" in result.stdout
 
 
 def test_pr_results_grouped_by_repo(monkeypatch, tmp_path):
@@ -1664,8 +1665,8 @@ def test_pr_results_grouped_by_repo(monkeypatch, tmp_path):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "svc", "--cache"])
 
     assert result.exit_code == 0
-    alpha_pos = result.output.index("alpha-service")
-    zebra_pos = result.output.index("zebra-service")
+    alpha_pos = result.stdout.index("alpha-service")
+    zebra_pos = result.stdout.index("zebra-service")
     assert alpha_pos < zebra_pos, "repos should appear in alphabetical order"
 
 
@@ -1719,7 +1720,7 @@ def test_refresh_ignores_cache_and_writes_fresh(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert len(api_called) == 1, "--refresh should always fetch fresh"
-    assert "PR number 1" in result.output
+    assert "PR number 1" in result.stdout
     # Cache should now contain fresh data
     cached = cache.read_pr_cache("org", "repo", 300)
     assert cached is not None
@@ -1748,8 +1749,8 @@ def test_refresh_does_not_use_cached_data(monkeypatch, tmp_path):
     )
 
     assert result.exit_code == 0
-    assert "PR number 99" not in result.output, "stale cached PR should not appear"
-    assert "PR number 1" in result.output
+    assert "PR number 99" not in result.stdout, "stale cached PR should not appear"
+    assert "PR number 1" in result.stdout
 
 
 def test_refresh_prs_uses_graphql_cache_skips_pr_cache(monkeypatch, tmp_path):
@@ -1782,8 +1783,8 @@ def test_refresh_prs_uses_graphql_cache_skips_pr_cache(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert len(graphql_called) == 0, "--refresh-prs should use cached GraphQL result"
-    assert "PR number 99" not in result.output, "stale PR cache should be bypassed"
-    assert "PR number 1" in result.output
+    assert "PR number 99" not in result.stdout, "stale PR cache should be bypassed"
+    assert "PR number 1" in result.stdout
 
 
 def test_refresh_prs_writes_fresh_pr_cache(monkeypatch, tmp_path):
@@ -1906,7 +1907,7 @@ def test_cli_legendary_flag_annotates_state(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--legendary"])
 
     assert result.exit_code == 0
-    assert "⚔️" in result.output, "legendary PR should have sword emoji in State"
+    assert "⚔️" in result.stdout, "legendary PR should have sword emoji in State"
 
 
 def test_cli_legendary_off_by_default(monkeypatch):
@@ -1931,7 +1932,7 @@ def test_cli_legendary_off_by_default(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
 
     assert result.exit_code == 0
-    assert "⚔️" not in result.output
+    assert "⚔️" not in result.stdout
 
 
 def test_cli_legendary_only_filters_non_legendary(monkeypatch):
@@ -1960,7 +1961,7 @@ def test_cli_legendary_only_filters_non_legendary(monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert "Fresh PR" not in result.output
+    assert "Fresh PR" not in result.stdout
 
 
 def test_cli_legendary_only_implies_legendary_marking(monkeypatch):
@@ -1988,7 +1989,7 @@ def test_cli_legendary_only_implies_legendary_marking(monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert "⚔️" in result.output
+    assert "⚔️" in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -2151,8 +2152,8 @@ def test_cli_repo_and_author_are_hyperlinks(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "myorg", "-r", "myrepo"])
 
     assert result.exit_code == 0
-    assert "\x1b]8;;https://github.com/myorg/myrepo\x1b\\" in result.output
-    assert "\x1b]8;;https://github.com/alice\x1b\\" in result.output
+    assert "\x1b]8;;https://github.com/myorg/myrepo\x1b\\" in result.stdout
+    assert "\x1b]8;;https://github.com/alice\x1b\\" in result.stdout
 
 
 def test_cli_checks_column_links_to_checks_tab(monkeypatch):
@@ -2182,7 +2183,7 @@ def test_cli_checks_column_links_to_checks_tab(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--checks"])
 
     assert result.exit_code == 0
-    assert "\x1b]8;;https://github.com/org/repo/pull/7/checks\x1b\\" in result.output
+    assert "\x1b]8;;https://github.com/org/repo/pull/7/checks\x1b\\" in result.stdout
 
 
 def test_progress_emoji_emitted_after_check_status_fetch(monkeypatch):
@@ -2306,12 +2307,12 @@ def test_debug_flag_prints_summary_to_stderr(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--api-stats"])
 
     assert result.exit_code == 0
-    assert "Debug summary" in result.output
-    assert "12 (10 REST + 2 GraphQL)" in result.output
-    assert "4990 requests remaining" in result.output
-    assert "4998 points remaining" in result.output
-    # Normal table output is still present
-    assert "PR-1" in result.output
+    assert "Debug summary" in result.stderr
+    assert "12 (10 REST + 2 GraphQL)" in result.stderr
+    assert "4990 requests remaining" in result.stderr
+    assert "4998 points remaining" in result.stderr
+    # Normal table output is still present on stdout
+    assert "PR-1" in result.stdout
 
 
 def _plain_pr():
@@ -2349,8 +2350,8 @@ def test_no_colour_strips_ansi_from_table(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--no-colour"])
 
     assert result.exit_code == 0
-    assert "\x1b[" not in result.output
-    assert "PR-1" in result.output
+    assert "\x1b[" not in result.stdout
+    assert "PR-1" in result.stdout
 
 
 def test_no_color_alias_works(monkeypatch):
@@ -2367,7 +2368,7 @@ def test_no_color_alias_works(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--no-color"])
 
     assert result.exit_code == 0
-    assert "\x1b[" not in result.output
+    assert "\x1b[" not in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -2380,9 +2381,9 @@ def test_colour_diagnostics_flag_exits_zero_and_outputs_swatches():
     runner = CliRunner()
     result = runner.invoke(cli.breakfast, ["--colour-diagnostics"])
     assert result.exit_code == 0
-    assert "Seasonal colours" in result.output
-    assert "Check status" in result.output
-    assert "Number gradient" in result.output
+    assert "Seasonal colours" in result.stdout
+    assert "Check status" in result.stdout
+    assert "Number gradient" in result.stdout
 
 
 def test_color_diagnostics_alias_works():
@@ -2390,7 +2391,7 @@ def test_color_diagnostics_alias_works():
     runner = CliRunner()
     result = runner.invoke(cli.breakfast, ["--color-diagnostics"])
     assert result.exit_code == 0
-    assert "Seasonal colours" in result.output
+    assert "Seasonal colours" in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -2413,7 +2414,7 @@ def test_seasonal_colours_no_colour_suppresses_them(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--no-colour"])
 
     assert result.exit_code == 0
-    assert "\x1b[" not in result.output
+    assert "\x1b[" not in result.stdout
 
 
 def test_seasonal_colours_disabled_by_config(monkeypatch, tmp_path):
@@ -2439,7 +2440,7 @@ def test_seasonal_colours_disabled_by_config(monkeypatch, tmp_path):
     )
 
     assert result.exit_code == 0
-    assert "Test PR" in result.output
+    assert "Test PR" in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -2500,11 +2501,11 @@ def test_summarise_user_prs_shows_author_summary(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "--summarise-user-prs"])
 
     assert result.exit_code == 0
-    assert "PR Summary by Author" in result.output
-    assert "alice" in result.output
-    assert "bob" in result.output
+    assert "PR Summary by Author" in result.stdout
+    assert "alice" in result.stdout
+    assert "bob" in result.stdout
     # Table columns must NOT appear
-    assert "PR Title" not in result.output
+    assert "PR Title" not in result.stdout
 
 
 def test_summarise_repo_prs_shows_repo_summary(monkeypatch):
@@ -2518,10 +2519,10 @@ def test_summarise_repo_prs_shows_repo_summary(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "--summarise-repo-prs"])
 
     assert result.exit_code == 0
-    assert "PR Summary by Repo" in result.output
-    assert "repo-a" in result.output
-    assert "repo-b" in result.output
-    assert "PR Title" not in result.output
+    assert "PR Summary by Repo" in result.stdout
+    assert "repo-a" in result.stdout
+    assert "repo-b" in result.stdout
+    assert "PR Title" not in result.stdout
 
 
 def test_summarise_user_and_repo_mutually_exclusive(monkeypatch):
@@ -2547,7 +2548,7 @@ def test_summarise_user_prs_empty_shows_no_prs_message(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "--summarise-user-prs"])
 
     assert result.exit_code == 0
-    assert "no PRs" in result.output
+    assert "no PRs" in result.stdout
 
 
 def test_summarise_repo_prs_no_colour(monkeypatch):
@@ -2563,7 +2564,7 @@ def test_summarise_repo_prs_no_colour(monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert "\x1b[" not in result.output
+    assert "\x1b[" not in result.stdout
 
 
 # ---------------------------------------------------------------------------

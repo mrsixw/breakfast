@@ -920,6 +920,40 @@ def test_make_github_api_request_403_without_rate_limit_header_raises_http_error
         api.make_github_api_request("/user")
 
 
+# ---------------------------------------------------------------------------
+# _fetch_pr_detail URL parsing (#241)
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_pr_detail_standard_url(monkeypatch):
+    """Standard GitHub PR URL is parsed correctly."""
+    calls = []
+
+    def fake_request(path):
+        calls.append(path)
+        return {"number": 42}
+
+    monkeypatch.setattr(api, "make_github_api_request", fake_request)
+    api._fetch_pr_detail("https://github.com/myorg/myrepo/pull/42")
+    assert calls == ["/repos/myorg/myrepo/pulls/42"]
+
+
+def test_fetch_pr_detail_trailing_slash(monkeypatch):
+    """Trailing slash in URL does not break parsing."""
+    calls = []
+    monkeypatch.setattr(api, "make_github_api_request", lambda p: calls.append(p) or {})
+    api._fetch_pr_detail("https://github.com/org/repo/pull/7/")
+    assert calls == ["/repos/org/repo/pulls/7"]
+
+
+def test_fetch_pr_detail_invalid_url_raises():
+    """A URL with too few path segments raises ValueError."""
+    import pytest
+
+    with pytest.raises(ValueError, match="Unexpected PR URL format"):
+        api._fetch_pr_detail("https://github.com/short")
+
+
 def test_get_check_status_none_conclusion_not_counted_as_pass(monkeypatch):
     """In-progress check runs have conclusion=None; they must not be included in the
     conclusions set so that a mix of in-progress + passing runs does not falsely pass.

@@ -507,7 +507,9 @@ def get_check_status(owner, repo, sha):
         if cr.get("status") in ("queued", "in_progress"):
             return "pending"
 
-    cr_conclusions = {cr.get("conclusion") for cr in check_runs}
+    cr_conclusions = {
+        cr["conclusion"] for cr in check_runs if cr.get("conclusion") is not None
+    }
     cr_fail_states = {"failure", "cancelled", "timed_out", "action_required"}
 
     # Commit statuses: look for pending or failures

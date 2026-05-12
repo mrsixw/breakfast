@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError
@@ -85,7 +86,13 @@ def get_latest_version():
 
 def _parse_version_tuple(version_str):
     try:
-        return tuple(int(x) for x in version_str.split("."))
+        parts = []
+        for segment in version_str.split("."):
+            m = re.match(r"\d+", segment)
+            if not m:
+                break
+            parts.append(int(m.group()))
+        return tuple(parts)
     except (ValueError, AttributeError) as exc:
         logger.debug(
             "parse_version_failed version_str=%r error=%r", version_str, str(exc)
@@ -101,7 +108,7 @@ def check_for_update():
             return None
         if _parse_version_tuple(latest) > _parse_version_tuple(current):
             return (
-                f"🍳 A fresh breakfast is ready! "
+                f"\U0001f373 A fresh breakfast is ready! "
                 f"v{current} → v{latest} "
                 f"— update at https://github.com/{_UPDATE_CHECK_REPO}/releases/latest"
             )

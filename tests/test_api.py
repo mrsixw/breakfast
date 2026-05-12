@@ -952,3 +952,42 @@ def test_fetch_pr_detail_invalid_url_raises():
 
     with pytest.raises(ValueError, match="Unexpected PR URL format"):
         api._fetch_pr_detail("https://github.com/short")
+
+
+def test_get_check_status_none_conclusion_not_counted_as_pass(monkeypatch):
+    """In-progress check runs have conclusion=None; they must not be included in the
+    conclusions set so that a mix of in-progress + passing runs does not falsely pass.
+    """
+
+    def fake_api(path):
+        if "check-runs" in path:
+            return {
+                "check_runs": [
+                    # completed and passing
+                    {"status": "completed", "conclusion": "success"},
+                    # queued/in-progress checks have conclusion=None
+                    {"status": "queued", "conclusion": None},
+                ]
+            }
+        return {"statuses": []}
+
+    monkeypatch.setattr(api, "make_github_api_request", fake_api)
+    assert api.get_check_status("org", "repo", "abc123") == "pending"
+
+
+def test_get_check_status_all_completed_with_none_filtered(monkeypatch):
+    """conclusion=None must be excluded from the conclusions set; only non-None values
+    should be used to determine pass/fail."""
+
+    def fake_api(path):
+        if "check-runs" in path:
+            return {
+                "check_runs": [
+                    {"status": "completed", "conclusion": "success"},
+                    {"status": "completed", "conclusion": None},
+                ]
+            }
+        return {"statuses": []}
+
+    monkeypatch.setattr(api, "make_github_api_request", fake_api)
+    assert api.get_check_status("org", "repo", "abc123") == "pass"

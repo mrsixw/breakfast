@@ -452,3 +452,55 @@ def test_load_config_continues_after_invalid_toml(tmp_path, monkeypatch):
 
     result = config.load_config()
     assert result.get("organization") == "test-org"
+
+
+def test_load_config_wraps_scalar_ignore_author_to_list(tmp_path, monkeypatch):
+    """A scalar ignore-author value is wrapped in a list with a stderr warning."""
+    cfg_file = tmp_path / ".breakfast.toml"
+    cfg_file.write_text('ignore-author = "alice"')
+    echo_calls = []
+    monkeypatch.setattr(
+        config.click, "echo", lambda msg, **kw: echo_calls.append((msg, kw))
+    )
+    monkeypatch.setattr(config.click, "style", lambda msg, **kw: msg)
+
+    result = config.load_config(str(cfg_file))
+
+    assert result["ignore-author"] == ["alice"]
+    warning_calls = [c for c in echo_calls if "ignore-author" in str(c[0])]
+    assert len(warning_calls) == 1
+    assert warning_calls[0][1].get("err") is True
+
+
+def test_load_config_wraps_scalar_repo_filter_to_list(tmp_path, monkeypatch):
+    """A scalar repo-filter value is wrapped in a list with a stderr warning."""
+    cfg_file = tmp_path / ".breakfast.toml"
+    cfg_file.write_text('repo-filter = "myapp"')
+    echo_calls = []
+    monkeypatch.setattr(
+        config.click, "echo", lambda msg, **kw: echo_calls.append((msg, kw))
+    )
+    monkeypatch.setattr(config.click, "style", lambda msg, **kw: msg)
+
+    result = config.load_config(str(cfg_file))
+
+    assert result["repo-filter"] == ["myapp"]
+    warning_calls = [c for c in echo_calls if "repo-filter" in str(c[0])]
+    assert len(warning_calls) == 1
+    assert warning_calls[0][1].get("err") is True
+
+
+def test_load_config_list_ignore_author_not_wrapped(tmp_path, monkeypatch):
+    """A list ignore-author value is loaded as-is without any warning."""
+    cfg_file = tmp_path / ".breakfast.toml"
+    cfg_file.write_text('ignore-author = ["alice", "bob"]')
+    echo_calls = []
+    monkeypatch.setattr(
+        config.click, "echo", lambda msg, **kw: echo_calls.append((msg, kw))
+    )
+
+    result = config.load_config(str(cfg_file))
+
+    assert result["ignore-author"] == ["alice", "bob"]
+    warning_calls = [c for c in echo_calls if "ignore-author" in str(c[0])]
+    assert len(warning_calls) == 0

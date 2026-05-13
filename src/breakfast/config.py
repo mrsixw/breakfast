@@ -238,7 +238,7 @@ def _key_present_in_file(key: str, content: str) -> bool:
     return bool(re.search(pattern, content, re.MULTILINE))
 
 
-_LIST_KEYS = {"ignore-author", "repo-filter"}
+_LIST_KEYS = {"ignore-author"}
 
 
 def load_config(config_path=None):

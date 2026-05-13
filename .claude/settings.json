@@ -3,7 +3,8 @@
     "allow": [
       "Bash(gh repo:*)",
       "Bash(gh issue:*)",
-      "Bash(make test:*)",
+      "Bash(make test *)",
+      "Bash(make lint *)",
       "Bash(uv:*)",
       "Bash(python:*)",
       "Bash(python3:*)",

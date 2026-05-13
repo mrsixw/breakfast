@@ -19,7 +19,15 @@ def configure() -> None:
     Opens the log file in write mode so each run starts with a fresh log.
     The cache directory is created if it does not already exist.
     Silently does nothing if the log file cannot be opened.
+
+    Idempotent: any handlers already attached to the breakfast logger are
+    closed and removed before the new one is installed, so repeated calls
+    do not stack handlers or leak file descriptors.
     """
+    for existing in list(logger.handlers):
+        existing.close()
+        logger.removeHandler(existing)
+
     log_path = _get_log_path()
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)

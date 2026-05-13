@@ -411,7 +411,9 @@ def _group_prs_by(pr_details, group_by):
             groups[key]["draft_count"] += 1
         age = get_pr_age_days(pr)
         groups[key]["oldest_age"] = max(groups[key]["oldest_age"], age)
-        groups[key]["total_comments"] += pr.get("review_comments", 0)
+        groups[key]["total_comments"] += pr.get("comments", 0) + pr.get(
+            "review_comments", 0
+        )
     return sorted(
         [
             (

@@ -404,3 +404,20 @@ def test_render_pr_summary_all_draft_bar_all_light():
     alice_line = next(ln for ln in result.splitlines() if "alice" in ln)
     assert "█" not in alice_line
     assert "▒" in alice_line
+
+
+def test_render_pr_summary_small_draft_minority_keeps_solid_block():
+    """A group with only one draft out of many PRs must still show open PRs.
+
+    Previously, max(1, ...) forced a draft block even when filled was 1,
+    erasing the solid blocks for small (relative) groups.
+    """
+    # bob is the largest group (filled bar). alice has 10 PRs total, only 1
+    # draft, but is small relative to bob — filled will be 1.
+    groups = [
+        ("bob", _ALICE_URL, 200, 0, 5, 0),
+        ("alice", _ALICE_URL, 10, 1, 5, 0),
+    ]
+    result = ui.render_pr_summary(groups, "Title", "Author", False, False)
+    alice_line = next(ln for ln in result.splitlines() if "alice" in ln)
+    assert "█" in alice_line

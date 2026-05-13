@@ -19,6 +19,8 @@ def parse_ttl(value: str | int) -> int:
     Accepts: bare int, string int (e.g. "300"), or suffixed string ("5m", "2h", "30s").
     Raises ValueError for invalid or non-positive values.
     """
+    if isinstance(value, bool):
+        raise ValueError(f"Invalid TTL: {value!r}")
     if isinstance(value, int):
         if value <= 0:
             raise ValueError(f"TTL must be positive, got {value}")

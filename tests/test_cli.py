@@ -3051,3 +3051,35 @@ def test_config_format_csv_produces_csv_output(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert result.stdout.startswith("repo,pr_number")
+
+
+def _make_summary_pr(login, repo, comments=0, review_comments=0, draft=False):
+    return {
+        "user": {"login": login, "html_url": f"https://github.com/{login}"},
+        "base": {
+            "repo": {
+                "name": repo,
+                "html_url": f"https://github.com/org/{repo}",
+            }
+        },
+        "html_url": f"https://github.com/org/{repo}/pull/1",
+        "draft": draft,
+        "comments": comments,
+        "review_comments": review_comments,
+        "created_at": "2026-05-13T00:00:00Z",
+    }
+
+
+def test_group_prs_by_sums_both_comment_fields():
+    pr_details = [
+        _make_summary_pr("alice", "api", comments=7, review_comments=3),
+        _make_summary_pr("alice", "web", comments=1, review_comments=4),
+    ]
+
+    groups = cli._group_prs_by(pr_details, "user")
+
+    assert len(groups) == 1
+    name, _url, count, _drafts, _age, total_comments = groups[0]
+    assert name == "alice"
+    assert count == 2
+    assert total_comments == 7 + 3 + 1 + 4

@@ -61,6 +61,15 @@ def test_parse_ttl_empty_string_raises():
         cache.parse_ttl("")
 
 
+def test_parse_ttl_bool_rejected():
+    """isinstance(True, int) is True; explicit reject so cache-ttl = true
+    in TOML doesn't silently become 1 second."""
+    with pytest.raises(ValueError):
+        cache.parse_ttl(True)
+    with pytest.raises(ValueError):
+        cache.parse_ttl(False)
+
+
 # ---------------------------------------------------------------------------
 # make_cache_key
 # ---------------------------------------------------------------------------

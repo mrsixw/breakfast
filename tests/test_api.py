@@ -508,6 +508,9 @@ def test_get_approval_summary_includes_counts_for_multi_review_branch(monkeypatc
 def test_get_approval_summary_preserves_approved_when_github_reports_approved(
     monkeypatch,
 ):
+    """When GitHub reports APPROVED but the latest review tally is below the
+    required count, the displayed count must reflect the actual review tally,
+    not be silently inflated to required."""
     monkeypatch.setattr(
         api,
         "make_github_graphql_request",
@@ -528,7 +531,7 @@ def test_get_approval_summary_preserves_approved_when_github_reports_approved(
 
     summary = api.get_approval_summary("org", "repo", 1, base_branch="main")
 
-    assert summary == {"status": "approved", "current": 2, "required": 2}
+    assert summary == {"status": "approved", "current": 1, "required": 2}
 
 
 def test_get_check_status_mixed_sources(monkeypatch):

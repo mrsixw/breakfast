@@ -429,9 +429,6 @@ def get_approval_summary(owner, repo, pr_number, base_branch=None):
     if required_reviews is not None and review_decision is None and status != "changes":
         status = "approved" if current_reviews >= required_reviews else "pending"
 
-    if required_reviews is not None and status == "approved":
-        current_reviews = max(current_reviews, required_reviews)
-
     return {
         "status": status,
         "current": current_reviews,

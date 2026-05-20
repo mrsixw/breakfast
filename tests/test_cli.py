@@ -68,7 +68,7 @@ def test_cli_outputs_table(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
 
-    def fake_get_prs(_org, _repo_filter):
+    def fake_get_prs(_org, _repo_filter, _state="open"):
         return ["https://github.com/org/repo/pull/1"]
 
     def fake_api_request(_path):
@@ -106,7 +106,7 @@ def test_cli_outputs_age_column_when_enabled(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
 
-    def fake_get_prs(_org, _repo_filter):
+    def fake_get_prs(_org, _repo_filter, _state="open"):
         return ["https://github.com/org/repo/pull/1"]
 
     def fake_api_request(_path):
@@ -169,7 +169,7 @@ def test_cli_outputs_head_branch_column_when_enabled(monkeypatch):
     monkeypatch.setattr(
         cli,
         "get_github_prs",
-        lambda _org, _repo_filter: ["https://github.com/org/repo/pull/1"],
+        lambda _org, _repo_filter, _s="open": ["https://github.com/org/repo/pull/1"],
     )
     monkeypatch.setattr(
         api,
@@ -192,7 +192,7 @@ def test_cli_outputs_base_branch_column_when_enabled(monkeypatch):
     monkeypatch.setattr(
         cli,
         "get_github_prs",
-        lambda _org, _repo_filter: ["https://github.com/org/repo/pull/1"],
+        lambda _org, _repo_filter, _s="open": ["https://github.com/org/repo/pull/1"],
     )
     monkeypatch.setattr(
         api,
@@ -215,7 +215,7 @@ def test_cli_head_and_base_branch_hidden_by_default(monkeypatch):
     monkeypatch.setattr(
         cli,
         "get_github_prs",
-        lambda _org, _repo_filter: ["https://github.com/org/repo/pull/1"],
+        lambda _org, _repo_filter, _s="open": ["https://github.com/org/repo/pull/1"],
     )
     monkeypatch.setattr(
         api,
@@ -236,7 +236,7 @@ def test_cli_outputs_json(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
 
-    def fake_get_prs(_org, _repo_filter):
+    def fake_get_prs(_org, _repo_filter, _state="open"):
         return ["https://github.com/org/repo/pull/1"]
 
     def fake_api_request(_path):
@@ -287,7 +287,7 @@ def test_cli_outputs_json(monkeypatch):
 def test_cli_json_output_is_valid_json_when_empty(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "get_github_prs", lambda _org, _repo: [])
+    monkeypatch.setattr(cli, "get_github_prs", lambda _org, _repo, _state="open": [])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
 
     runner = CliRunner()
@@ -302,7 +302,7 @@ def test_cli_continues_when_one_pr_fetch_fails(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
 
-    def fake_get_prs(_org, _repo_filter):
+    def fake_get_prs(_org, _repo_filter, _state="open"):
         return [
             "https://github.com/org/repo/pull/1",
             "https://github.com/org/repo/pull/2",
@@ -354,7 +354,7 @@ def test_cli_mine_only_filters_to_authenticated_user(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
 
-    def fake_get_prs(_org, _repo_filter):
+    def fake_get_prs(_org, _repo_filter, _state="open"):
         return [
             "https://github.com/org/repo/pull/1",
             "https://github.com/org/repo/pull/2",
@@ -421,7 +421,7 @@ def test_cli_outputs_checks_column(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
 
-    def fake_get_prs(_org, _repo_filter):
+    def fake_get_prs(_org, _repo_filter, _state="open"):
         return ["https://github.com/org/repo/pull/1"]
 
     def fake_api_request(path):
@@ -472,7 +472,7 @@ def test_cli_checks_no_collision_across_repos(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
 
-    def fake_get_prs(_org, _repo_filter):
+    def fake_get_prs(_org, _repo_filter, _state="open"):
         return [
             "https://github.com/org/repo-a/pull/17",
             "https://github.com/org/repo-b/pull/17",
@@ -549,7 +549,7 @@ def test_cli_checks_not_shown_by_default(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
 
-    def fake_get_prs(_org, _repo_filter):
+    def fake_get_prs(_org, _repo_filter, _state="open"):
         return ["https://github.com/org/repo/pull/1"]
 
     def fake_api_request(_path):
@@ -601,7 +601,7 @@ def test_cli_json_includes_checks_when_enabled(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
 
-    def fake_get_prs(_org, _repo_filter):
+    def fake_get_prs(_org, _repo_filter, _state="open"):
         return ["https://github.com/org/repo/pull/1"]
 
     def fake_api_request(path):
@@ -657,7 +657,7 @@ def test_cli_json_excludes_checks_by_default(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
 
-    def fake_get_prs(_org, _repo_filter):
+    def fake_get_prs(_org, _repo_filter, _state="open"):
         return ["https://github.com/org/repo/pull/1"]
 
     def fake_api_request(_path):
@@ -731,7 +731,7 @@ def test_cli_outputs_approvals_column(monkeypatch):
 
     pr_detail = _make_pr_detail()
 
-    def fake_get_prs(_org, _repo_filter):
+    def fake_get_prs(_org, _repo_filter, _state="open"):
         return ["https://github.com/org/repo/pull/1"]
 
     def fake_api_request(path):
@@ -767,7 +767,7 @@ def test_cli_renders_review_required_for_incomplete_reviews(monkeypatch):
     monkeypatch.setattr(
         cli,
         "get_github_prs",
-        lambda _org, _repo_filter: ["https://github.com/org/repo/pull/1"],
+        lambda _org, _repo_filter, _s="open": ["https://github.com/org/repo/pull/1"],
     )
 
     def fake_api_request(path):
@@ -810,7 +810,7 @@ def test_cli_renders_approval_counts_for_multi_review_branch(monkeypatch):
     monkeypatch.setattr(
         cli,
         "get_github_prs",
-        lambda _org, _repo_filter: ["https://github.com/org/repo/pull/1"],
+        lambda _org, _repo_filter, _s="open": ["https://github.com/org/repo/pull/1"],
     )
     monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
     monkeypatch.setattr(
@@ -838,7 +838,9 @@ def test_cli_approvals_not_shown_by_default(monkeypatch):
     pr_detail = _make_pr_detail()
 
     monkeypatch.setattr(
-        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+        cli,
+        "get_github_prs",
+        lambda _o, _r, _s="open": ["https://github.com/org/repo/pull/1"],
     )
     monkeypatch.setattr(api, "make_github_api_request", lambda _path: pr_detail)
 
@@ -862,7 +864,9 @@ def test_cli_json_includes_approval_when_enabled(monkeypatch):
         return pr_detail
 
     monkeypatch.setattr(
-        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+        cli,
+        "get_github_prs",
+        lambda _o, _r, _s="open": ["https://github.com/org/repo/pull/1"],
     )
     monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
     monkeypatch.setattr(
@@ -900,7 +904,9 @@ def test_cli_json_includes_approval_counts_when_available(monkeypatch):
         return pr_detail
 
     monkeypatch.setattr(
-        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+        cli,
+        "get_github_prs",
+        lambda _o, _r, _s="open": ["https://github.com/org/repo/pull/1"],
     )
     monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
     monkeypatch.setattr(
@@ -933,7 +939,9 @@ def test_cli_json_excludes_approval_by_default(monkeypatch):
     pr_detail = _make_pr_detail()
 
     monkeypatch.setattr(
-        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+        cli,
+        "get_github_prs",
+        lambda _o, _r, _s="open": ["https://github.com/org/repo/pull/1"],
     )
     monkeypatch.setattr(api, "make_github_api_request", lambda _path: pr_detail)
 
@@ -961,7 +969,7 @@ def test_cli_approvals_config_file(tmp_path):
 def test_no_update_check_flag_skips_update(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "get_github_prs", lambda _o, _r: [])
+    monkeypatch.setattr(cli, "get_github_prs", lambda _o, _r, _s="open": [])
     check_called = []
     monkeypatch.setattr(
         cli,
@@ -982,7 +990,7 @@ def test_no_update_check_flag_skips_update(monkeypatch):
 def test_no_update_check_env_var(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "get_github_prs", lambda _o, _r: [])
+    monkeypatch.setattr(cli, "get_github_prs", lambda _o, _r, _s="open": [])
     monkeypatch.setenv("BREAKFAST_NO_UPDATE_CHECK", "1")
     check_called = []
     monkeypatch.setattr(
@@ -1008,7 +1016,7 @@ def test_cli_truncates_title_when_max_title_length_set(monkeypatch):
 
     long_title = "A" * 100
 
-    def fake_get_prs(_org, _repo_filter):
+    def fake_get_prs(_org, _repo_filter, _state="open"):
         return ["https://github.com/org/repo/pull/1"]
 
     def fake_api_request(_path):
@@ -1049,7 +1057,7 @@ def test_cli_does_not_truncate_title_when_max_title_length_unset(monkeypatch):
 
     long_title = "A" * 100
 
-    def fake_get_prs(_org, _repo_filter):
+    def fake_get_prs(_org, _repo_filter, _state="open"):
         return ["https://github.com/org/repo/pull/1"]
 
     def fake_api_request(_path):
@@ -1085,7 +1093,7 @@ def test_cli_limit_caps_results(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
 
-    def fake_get_prs(_org, _repo_filter):
+    def fake_get_prs(_org, _repo_filter, _state="open"):
         return [f"https://github.com/org/repo/pull/{i}" for i in range(1, 6)]
 
     def fake_api_request(path):
@@ -1181,7 +1189,7 @@ def test_cli_status_columns_use_ascii_to_keep_rows_aligned(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
 
-    def fake_get_prs(_org, _repo_filter):
+    def fake_get_prs(_org, _repo_filter, _state="open"):
         return [
             "https://github.com/org/repo/pull/1",
             "https://github.com/org/repo/pull/2",
@@ -1260,7 +1268,9 @@ def test_auto_fit_truncates_title_to_terminal_width(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
     monkeypatch.setattr(
-        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+        cli,
+        "get_github_prs",
+        lambda _o, _r, _s="open": ["https://github.com/org/repo/pull/1"],
     )
     monkeypatch.setattr(
         api, "make_github_api_request", lambda _: _make_pr_fixture(title="A" * 200)
@@ -1282,7 +1292,9 @@ def test_auto_fit_skips_truncation_when_title_fits(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
     monkeypatch.setattr(
-        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+        cli,
+        "get_github_prs",
+        lambda _o, _r, _s="open": ["https://github.com/org/repo/pull/1"],
     )
     monkeypatch.setattr(
         api, "make_github_api_request", lambda _: _make_pr_fixture(title="Short title")
@@ -1303,7 +1315,9 @@ def test_auto_fit_truncates_repo_and_author_before_dropping(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
     monkeypatch.setattr(
-        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+        cli,
+        "get_github_prs",
+        lambda _o, _r, _s="open": ["https://github.com/org/repo/pull/1"],
     )
 
     def fake_api(_path):
@@ -1333,7 +1347,9 @@ def test_auto_fit_compresses_mergeable_before_dropping(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
     monkeypatch.setattr(
-        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+        cli,
+        "get_github_prs",
+        lambda _o, _r, _s="open": ["https://github.com/org/repo/pull/1"],
     )
     monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_fixture())
 
@@ -1400,7 +1416,9 @@ def test_auto_fit_drops_columns_when_very_narrow(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
     monkeypatch.setattr(
-        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+        cli,
+        "get_github_prs",
+        lambda _o, _r, _s="open": ["https://github.com/org/repo/pull/1"],
     )
     monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_fixture())
 
@@ -1421,7 +1439,9 @@ def test_auto_fit_noop_when_not_tty(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
     monkeypatch.setattr(
-        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+        cli,
+        "get_github_prs",
+        lambda _o, _r, _s="open": ["https://github.com/org/repo/pull/1"],
     )
     monkeypatch.setattr(
         api, "make_github_api_request", lambda _: _make_pr_fixture(title="A" * 200)
@@ -1440,7 +1460,9 @@ def test_explicit_max_title_length_overrides_auto_fit(monkeypatch):
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda: None)
     monkeypatch.setattr(
-        cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
+        cli,
+        "get_github_prs",
+        lambda _o, _r, _s="open": ["https://github.com/org/repo/pull/1"],
     )
     monkeypatch.setattr(
         api, "make_github_api_request", lambda _: _make_pr_fixture(title="A" * 100)
@@ -1540,7 +1562,7 @@ def test_no_cache_flag_always_fetches(monkeypatch, tmp_path):
 
     api_called = []
 
-    def fake_get_prs(_org, _repo):
+    def fake_get_prs(_org, _repo, _s="open"):
         api_called.append(1)
         return ["https://github.com/org/repo/pull/1"]
 
@@ -2279,7 +2301,7 @@ def test_debug_flag_prints_summary_to_stderr(monkeypatch):
         },
     )
 
-    def fake_get_prs(_org, _repo_filter):
+    def fake_get_prs(_org, _repo_filter, _state="open"):
         return ["https://github.com/org/repo/pull/1"]
 
     def fake_api_request(_path):

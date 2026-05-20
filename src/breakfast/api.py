@@ -249,26 +249,36 @@ def _match_repo_filter(repo_name, repo_filter):
     return repo_filter in repo_name
 
 
-def get_github_prs(organization, repo_filter):
-    base_query = """
-    query($organization: String!, $cursor: String){
-      organization(login: $organization){
-        repositories(after: $cursor, first:100){
-          nodes{
+_FETCH_STATE_MAP = {
+    "open": ["OPEN"],
+    "closed": ["CLOSED"],
+    "merged": ["MERGED"],
+    "all": ["OPEN", "CLOSED", "MERGED"],
+}
+
+
+def get_github_prs(organization, repo_filter, fetch_state="open"):
+    states_list = _FETCH_STATE_MAP.get(fetch_state.lower(), ["OPEN"])
+    states_gql = ", ".join(states_list)
+    base_query = f"""
+    query($organization: String!, $cursor: String){{
+      organization(login: $organization){{
+        repositories(after: $cursor, first:100){{
+          nodes{{
             name
-            pullRequests(first:100,states: [OPEN]){
-                nodes{
+            pullRequests(first:100,states: [{states_gql}]){{
+                nodes{{
                     url
-                 }
-            }
-          }
-          pageInfo {
+                 }}
+            }}
+          }}
+          pageInfo {{
             endCursor
             hasNextPage
-          }
-        }
-      }
-    }
+          }}
+        }}
+      }}
+    }}
         """
     variables = {"organization": organization}
 

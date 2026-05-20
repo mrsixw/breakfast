@@ -654,6 +654,16 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     ),
 )
 @click.option(
+    "--fetch-state",
+    type=click.Choice(["open", "closed", "merged", "all"], case_sensitive=False),
+    default="open",
+    show_default=True,
+    help=(
+        "Which PR states to fetch from GitHub. 'open' fetches only open PRs"
+        " (default). Use 'closed', 'merged', or 'all' to include other states."
+    ),
+)
+@click.option(
     "--filter-state",
     type=click.Choice(["open", "closed", "draft"], case_sensitive=False),
     multiple=True,
@@ -785,6 +795,7 @@ def breakfast(
     cache,
     refresh,
     refresh_prs,
+    fetch_state,
     filter_state,
     filter_check,
     filter_approval,
@@ -884,6 +895,9 @@ def breakfast(
         else cfg.get("max-title-length")
     )
     workers = workers if workers is not None else cfg.get("workers", 64)
+    fetch_state = (
+        fetch_state if fetch_state != "open" else cfg.get("fetch-state", "open")
+    )
     if status_style not in {"emoji", "ascii"}:
         status_style = "emoji"
     legendary = legendary if legendary is not None else cfg.get("legendary", False)
@@ -1079,7 +1093,7 @@ def breakfast(
 
         if prs is None:
             try:
-                prs = get_github_prs(organization, repo_filter)
+                prs = get_github_prs(organization, repo_filter, fetch_state)
             except (
                 requests.exceptions.ConnectionError,
                 requests.exceptions.Timeout,

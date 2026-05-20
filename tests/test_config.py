@@ -196,6 +196,71 @@ def test_filter_pr_details_combined_filters():
     assert {r["id"] for r in result} == {1, 2}
 
 
+def test_filter_pr_details_filter_label_single():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "bug"}, {"name": "urgent"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "enhancement"}]},
+        {**_make_pr(pr_id=3), "labels": []},
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_label=("bug",))
+    assert [r["id"] for r in result] == [1]
+
+
+def test_filter_pr_details_filter_label_multiple_or():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "bug"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "enhancement"}]},
+        {**_make_pr(pr_id=3), "labels": [{"name": "docs"}]},
+    ]
+
+    result = config.filter_pr_details(
+        pr_details, [], filter_label=("bug", "enhancement")
+    )
+    assert {r["id"] for r in result} == {1, 2}
+
+
+def test_filter_pr_details_filter_label_case_insensitive():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "Bug"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "docs"}]},
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_label=("bug",))
+    assert [r["id"] for r in result] == [1]
+
+
+def test_filter_pr_details_filter_label_no_labels_on_pr():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": []},
+        {**_make_pr(pr_id=2)},  # labels key absent
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_label=("bug",))
+    assert result == []
+
+
+def test_filter_pr_details_exclude_label():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "wip"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "ready"}]},
+        {**_make_pr(pr_id=3), "labels": []},
+    ]
+
+    result = config.filter_pr_details(pr_details, [], exclude_label=("wip",))
+    assert {r["id"] for r in result} == {2, 3}
+
+
+def test_filter_pr_details_exclude_label_case_insensitive():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "WIP"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "ready"}]},
+    ]
+
+    result = config.filter_pr_details(pr_details, [], exclude_label=("wip",))
+    assert [r["id"] for r in result] == [2]
+
+
 def test_get_config_dir_xdg(tmp_path, monkeypatch):
     custom_path = tmp_path / "custom-xdg"
     monkeypatch.setenv("XDG_CONFIG_HOME", str(custom_path))

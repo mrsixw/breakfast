@@ -94,6 +94,24 @@ breakfast -o my-org -r my-app --filter-approval pending --filter-approval change
 
 > **Note:** Review and check statuses are cached alongside PR details, so repeated runs with these flags skip redundant API calls.
 
+### `--label`
+
+Only show PRs that have a specific label. Matching is **case-insensitive**. Repeat the flag to require any of the given labels (OR logic).
+
+```bash
+breakfast -o my-org --label bug                          # only PRs labelled "bug"
+breakfast -o my-org --label bug --label enhancement      # PRs with "bug" OR "enhancement"
+```
+
+### `--exclude-label`
+
+Exclude PRs that have a specific label. Matching is **case-insensitive**. Repeat to exclude any of the given labels.
+
+```bash
+breakfast -o my-org --exclude-label wip                  # hide WIP PRs
+breakfast -o my-org --exclude-label wip --exclude-label blocked
+```
+
 ### `--search`, `-s`
 
 Filter PRs by title. Accepts a plain string or a regular expression pattern; matching is always **case-insensitive**.

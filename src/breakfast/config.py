@@ -393,6 +393,8 @@ def filter_pr_details(
     check_statuses=None,
     approval_statuses=None,
     search_title=None,
+    filter_label=None,
+    exclude_label=None,
 ):
     ignore_set = normalize_ignore_authors(ignore_authors)
     current_user_login_normalized = (
@@ -438,6 +440,14 @@ def filter_pr_details(
         if search_title is not None:
             title = pr_detail.get("title", "")
             if not re.search(search_title, title, re.IGNORECASE):
+                continue
+        if filter_label:
+            pr_labels = {lb["name"].lower() for lb in pr_detail.get("labels", [])}
+            if not any(lbl.lower() in pr_labels for lbl in filter_label):
+                continue
+        if exclude_label:
+            pr_labels = {lb["name"].lower() for lb in pr_detail.get("labels", [])}
+            if any(lbl.lower() in pr_labels for lbl in exclude_label):
                 continue
 
         filtered.append(pr_detail)

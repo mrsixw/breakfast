@@ -393,6 +393,7 @@ def filter_pr_details(
     check_statuses=None,
     approval_statuses=None,
     search_title=None,
+    filter_reviewer=None,
 ):
     ignore_set = normalize_ignore_authors(ignore_authors)
     current_user_login_normalized = (
@@ -438,6 +439,12 @@ def filter_pr_details(
         if search_title is not None:
             title = pr_detail.get("title", "")
             if not re.search(search_title, title, re.IGNORECASE):
+                continue
+        if filter_reviewer:
+            reviewers = {
+                r["login"].lower() for r in pr_detail.get("requested_reviewers", [])
+            }
+            if not any(rv.lower() in reviewers for rv in filter_reviewer):
                 continue
 
         filtered.append(pr_detail)

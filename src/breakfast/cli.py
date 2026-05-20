@@ -673,6 +673,14 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     help="Only show PRs with this review approval status. Repeat for multiple values.",
 )
 @click.option(
+    "--filter-reviewer",
+    multiple=True,
+    help=(
+        "Only show PRs that have this user as a requested reviewer"
+        " (repeatable, case-insensitive). e.g. --filter-reviewer alice"
+    ),
+)
+@click.option(
     "--legendary/--no-legendary",
     default=None,
     help=(
@@ -786,6 +794,7 @@ def breakfast(
     filter_state,
     filter_check,
     filter_approval,
+    filter_reviewer,
     legendary,
     legendary_only,
     search,
@@ -1254,6 +1263,7 @@ def breakfast(
         check_statuses=check_statuses,
         approval_statuses=approval_statuses,
         search_title=search,
+        filter_reviewer=filter_reviewer,
     )
     logger.info(
         "filter_result before=%d after=%d",

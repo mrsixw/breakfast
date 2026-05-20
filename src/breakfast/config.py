@@ -105,8 +105,17 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Output format. "table" renders a coloured terminal table (default).
 # "json" outputs machine-readable JSON — useful for scripting or piping.
 # "markdown" renders a GitHub-flavoured Markdown table — great for pasting into docs.
-# Equivalent to: --format table|json|markdown
+# "csv" outputs comma-separated values for spreadsheet import.
+# "template" renders each PR using a custom format string (see template below).
+# Equivalent to: --format table|json|markdown|csv|template
 # format = "table"
+
+# Custom format string for --format template.
+# Available fields: {repo}, {title}, {author}, {url}, {state}, {number},
+#   {created_at}, {updated_at}, {additions}, {deletions}, {changed_files},
+#   {commits}, {review_comments}, {labels}, {requested_reviewers}
+# Equivalent to: --template <value>
+# template = "{repo}: {title} ({url})"
 
 # How status columns (Checks, Approved, Mergeable?) are rendered.
 #   emoji  — colourful emoji labels, e.g. ✅ pass, ❌ fail  (default)

@@ -176,12 +176,13 @@ Processing platform PRs...🍩🧇...Done
 
 ### `--format`
 
-Choose the output format. Accepted values: `table` (default), `json`, `markdown`, `csv`.
+Choose the output format. Accepted values: `table` (default), `json`, `markdown`, `csv`, `template`.
 
 ```text
 breakfast -o my-org -r platform --format markdown
 breakfast -o my-org -r platform --format json
 breakfast -o my-org -r platform --format csv
+breakfast -o my-org -r platform --format template --template "{repo}: {title}"
 ```
 
 You can also set a persistent default in your config file:
@@ -191,6 +192,39 @@ format = "csv"
 ```
 
 See [Output Formats](output-formats.md) for full details on each format.
+
+### `--template`
+
+A Python format string used when `--format template` is active. One line is printed per PR with the template fields substituted.
+
+Available fields:
+
+| Field                    | Description                          |
+|--------------------------|--------------------------------------|
+| `{repo}`                 | Repository name                      |
+| `{title}`                | PR title                             |
+| `{author}`               | Author GitHub login                  |
+| `{url}`                  | PR URL                               |
+| `{state}`                | PR state (`open`, `closed`)          |
+| `{number}`               | PR number                            |
+| `{created_at}`           | ISO 8601 creation timestamp          |
+| `{updated_at}`           | ISO 8601 last-updated timestamp      |
+| `{additions}`            | Lines added                          |
+| `{deletions}`            | Lines deleted                        |
+| `{changed_files}`        | Files changed                        |
+| `{commits}`              | Commit count                         |
+| `{review_comments}`      | Review comment count                 |
+| `{labels}`               | Pipe-separated label names           |
+| `{requested_reviewers}`  | Pipe-separated reviewer logins       |
+
+```bash
+breakfast -o my-org --format template --template "{repo}: {title} by {author} — {url}"
+breakfast -o my-org --format template --template "{number}\t{title}\t{url}"
+```
+
+If an unknown field is used, breakfast exits with an error message.
+
+Config keys: `format = "template"` and `template = "{repo}: {title} ({url})"`
 
 ### `--markdown`
 

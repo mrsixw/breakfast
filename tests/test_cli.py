@@ -3083,3 +3083,81 @@ def test_group_prs_by_sums_both_comment_fields():
     assert name == "alice"
     assert count == 2
     assert total_comments == 7 + 3 + 1 + 4
+
+
+# ---------------------------------------------------------------------------
+# --format template (#183)
+# ---------------------------------------------------------------------------
+
+
+def test_format_template_basic(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        ["-o", "org", "--format", "template", "--template", "{repo}:{title}"],
+    )
+
+    assert result.exit_code == 0
+    assert "repo:My PR" in result.stdout
+
+
+def test_format_template_output_to_stdout(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        ["-o", "org", "--format", "template", "--template", "{url}"],
+    )
+
+    assert result.exit_code == 0
+    assert "https://github.com/org/repo/pull/1" in result.stdout
+    assert "https://github.com/org/repo/pull/1" not in result.stderr
+
+
+def test_format_template_missing_template_string_exits(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        ["-o", "org", "--format", "template"],
+    )
+
+    assert result.exit_code == 1
+    assert "--template" in result.stderr
+
+
+def test_format_template_unknown_field_exits(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        ["-o", "org", "--format", "template", "--template", "{nonexistent_field}"],
+    )
+
+    assert result.exit_code == 1
+    assert "nonexistent_field" in result.stderr

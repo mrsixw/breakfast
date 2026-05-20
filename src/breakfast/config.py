@@ -49,6 +49,11 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Control which PRs appear in the output.
 # -----------------------------------------------------------------------------
 
+# Which PR states to fetch from GitHub. Default: open.
+# Choices: open, closed, merged, all.
+# Equivalent to: --fetch-state <value>
+# fetch-state = "open"
+
 # Repositories to exclude from results. Supports glob patterns (same syntax as
 # --repo-filter). Useful for hiding archived repos, forks, or internal tooling.
 # Equivalent to: --exclude-repo "old-*" --exclude-repo "infra-*"

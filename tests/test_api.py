@@ -469,6 +469,28 @@ def test_get_approval_status_falls_back_to_rest_reviews_on_graphql_error(monkeyp
     assert api.get_approval_status("org", "repo", 1) == "approved"
 
 
+def test_get_approval_status_makes_only_one_graphql_call_on_fallback(monkeypatch):
+    """When reviewDecision is null, the REST-fallback path must not re-query GraphQL."""
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+
+    graphql_calls = []
+
+    def fake_graphql(query, variables):
+        graphql_calls.append(variables)
+        return {"data": {"repository": {"pullRequest": {"reviewDecision": None}}}}
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
+    monkeypatch.setattr(
+        api,
+        "make_paginated_github_api_request",
+        lambda path: [{"user": {"login": "alice"}, "state": "APPROVED"}],
+    )
+
+    assert api.get_approval_status("org", "repo", 1) == "approved"
+    assert len(graphql_calls) == 1
+
+
 def test_get_required_approving_review_count(monkeypatch):
     monkeypatch.setattr(
         api,

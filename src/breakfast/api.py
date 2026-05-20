@@ -372,7 +372,47 @@ def get_required_approving_review_count(owner, repo, branch):
     return None
 
 
-def get_approval_summary(owner, repo, pr_number, base_branch=None):
+_REVIEW_DECISION_QUERY = """
+query($owner: String!, $repo: String!, $prNumber: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $prNumber) {
+      reviewDecision
+    }
+  }
+}
+"""
+
+_REVIEW_DECISION_MAP = {
+    "APPROVED": "approved",
+    "CHANGES_REQUESTED": "changes",
+    "REVIEW_REQUIRED": "pending",
+}
+
+_REVIEW_DECISION_SENTINEL = object()
+
+
+def _fetch_review_decision(owner, repo, pr_number):
+    """Return GitHub's ``reviewDecision`` for a PR, or None if unavailable."""
+    variables = {"owner": owner, "repo": repo, "prNumber": pr_number}
+    try:
+        response = make_github_graphql_request(_REVIEW_DECISION_QUERY, variables)
+        return (
+            response.get("data", {})
+            .get("repository", {})
+            .get("pullRequest", {})
+            .get("reviewDecision")
+        )
+    except (ValueError, requests.exceptions.RequestException):
+        return None
+
+
+def get_approval_summary(
+    owner,
+    repo,
+    pr_number,
+    base_branch=None,
+    review_decision=_REVIEW_DECISION_SENTINEL,
+):
     """Return approval status plus optional obtained/required review counts.
 
     Args:
@@ -380,6 +420,9 @@ def get_approval_summary(owner, repo, pr_number, base_branch=None):
         repo: Repository name.
         pr_number: Pull request number.
         base_branch: Base branch name for branch protection lookup.
+        review_decision: Optional pre-fetched GitHub ``reviewDecision`` value.
+            When provided (including ``None``), skips the internal GraphQL
+            query — used by ``get_approval_status`` to avoid a duplicate call.
 
     Returns:
         dict: Summary with ``status`` and optional ``current`` / ``required``
@@ -397,34 +440,10 @@ def get_approval_summary(owner, repo, pr_number, base_branch=None):
         except requests.exceptions.RequestException:
             required_reviews = None
 
-    query = """
-    query($owner: String!, $repo: String!, $prNumber: Int!) {
-      repository(owner: $owner, name: $repo) {
-        pullRequest(number: $prNumber) {
-          reviewDecision
-        }
-      }
-    }
-    """
-    variables = {"owner": owner, "repo": repo, "prNumber": pr_number}
+    if review_decision is _REVIEW_DECISION_SENTINEL:
+        review_decision = _fetch_review_decision(owner, repo, pr_number)
 
-    try:
-        response = make_github_graphql_request(query, variables)
-        review_decision = (
-            response.get("data", {})
-            .get("repository", {})
-            .get("pullRequest", {})
-            .get("reviewDecision")
-        )
-    except (ValueError, requests.exceptions.RequestException):
-        review_decision = None
-
-    decision_map = {
-        "APPROVED": "approved",
-        "CHANGES_REQUESTED": "changes",
-        "REVIEW_REQUIRED": "pending",
-    }
-    status = decision_map.get(review_decision, review_summary["status"])
+    status = _REVIEW_DECISION_MAP.get(review_decision, review_summary["status"])
 
     if required_reviews is not None and review_decision is None and status != "changes":
         status = "approved" if current_reviews >= required_reviews else "pending"
@@ -454,37 +473,13 @@ def get_approval_status(owner, repo, pr_number, base_branch=None):
         GraphQL signal is unavailable, it falls back to the latest REST review
         events.
     """
-    query = """
-    query($owner: String!, $repo: String!, $prNumber: Int!) {
-      repository(owner: $owner, name: $repo) {
-        pullRequest(number: $prNumber) {
-          reviewDecision
-        }
-      }
-    }
-    """
-    variables = {"owner": owner, "repo": repo, "prNumber": pr_number}
+    review_decision = _fetch_review_decision(owner, repo, pr_number)
+    if review_decision in _REVIEW_DECISION_MAP:
+        return _REVIEW_DECISION_MAP[review_decision]
 
-    try:
-        response = make_github_graphql_request(query, variables)
-        review_decision = (
-            response.get("data", {})
-            .get("repository", {})
-            .get("pullRequest", {})
-            .get("reviewDecision")
-        )
-    except (ValueError, requests.exceptions.RequestException):
-        review_decision = None
-
-    decision_map = {
-        "APPROVED": "approved",
-        "CHANGES_REQUESTED": "changes",
-        "REVIEW_REQUIRED": "pending",
-    }
-    if review_decision in decision_map:
-        return decision_map[review_decision]
-
-    return get_approval_summary(owner, repo, pr_number, base_branch)["status"]
+    return get_approval_summary(
+        owner, repo, pr_number, base_branch, review_decision=review_decision
+    )["status"]
 
 
 def get_check_status(owner, repo, sha):

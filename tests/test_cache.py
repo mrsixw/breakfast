@@ -359,3 +359,74 @@ def test_write_pr_cache_failure_warns_to_stderr(tmp_path, monkeypatch):
     warning_calls = [c for c in echo_calls if "Warning" in str(c[0])]
     assert len(warning_calls) == 1
     assert warning_calls[0][1].get("err") is True
+
+
+# ---------------------------------------------------------------------------
+# per-repo PR cache
+# ---------------------------------------------------------------------------
+
+
+def test_write_then_read_repo_pr_cache_roundtrip(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    prs = [{"number": 1, "id": 101, "title": "hello"}]
+    cache.write_repo_pr_cache("myorg", "myrepo", prs)
+    result = cache.read_repo_pr_cache("myorg", "myrepo", 300)
+    assert result is not None
+    assert result["prs"] == prs
+    assert result["check_statuses"] is None
+    assert result["approval_statuses"] is None
+    assert result["approval_details"] is None
+
+
+def test_write_then_read_repo_pr_cache_with_statuses(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    prs = [{"number": 1, "id": 101}]
+    checks = {101: "pass"}
+    approvals = {101: "approved"}
+    details = {101: {"status": "approved", "current": 1, "required": 1}}
+    cache.write_repo_pr_cache(
+        "myorg",
+        "myrepo",
+        prs,
+        check_statuses=checks,
+        approval_statuses=approvals,
+        approval_details=details,
+    )
+    result = cache.read_repo_pr_cache("myorg", "myrepo", 300)
+    assert result["prs"] == prs
+    assert result["check_statuses"] == checks
+    assert result["approval_statuses"] == approvals
+    assert result["approval_details"] == details
+
+
+def test_read_repo_pr_cache_miss_no_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    assert cache.read_repo_pr_cache("myorg", "myrepo", 300) is None
+
+
+def test_read_repo_pr_cache_expired(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_repo_pr_cache("myorg", "myrepo", [{"number": 1}])
+    path = cache.repo_pr_cache_path("myorg", "myrepo")
+    data = json.loads(path.read_text())
+    old_time = (datetime.now(timezone.utc) - timedelta(seconds=600)).isoformat()
+    data["fetched_at"] = old_time
+    path.write_text(json.dumps(data))
+    assert cache.read_repo_pr_cache("myorg", "myrepo", 300) is None
+
+
+def test_read_repo_pr_cache_not_expired(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_repo_pr_cache("myorg", "myrepo", [{"number": 1}])
+    result = cache.read_repo_pr_cache("myorg", "myrepo", 300)
+    assert result is not None
+
+
+def test_repo_pr_cache_key_differs_from_whole_blob_key(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    # repo_pr_cache_path uses (org, repo_name), not (org, repo_filter)
+    p1 = cache.repo_pr_cache_path("org", "my-repo")
+    p2 = cache.cache_path("org", "my-repo")
+    assert p1 != p2
+    assert p1.name.startswith("pr_repo_")
+    assert p2.name.startswith("prs_")

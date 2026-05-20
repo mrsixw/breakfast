@@ -1136,6 +1136,35 @@ def _make_pr_fixture(title="Test PR", number=1):
     }
 
 
+def test_table_width_matches_tabulate_border():
+    """_table_width must agree with the actual tabulate outline border width."""
+    test_cases = [
+        [{"Repo": "repo", "PR Title": "title", "Author": "alice"}],
+        [
+            {"Repo": "short", "PR Title": "a", "Author": "bob"},
+            {
+                "Repo": "a-very-long-repository-name",
+                "PR Title": "longer title here",
+                "Author": "carol",
+            },
+        ],
+        [{"Col": "x"} for _ in range(10)],
+        [{"A": "hello", "B": "\x1b[32mgreen\x1b[0m", "C": "plain"}],
+    ]
+    for rows in test_cases:
+        plain_rows = [{k: cli._strip_ansi(v) for k, v in row.items()} for row in rows]
+        expected = len(
+            tabulate(
+                plain_rows,
+                headers="keys",
+                showindex="always",
+                tablefmt="outline",
+                disable_numparse=True,
+            ).splitlines()[0]
+        )
+        assert cli._table_width(rows) == expected, f"Mismatch for rows={rows!r}"
+
+
 def test_auto_fit_measures_later_rows_when_fitting_table():
     rows = [
         {

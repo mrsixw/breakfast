@@ -136,16 +136,25 @@ def _styled_hyperlink(url, styled_text):
 
 
 def _table_width(rows):
-    """Return visual table width via the border line (ANSI-stripped for accuracy)."""
-    plain_rows = [{k: _strip_ansi(v) for k, v in row.items()} for row in rows]
-    table_str = tabulate(
-        plain_rows,
-        headers="keys",
-        showindex="always",
-        tablefmt="outline",
-        disable_numparse=True,
-    )
-    return len(table_str.splitlines()[0])
+    """Return visual table width without rendering the full table.
+
+    Replicates the border line width of tabulate's outline format.
+    Each column contributes max(header_len+4, cell_max+2) dashes plus
+    a leading '+'. The index column uses header_len=0.
+    """
+    if not rows:
+        return 0
+    headers = list(rows[0].keys())
+    idx_width = len(str(len(rows) - 1))
+    # Index column: header is empty, content is the row number
+    total = 1 + max(4, idx_width + 2) + 1
+    for h in headers:
+        cell_max = max(
+            (len(_strip_ansi(str(row.get(h, "")))) for row in rows),
+            default=0,
+        )
+        total += max(len(h) + 4, cell_max + 2) + 1
+    return total
 
 
 def _truncate_col(pr_data, key, terminal_width, min_len=8):

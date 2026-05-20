@@ -523,3 +523,28 @@ def get_check_status(owner, repo, sha):
         return "fail"
 
     return "pass"
+
+
+def _pr_days_since(timestamp_str, now=None):
+    """Return the number of days since the given ISO 8601 timestamp, or 0 on error."""
+    if not timestamp_str:
+        return 0
+    try:
+        dt = datetime.datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    if now is None:
+        now = datetime.datetime.now(datetime.timezone.utc)
+    return max((now - dt).days, 0)
+
+
+def get_pr_age_days(pr_detail, now=None):
+    """Return the age in days of a PR since it was created."""
+    return _pr_days_since(pr_detail.get("created_at"), now=now)
+
+
+def get_pr_inactive_days(pr_detail, now=None):
+    """Return the number of days since a PR was last updated."""
+    return _pr_days_since(pr_detail.get("updated_at"), now=now)

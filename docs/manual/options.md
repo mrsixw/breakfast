@@ -94,6 +94,24 @@ breakfast -o my-org -r my-app --filter-approval pending --filter-approval change
 
 > **Note:** Review and check statuses are cached alongside PR details, so repeated runs with these flags skip redundant API calls.
 
+### `--filter-stale`
+
+Only show PRs that have been open for more than N days (based on creation date). Pairs naturally with `--age` to see the age column.
+
+```bash
+breakfast -o my-org --filter-stale 14         # PRs open for more than 14 days
+breakfast -o my-org --filter-stale 30 --age   # stale PRs with age column visible
+```
+
+### `--filter-inactive`
+
+Only show PRs that have not been updated in the last N days. Useful for surfacing PRs that need a nudge.
+
+```bash
+breakfast -o my-org --filter-inactive 7       # not updated in the last 7 days
+breakfast -o my-org --filter-stale 14 --filter-inactive 3
+```
+
 ### `--search`, `-s`
 
 Filter PRs by title. Accepts a plain string or a regular expression pattern; matching is always **case-insensitive**.

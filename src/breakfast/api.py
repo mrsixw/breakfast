@@ -249,6 +249,19 @@ def _match_repo_filter(repo_name, repo_filter):
     return repo_filter in repo_name
 
 
+def _match_exclude_repos(repo_name, exclude_repos):
+    """Return True if repo_name matches any exclusion pattern (glob or substring)."""
+    if not exclude_repos:
+        return False
+    for pattern in exclude_repos:
+        if any(c in pattern for c in _GLOB_CHARS):
+            if fnmatch.fnmatch(repo_name, pattern):
+                return True
+        elif pattern in repo_name:
+            return True
+    return False
+
+
 def get_github_prs(organization, repo_filter):
     base_query = """
     query($organization: String!, $cursor: String){
@@ -288,6 +301,8 @@ def get_github_prs(organization, repo_filter):
     prs = []
     for response in gql_responses:
         for repo in response["data"]["organization"]["repositories"]["nodes"]:
+            if repo is None:
+                continue
             if _match_repo_filter(repo["name"], repo_filter):
                 for pr in repo["pullRequests"]["nodes"]:
                     prs.append(pr["url"])

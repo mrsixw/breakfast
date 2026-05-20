@@ -196,6 +196,17 @@ _DEFAULT_CONFIG_CONTENT = """\
 # oldest PR age, and total comments per repo.
 # Equivalent to: --summarise-repo-prs
 # summarise-repo-prs = false
+
+
+# -----------------------------------------------------------------------------
+# Update notifications
+# Control how version update alerts appear.
+# -----------------------------------------------------------------------------
+
+# When a newer version of breakfast is available, include a short summary of
+# what's new (pulled from the GitHub release notes) below the update banner.
+# Equivalent to: --update-summary
+# update-summary = false
 """
 
 

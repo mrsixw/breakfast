@@ -583,6 +583,23 @@ breakfast automatically checks for new versions once per day (cached for 24 hour
 
 The check is non-blocking and non-fatal — network failures are silently ignored. The notification is sent to stderr so it won't interfere with `--json` output piping.
 
+### `update-summary` (config only)
+
+When set to `true`, appends a short summary of what's new (pulled from the GitHub release notes) below the update banner:
+
+```text
+🍳 A fresh breakfast is ready! v0.10.0 → v0.11.0 — update at ...
+  📋 - Add --sort option for custom PR ordering
+      - Fix --checks with per-repo cache hits
+      - New --exclude-label filter
+```
+
+Enable in `~/.config/breakfast/config.toml`:
+
+```toml
+update-summary = true
+```
+
 To disable the update check:
 
 ```bash

@@ -66,7 +66,7 @@ def test_cli_exits_when_token_missing(monkeypatch):
 def test_cli_outputs_table(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     def fake_get_prs(_org, _repo_filter):
         return ["https://github.com/org/repo/pull/1"]
@@ -104,7 +104,7 @@ def test_cli_outputs_table(monkeypatch):
 def test_cli_outputs_age_column_when_enabled(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     def fake_get_prs(_org, _repo_filter):
         return ["https://github.com/org/repo/pull/1"]
@@ -165,7 +165,7 @@ def _fake_pr_detail_with_branches():
 def test_cli_outputs_head_branch_column_when_enabled(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli,
         "get_github_prs",
@@ -188,7 +188,7 @@ def test_cli_outputs_head_branch_column_when_enabled(monkeypatch):
 def test_cli_outputs_base_branch_column_when_enabled(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli,
         "get_github_prs",
@@ -211,7 +211,7 @@ def test_cli_outputs_base_branch_column_when_enabled(monkeypatch):
 def test_cli_head_and_base_branch_hidden_by_default(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli,
         "get_github_prs",
@@ -234,7 +234,7 @@ def test_cli_head_and_base_branch_hidden_by_default(monkeypatch):
 def test_cli_outputs_json(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     def fake_get_prs(_org, _repo_filter):
         return ["https://github.com/org/repo/pull/1"]
@@ -288,7 +288,7 @@ def test_cli_json_output_is_valid_json_when_empty(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "get_github_prs", lambda _org, _repo: [])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     runner = CliRunner()
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--json"])
@@ -300,7 +300,7 @@ def test_cli_json_output_is_valid_json_when_empty(monkeypatch):
 def test_cli_continues_when_one_pr_fetch_fails(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     def fake_get_prs(_org, _repo_filter):
         return [
@@ -352,7 +352,7 @@ def test_cli_continues_when_one_pr_fetch_fails(monkeypatch):
 def test_cli_mine_only_filters_to_authenticated_user(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     def fake_get_prs(_org, _repo_filter):
         return [
@@ -401,7 +401,7 @@ def test_cli_mine_only_exits_cleanly_on_rate_limit(monkeypatch):
 
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli,
         "get_authenticated_user_login",
@@ -419,7 +419,7 @@ def test_cli_mine_only_exits_cleanly_on_rate_limit(monkeypatch):
 def test_cli_outputs_checks_column(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     def fake_get_prs(_org, _repo_filter):
         return ["https://github.com/org/repo/pull/1"]
@@ -470,7 +470,7 @@ def test_cli_checks_no_collision_across_repos(monkeypatch):
     """PRs with the same number in different repos must keep separate check statuses."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     def fake_get_prs(_org, _repo_filter):
         return [
@@ -547,7 +547,7 @@ def test_cli_checks_no_collision_across_repos(monkeypatch):
 def test_cli_checks_not_shown_by_default(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     def fake_get_prs(_org, _repo_filter):
         return ["https://github.com/org/repo/pull/1"]
@@ -599,7 +599,7 @@ def test_cli_show_config_includes_status_style_from_config(tmp_path):
 def test_cli_json_includes_checks_when_enabled(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     def fake_get_prs(_org, _repo_filter):
         return ["https://github.com/org/repo/pull/1"]
@@ -655,7 +655,7 @@ def test_cli_json_includes_checks_when_enabled(monkeypatch):
 def test_cli_json_excludes_checks_by_default(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     def fake_get_prs(_org, _repo_filter):
         return ["https://github.com/org/repo/pull/1"]
@@ -727,7 +727,7 @@ def _make_pr_detail(number=1, owner="org", repo="repo", pr_id=1001):
 def test_cli_outputs_approvals_column(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     pr_detail = _make_pr_detail()
 
@@ -760,7 +760,7 @@ def test_cli_outputs_approvals_column(monkeypatch):
 def test_cli_renders_review_required_for_incomplete_reviews(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     pr_detail = _make_pr_detail()
 
@@ -796,7 +796,7 @@ def test_cli_renders_review_required_for_incomplete_reviews(monkeypatch):
 def test_cli_renders_approval_counts_for_multi_review_branch(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     pr_detail = _make_pr_detail()
 
@@ -833,7 +833,7 @@ def test_cli_renders_approval_counts_for_multi_review_branch(monkeypatch):
 def test_cli_approvals_not_shown_by_default(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     pr_detail = _make_pr_detail()
 
@@ -852,7 +852,7 @@ def test_cli_approvals_not_shown_by_default(monkeypatch):
 def test_cli_json_includes_approval_when_enabled(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     pr_detail = _make_pr_detail()
 
@@ -888,7 +888,7 @@ def test_cli_json_includes_approval_when_enabled(monkeypatch):
 def test_cli_json_includes_approval_counts_when_available(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     pr_detail = _make_pr_detail()
 
@@ -928,7 +928,7 @@ def test_cli_json_includes_approval_counts_when_available(monkeypatch):
 def test_cli_json_excludes_approval_by_default(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     pr_detail = _make_pr_detail()
 
@@ -1004,7 +1004,7 @@ def test_no_update_check_env_var(monkeypatch):
 def test_cli_truncates_title_when_max_title_length_set(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     long_title = "A" * 100
 
@@ -1045,7 +1045,7 @@ def test_cli_truncates_title_when_max_title_length_set(monkeypatch):
 def test_cli_does_not_truncate_title_when_max_title_length_unset(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     long_title = "A" * 100
 
@@ -1083,7 +1083,7 @@ def test_cli_does_not_truncate_title_when_max_title_length_unset(monkeypatch):
 def test_cli_limit_caps_results(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     def fake_get_prs(_org, _repo_filter):
         return [f"https://github.com/org/repo/pull/{i}" for i in range(1, 6)]
@@ -1179,7 +1179,7 @@ def test_auto_fit_measures_later_rows_when_fitting_table():
 def test_cli_status_columns_use_ascii_to_keep_rows_aligned(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     def fake_get_prs(_org, _repo_filter):
         return [
@@ -1258,7 +1258,7 @@ def test_cli_status_columns_use_ascii_to_keep_rows_aligned(monkeypatch):
 def test_auto_fit_truncates_title_to_terminal_width(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
     )
@@ -1280,7 +1280,7 @@ def test_auto_fit_truncates_title_to_terminal_width(monkeypatch):
 def test_auto_fit_skips_truncation_when_title_fits(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
     )
@@ -1301,7 +1301,7 @@ def test_auto_fit_skips_truncation_when_title_fits(monkeypatch):
 def test_auto_fit_truncates_repo_and_author_before_dropping(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
     )
@@ -1331,7 +1331,7 @@ def test_auto_fit_truncates_repo_and_author_before_dropping(monkeypatch):
 def test_auto_fit_compresses_mergeable_before_dropping(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
     )
@@ -1398,7 +1398,7 @@ def test_auto_fit_renames_mergeable_to_mrg(monkeypatch):
 def test_auto_fit_drops_columns_when_very_narrow(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
     )
@@ -1419,7 +1419,7 @@ def test_auto_fit_noop_when_not_tty(monkeypatch):
     """When stdout is not a TTY (e.g. piped), auto-fit must not run."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
     )
@@ -1438,7 +1438,7 @@ def test_auto_fit_noop_when_not_tty(monkeypatch):
 def test_explicit_max_title_length_overrides_auto_fit(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda _o, _r: ["https://github.com/org/repo/pull/1"]
     )
@@ -1508,7 +1508,7 @@ def _make_pr_detail(number=1):
 def test_cache_hit_skips_get_github_prs(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
@@ -1530,7 +1530,7 @@ def test_cache_hit_skips_get_github_prs(monkeypatch, tmp_path):
 def test_no_cache_flag_always_fetches(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
@@ -1557,7 +1557,7 @@ def test_no_cache_flag_always_fetches(monkeypatch, tmp_path):
 def test_no_cache_flag_writes_nothing(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
@@ -1587,7 +1587,7 @@ def test_config_cache_ttl_respected(monkeypatch, tmp_path):
     """cache-ttl = "5m" in config is honoured when no CLI flag given."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
@@ -1612,7 +1612,7 @@ def test_config_cache_ttl_respected(monkeypatch, tmp_path):
 def test_corrupt_cache_falls_back_to_live_fetch(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
@@ -1642,7 +1642,7 @@ def test_corrupt_cache_falls_back_to_live_fetch(monkeypatch, tmp_path):
 def test_pr_results_grouped_by_repo(monkeypatch, tmp_path):
     """PRs from multiple repos should appear grouped by repo name in the output."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
@@ -1696,7 +1696,7 @@ def test_refresh_ignores_cache_and_writes_fresh(monkeypatch, tmp_path):
     """--refresh bypasses the cache read but still writes fresh data back."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
@@ -1731,7 +1731,7 @@ def test_refresh_does_not_use_cached_data(monkeypatch, tmp_path):
     """--refresh must not serve stale data even when cache is warm."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
@@ -1757,7 +1757,7 @@ def test_refresh_prs_uses_graphql_cache_skips_pr_cache(monkeypatch, tmp_path):
     """--refresh-prs uses the cached URL list but re-fetches PR details."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
@@ -1791,7 +1791,7 @@ def test_refresh_prs_writes_fresh_pr_cache(monkeypatch, tmp_path):
     """--refresh-prs writes fresh PR details back to cache."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
@@ -1887,7 +1887,7 @@ def test_cli_legendary_flag_annotates_state(monkeypatch):
     """--legendary appends ⚔️ to the State of qualifying PRs."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     # A PR that qualifies as legendary (very old AND many comments)
     legendary_pr = {
@@ -1914,7 +1914,7 @@ def test_cli_legendary_off_by_default(monkeypatch):
     """Without --legendary, no sword emoji appears even for qualifying PRs."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     old_pr = {
         **_make_pr_detail(1),
@@ -1939,7 +1939,7 @@ def test_cli_legendary_only_filters_non_legendary(monkeypatch):
     """--legendary-only shows only PRs that qualify as legendary."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     # A fresh PR — should be filtered out
     fresh_pr = {
@@ -1968,7 +1968,7 @@ def test_cli_legendary_only_implies_legendary_marking(monkeypatch):
     """--legendary-only implies --legendary so the ⚔️ marker is applied."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     legendary_pr = {
         **_make_pr_detail(1),
@@ -2137,7 +2137,7 @@ def test_styled_hyperlink_puts_colour_outside_osc8():
 def test_cli_repo_and_author_are_hyperlinks(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     pr = _make_pr_fixture(number=1)
     pr["base"]["repo"]["html_url"] = "https://github.com/myorg/myrepo"
@@ -2159,7 +2159,7 @@ def test_cli_repo_and_author_are_hyperlinks(monkeypatch):
 def test_cli_checks_column_links_to_checks_tab(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     pr = _make_pr_fixture(number=7)
     pr["base"]["repo"]["owner"] = {"login": "org"}
@@ -2195,7 +2195,7 @@ def test_progress_emoji_emitted_after_check_status_fetch(monkeypatch):
     """
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     pr = _make_pr_fixture(number=1)
     pr["base"]["repo"]["owner"] = {"login": "org"}
@@ -2259,7 +2259,7 @@ def test_debug_flag_prints_summary_to_stderr(monkeypatch):
     """--debug emits a summary block to stderr without disrupting stdout output."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli,
         "get_api_stats",
@@ -2340,7 +2340,7 @@ def test_no_colour_strips_ansi_from_table(monkeypatch):
     """--no-colour produces output with no ANSI escape sequences."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2358,7 +2358,7 @@ def test_no_color_alias_works(monkeypatch):
     """--no-color (US spelling) is accepted and strips ANSI."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2404,7 +2404,7 @@ def test_seasonal_colours_no_colour_suppresses_them(monkeypatch):
 
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2422,7 +2422,7 @@ def test_seasonal_colours_disabled_by_config(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2493,7 +2493,7 @@ def _fake_pr_for_summary(path):
 def test_summarise_user_prs_shows_author_summary(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cli, "get_github_prs", lambda *_: _two_author_prs())
     monkeypatch.setattr(api, "make_github_api_request", _fake_pr_for_summary)
 
@@ -2511,7 +2511,7 @@ def test_summarise_user_prs_shows_author_summary(monkeypatch):
 def test_summarise_repo_prs_shows_repo_summary(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cli, "get_github_prs", lambda *_: _two_author_prs())
     monkeypatch.setattr(api, "make_github_api_request", _fake_pr_for_summary)
 
@@ -2541,7 +2541,7 @@ def test_summarise_user_and_repo_mutually_exclusive(monkeypatch):
 def test_summarise_user_prs_empty_shows_no_prs_message(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cli, "get_github_prs", lambda *_: [])
 
     runner = CliRunner()
@@ -2554,7 +2554,7 @@ def test_summarise_user_prs_empty_shows_no_prs_message(monkeypatch):
 def test_summarise_repo_prs_no_colour(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cli, "get_github_prs", lambda *_: _two_author_prs())
     monkeypatch.setattr(api, "make_github_api_request", _fake_pr_for_summary)
 
@@ -2606,7 +2606,7 @@ def _fake_pr_detail(_path):
 def test_table_output_goes_to_stdout_not_stderr(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2622,7 +2622,7 @@ def test_table_output_goes_to_stdout_not_stderr(monkeypatch):
 def test_progress_messages_go_to_stderr_in_table_mode(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2638,7 +2638,7 @@ def test_progress_messages_go_to_stderr_in_table_mode(monkeypatch):
 def test_progress_messages_go_to_stderr_in_json_mode(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2655,7 +2655,7 @@ def test_json_stdout_is_clean_json(monkeypatch):
     """stdout must contain only parseable JSON — no progress noise."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2672,7 +2672,7 @@ def test_json_stdout_is_clean_json(monkeypatch):
 def test_no_match_message_goes_to_stderr(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2691,7 +2691,7 @@ def test_no_match_with_json_stdout_stays_clean(monkeypatch):
     """--json --search with no matches: stdout must be parseable empty JSON."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2725,7 +2725,7 @@ def test_config_format_json_enables_json_output(monkeypatch, tmp_path):
     cfg_file.write_text('format = "json"\norganization = "org"\n')
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2743,7 +2743,7 @@ def test_config_format_table_produces_table_output(monkeypatch, tmp_path):
     cfg_file.write_text('format = "table"\norganization = "org"\n')
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2760,7 +2760,7 @@ def test_config_format_invalid_warns_and_falls_back_to_table(monkeypatch, tmp_pa
     cfg_file.write_text('format = "tofu"\norganization = "org"\n')
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2780,7 +2780,7 @@ def test_cli_no_json_flag_overrides_config_format_json(monkeypatch, tmp_path):
     cfg_file.write_text('format = "json"\norganization = "org"\n')
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2802,7 +2802,7 @@ def test_cli_no_json_flag_overrides_config_format_json(monkeypatch, tmp_path):
 def test_format_markdown_produces_gfm_table(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2822,7 +2822,7 @@ def test_format_markdown_produces_gfm_table(monkeypatch):
 def test_format_markdown_strips_ansi_codes(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2840,7 +2840,7 @@ def test_format_markdown_strips_ansi_codes(monkeypatch):
 def test_format_markdown_output_goes_to_stdout(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2861,7 +2861,7 @@ def test_config_format_markdown_produces_markdown_output(monkeypatch, tmp_path):
     cfg_file.write_text('format = "markdown"\norganization = "org"\n')
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2877,7 +2877,7 @@ def test_config_format_markdown_produces_markdown_output(monkeypatch, tmp_path):
 def test_format_markdown_includes_optional_columns(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     def fake_api_request(path):
         if "check-runs" in path:
@@ -2903,7 +2903,7 @@ def test_format_flag_overrides_json_flag(monkeypatch):
     """--format markdown takes precedence over --json."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2928,7 +2928,7 @@ def test_format_flag_overrides_json_flag(monkeypatch):
 def test_format_csv_produces_header_row(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2946,7 +2946,7 @@ def test_format_csv_produces_header_row(monkeypatch):
 def test_format_csv_contains_pr_data(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2964,7 +2964,7 @@ def test_format_csv_contains_pr_data(monkeypatch):
 def test_format_csv_strips_ansi_codes(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -2982,7 +2982,7 @@ def test_format_csv_strips_ansi_codes(monkeypatch):
 def test_format_csv_output_goes_to_stdout(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -3001,7 +3001,7 @@ def test_format_csv_output_goes_to_stdout(monkeypatch):
 def test_format_csv_is_valid_csv(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -3021,7 +3021,7 @@ def test_format_csv_is_valid_csv(monkeypatch):
 def test_format_csv_includes_optional_age_column(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )
@@ -3041,7 +3041,7 @@ def test_config_format_csv_produces_csv_output(monkeypatch, tmp_path):
     cfg_file.write_text('format = "csv"\norganization = "org"\n')
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
-    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
     )

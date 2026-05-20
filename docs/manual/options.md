@@ -616,6 +616,25 @@ Can also be set persistently in config:
 no-colour = true
 ```
 
+### `seasonal-calendar` (config only)
+
+Choose which cultural holiday calendar drives the seasonal colour effects in the PR table. Set in config — there is no CLI flag.
+
+| Value | Description |
+| --- | --- |
+| `"western"` | Gregorian calendar: Christmas 🎄, Easter 🐣, Pride Month 🌈, Halloween 🎃, Valentine's Day 💕, Lunar New Year 🧧 (default) |
+| `"jewish"` | Hanukkah 🕎 (blue), Rosh Hashanah 🍎 (gold), Passover 🪬 (spring green) |
+| `"islamic"` | Eid al-Fitr 🌙 (green) |
+| `"hindu"` | Diwali 🪔 (gold), Holi 🌈 (rainbow) |
+| `"sikh"` | Vaisakhi 🌾 (spring green), Bandi Chhor Divas 🪔 (gold) |
+| `"off"` | Disable seasonal colours entirely |
+
+```toml
+seasonal-calendar = "jewish"
+```
+
+Note: `seasonal-colours = false` is a backward-compatible alias for `seasonal-calendar = "off"`.
+
 ### `--colour-diagnostics` / `--color-diagnostics`
 
 Print a colour swatch page showing every colour and gradient used in the breakfast UI, then exit. No GitHub token or organisation is required.

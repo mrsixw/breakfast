@@ -713,6 +713,40 @@ Config key: `summarise-repo-prs = true`
 > exclusive. All standard filter flags (`--author`, `--repo-filter`,
 > `--filter-state`, etc.) apply before the summary is computed.
 
+## Sorting
+
+### `--sort`
+
+Sort the PR list by a named field. By default PRs are grouped by repository
+(`repo`). Available choices:
+
+| Value      | Sorts by                                      |
+|------------|-----------------------------------------------|
+| `repo`     | Repository name (default)                     |
+| `age`      | Days since the PR was opened (oldest first)   |
+| `updated`  | Last-updated timestamp (most-recently first)  |
+| `author`   | PR author login (alphabetical)                |
+| `comments` | Total comment count (issue + review comments) |
+| `reviews`  | Review comment count only                     |
+
+```bash
+breakfast -o my-org --sort age          # oldest PRs first
+breakfast -o my-org --sort comments     # most commented first
+```
+
+Config key: `sort = "repo"`
+
+### `--reverse`
+
+Reverse the sort order imposed by `--sort`.
+
+```bash
+breakfast -o my-org --sort age --reverse    # newest PRs first
+breakfast -o my-org --sort author --reverse # Z→A author order
+```
+
+Config key: `sort-reverse = false`
+
 ## Other options
 
 ### `--version`

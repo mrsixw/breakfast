@@ -288,6 +288,8 @@ def get_github_prs(organization, repo_filter):
     prs = []
     for response in gql_responses:
         for repo in response["data"]["organization"]["repositories"]["nodes"]:
+            if repo is None:
+                continue
             if _match_repo_filter(repo["name"], repo_filter):
                 for pr in repo["pullRequests"]["nodes"]:
                     prs.append(pr["url"])

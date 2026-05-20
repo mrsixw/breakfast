@@ -5,6 +5,7 @@ from pathlib import Path
 
 import click
 
+from .api import get_pr_age_days, get_pr_inactive_days
 from .logger import logger
 from .xdg import get_config_dir, get_config_paths
 
@@ -410,6 +411,8 @@ def filter_pr_details(
     filter_reviewer=None,
     filter_label=None,
     exclude_label=None,
+    filter_stale=None,
+    filter_inactive=None,
 ):
     ignore_set = normalize_ignore_authors(ignore_authors)
     current_user_login_normalized = (
@@ -469,6 +472,11 @@ def filter_pr_details(
         if exclude_label:
             pr_labels = {lb["name"].lower() for lb in pr_detail.get("labels", [])}
             if any(lbl.lower() in pr_labels for lbl in exclude_label):
+                continue
+        if filter_stale is not None and get_pr_age_days(pr_detail) < filter_stale:
+            continue
+        if filter_inactive is not None:
+            if get_pr_inactive_days(pr_detail) < filter_inactive:
                 continue
 
         filtered.append(pr_detail)

@@ -198,6 +198,33 @@ def test_get_github_prs_filters_and_paginates(monkeypatch):
     ]
 
 
+def test_get_github_prs_skips_null_repo_nodes(monkeypatch):
+    response = {
+        "data": {
+            "organization": {
+                "repositories": {
+                    "nodes": [
+                        None,
+                        {
+                            "name": "valid-repo",
+                            "pullRequests": {
+                                "nodes": [{"url": "https://example.com/valid-repo/1"}]
+                            },
+                        },
+                    ],
+                    "pageInfo": {"endCursor": None, "hasNextPage": False},
+                }
+            }
+        }
+    }
+    monkeypatch.setattr(api, "make_github_graphql_request", lambda _q, _v: response)
+    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+
+    prs = api.get_github_prs("org", None)
+
+    assert prs == ["https://example.com/valid-repo/1"]
+
+
 def test_get_authenticated_user_login(monkeypatch):
     monkeypatch.setattr(
         api,

@@ -29,9 +29,10 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Which organisation and repos to query by default.
 # -----------------------------------------------------------------------------
 
-# GitHub organisation to query for open pull requests.
-# Equivalent to: breakfast -o <value>
+# GitHub organisation(s) to query for open pull requests.
+# Equivalent to: breakfast -o <value> (repeat -o for multiple orgs).
 # Required (must be set here or passed with -o on every run).
+# For multiple orgs, use a list: organization = ["my-org", "another-org"]
 # organization = "my-org"
 
 # Filter repositories by name substring. Only repos whose name contains

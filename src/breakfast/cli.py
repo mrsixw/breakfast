@@ -507,7 +507,15 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
         " Creates a timestamped backup before modifying."
     ),
 )
-@click.option("--organization", "-o", help="One or multiple organizations to report on")
+@click.option(
+    "--organization",
+    "-o",
+    multiple=True,
+    help=(
+        "GitHub organization to query for PRs. Repeat for multiple"
+        " organizations, e.g. -o my-org -o another-org."
+    ),
+)
 @click.option("--repo-filter", "-r", help="Filter for specific repo(s)")
 @click.option(
     "--ignore-author",
@@ -829,7 +837,17 @@ def breakfast(
 
     cfg = load_config(config)
 
-    organization = organization if organization is not None else cfg.get("organization")
+    # organization is a tuple from multiple=True; merge with config
+    if organization:
+        organizations = list(organization)
+    else:
+        cfg_org = cfg.get("organization")
+        if isinstance(cfg_org, list):
+            organizations = cfg_org
+        elif cfg_org:
+            organizations = [cfg_org]
+        else:
+            organizations = []
     repo_filter = repo_filter if repo_filter is not None else cfg.get("repo-filter", "")
 
     if no_ignore_author:
@@ -951,7 +969,7 @@ def breakfast(
     if show_config:
         click.echo("Resolved config:")
         resolved = {
-            "organization": organization,
+            "organization": organizations,
             "repo-filter": repo_filter,
             "ignore-author": ignore_author,
             "mine-only": mine_only,
@@ -987,7 +1005,7 @@ def breakfast(
         " checks=%s approvals=%s age=%s legendary=%s legendary_only=%s"
         " limit=%s max_title_length=%s status_style=%s format=%s"
         " filter_state=%r filter_check=%r filter_approval=%r search=%r api_stats=%s",
-        organization,
+        organizations,
         repo_filter,
         mine_only,
         ignore_author,
@@ -1023,7 +1041,7 @@ def breakfast(
         )
         sys.exit(1)
 
-    if not organization:
+    if not organizations:
         message = (
             "Organization must be provided via CLI (-o) "
             "or config file (organization)."
@@ -1046,6 +1064,9 @@ def breakfast(
     pr_data = []
     t_acquire = time.monotonic()
 
+    # Combined cache key for all orgs (sorted for determinism)
+    org_cache_key = "|".join(sorted(o.lower() for o in organizations))
+
     # --- Layer 1: full PR detail cache (skip on --refresh or --refresh-prs) ---
     pr_details = None
     cached_check_statuses = None
@@ -1053,7 +1074,7 @@ def breakfast(
     cached_approval_details = None
     needs_cache_write = False
     if cache_enabled and not refresh and not refresh_prs:
-        cache_result = read_pr_cache(organization, repo_filter, cache_ttl_seconds)
+        cache_result = read_pr_cache(org_cache_key, repo_filter, cache_ttl_seconds)
         if cache_result is not None:
             pr_details = cache_result["prs"]
             cached_check_statuses = cache_result["check_statuses"]
@@ -1075,34 +1096,45 @@ def breakfast(
         # --- Layer 2: GraphQL URL list cache (skip only on --refresh) ---
         prs = None
         if cache_enabled and not refresh:
-            prs = read_graphql_cache(organization, repo_filter, cache_ttl_seconds)
+            prs = read_graphql_cache(org_cache_key, repo_filter, cache_ttl_seconds)
 
         if prs is None:
-            try:
-                prs = get_github_prs(organization, repo_filter)
-            except (
-                requests.exceptions.ConnectionError,
-                requests.exceptions.Timeout,
-            ) as exc:
-                logger.exception(
-                    "graphql_fetch_failed org=%s repo_filter=%r error=%r",
-                    organization,
-                    repo_filter,
-                    str(exc),
-                )
-                msg = (
-                    "🥞 Couldn't reach GitHub — "
-                    "check your network connection and try again.\n"
-                    f"  ({type(exc).__name__}: {exc})"
-                )
-                click.echo(
-                    click.style(msg, fg="red", bold=True), err=True, color=colour
-                )
-                sys.exit(1)
+            prs = []
+            for org in organizations:
+                try:
+                    prs.extend(get_github_prs(org, repo_filter))
+                except (
+                    requests.exceptions.ConnectionError,
+                    requests.exceptions.Timeout,
+                ) as exc:
+                    logger.exception(
+                        "graphql_fetch_failed org=%s repo_filter=%r error=%r",
+                        org,
+                        repo_filter,
+                        str(exc),
+                    )
+                    msg = (
+                        "🥞 Couldn't reach GitHub — "
+                        "check your network connection and try again.\n"
+                        f"  ({type(exc).__name__}: {exc})"
+                    )
+                    click.echo(
+                        click.style(msg, fg="red", bold=True), err=True, color=colour
+                    )
+                    sys.exit(1)
+            # Deduplicate by URL (same PR could appear if orgs share repos)
+            seen: set[str] = set()
+            unique_prs = []
+            for url in prs:
+                if url not in seen:
+                    seen.add(url)
+                    unique_prs.append(url)
+            prs = unique_prs
             if cache_enabled:
-                write_graphql_cache(organization, repo_filter, prs)
+                write_graphql_cache(org_cache_key, repo_filter, prs)
         else:
-            click.echo(f"Fetching {organization} PRs...⚡...Done", err=True)
+            org_display = ", ".join(organizations)
+            click.echo(f"Fetching {org_display} PRs...⚡...Done", err=True)
 
         pr_details = []
         failed_urls = []
@@ -1232,7 +1264,7 @@ def breakfast(
 
     if needs_cache_write:
         write_pr_cache(
-            organization,
+            org_cache_key,
             repo_filter,
             pr_details,
             check_statuses=check_statuses or None,

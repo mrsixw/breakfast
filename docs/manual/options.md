@@ -4,10 +4,23 @@
 
 ### `--organization`, `-o`
 
-The GitHub organization to query for pull requests.
+The GitHub organization to query for pull requests. Repeat the flag to query
+multiple organizations at once — their PRs are combined and deduplicated.
 
 ```bash
 breakfast -o my-org -r my-app
+breakfast -o my-org -o another-org                  # two orgs
+breakfast -o my-org -o another-org -r platform      # two orgs, repo filter
+```
+
+Config key supports both a single string and a list:
+
+```toml
+# Single org
+organization = "my-org"
+
+# Multiple orgs
+organization = ["my-org", "another-org"]
 ```
 
 ### `--repo-filter`, `-r`

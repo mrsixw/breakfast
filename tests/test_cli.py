@@ -3083,3 +3083,87 @@ def test_group_prs_by_sums_both_comment_fields():
     assert name == "alice"
     assert count == 2
     assert total_comments == 7 + 3 + 1 + 4
+
+
+# ---------------------------------------------------------------------------
+# Multiple organizations (#62)
+# ---------------------------------------------------------------------------
+
+
+def test_multiple_orgs_aggregates_prs(monkeypatch):
+    """PRs from both orgs are included in the output."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    def fake_get_prs(org, _repo, _state="open"):
+        if org == "org-a":
+            return ["https://github.com/org-a/repo/pull/1"]
+        if org == "org-b":
+            return ["https://github.com/org-b/repo/pull/2"]
+        return []
+
+    def fake_api(path):
+        if "org-a" in path:
+            pr = _make_pr_detail(1)
+            pr["title"] = "PR from org-a"
+            pr["base"]["repo"]["name"] = "repo"
+            pr["html_url"] = "https://github.com/org-a/repo/pull/1"
+            return pr
+        pr = _make_pr_detail(2)
+        pr["title"] = "PR from org-b"
+        pr["base"]["repo"]["name"] = "repo"
+        pr["html_url"] = "https://github.com/org-b/repo/pull/2"
+        return pr
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org-a", "-o", "org-b"])
+
+    assert result.exit_code == 0
+    assert "PR from org-a" in result.stdout
+    assert "PR from org-b" in result.stdout
+
+
+def test_multiple_orgs_deduplicates_shared_prs(monkeypatch):
+    """A URL returned by two orgs appears only once."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    shared_url = "https://github.com/shared-org/repo/pull/1"
+    call_count = []
+
+    def fake_get_prs(_org, _repo, _state="open"):
+        return [shared_url]
+
+    def fake_api(_path):
+        call_count.append(1)
+        pr = _make_pr_detail(1)
+        pr["title"] = "Shared PR"
+        pr["base"]["repo"]["name"] = "repo"
+        pr["html_url"] = shared_url
+        return pr
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org-a", "-o", "org-b"])
+
+    assert result.exit_code == 0
+    assert result.stdout.count("Shared PR") == 1
+    assert len(call_count) == 1
+
+
+def test_missing_organization_exits_with_error(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, [])
+
+    assert result.exit_code == 1
+    assert "Organization must be provided" in result.stderr

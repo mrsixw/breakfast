@@ -590,9 +590,14 @@ def render_pr_summary(groups, title, label_header, colour, seasonal_colours):
         filled = max(1, int(count / max_count * bar_max_width)) if max_count else 1
 
         # Split filled blocks: solid █ for open PRs, medium-shade ▒ for drafts.
+        # Always show at least one solid block when there are any non-draft PRs,
+        # otherwise small draft minorities visually hide the open PRs entirely.
         if draft_count > 0 and count > 0:
             draft_blocks = max(1, round(draft_count / count * filled))
-            draft_blocks = min(draft_blocks, filled)
+            if draft_count < count:
+                draft_blocks = min(draft_blocks, filled - 1)
+            else:
+                draft_blocks = min(draft_blocks, filled)
         else:
             draft_blocks = 0
         solid_blocks = filled - draft_blocks

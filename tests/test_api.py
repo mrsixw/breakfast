@@ -198,6 +198,19 @@ def test_get_github_prs_filters_and_paginates(monkeypatch):
     ]
 
 
+def _single_page_response(repos):
+    return {
+        "data": {
+            "organization": {
+                "repositories": {
+                    "nodes": repos,
+                    "pageInfo": {"endCursor": None, "hasNextPage": False},
+                }
+            }
+        }
+    }
+
+
 def test_get_github_prs_skips_null_repo_nodes(monkeypatch):
     response = {
         "data": {
@@ -223,6 +236,27 @@ def test_get_github_prs_skips_null_repo_nodes(monkeypatch):
     prs = api.get_github_prs("org", None)
 
     assert prs == ["https://example.com/valid-repo/1"]
+
+
+def test_match_exclude_repos_exact():
+    assert api._match_exclude_repos("old-service", ["old-service"]) is True
+    assert api._match_exclude_repos("app", ["old-service"]) is False
+
+
+def test_match_exclude_repos_glob():
+    assert api._match_exclude_repos("old-api", ["old-*"]) is True
+    assert api._match_exclude_repos("old-web", ["old-*"]) is True
+    assert api._match_exclude_repos("app", ["old-*"]) is False
+
+
+def test_match_exclude_repos_multiple_patterns():
+    assert api._match_exclude_repos("infra-prod", ["old-*", "infra-*"]) is True
+    assert api._match_exclude_repos("app", ["old-*", "infra-*"]) is False
+
+
+def test_match_exclude_repos_empty():
+    assert api._match_exclude_repos("anything", []) is False
+    assert api._match_exclude_repos("anything", None) is False
 
 
 def test_get_authenticated_user_login(monkeypatch):

@@ -7,6 +7,7 @@ import shutil
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urlparse
 
 import click
 import requests
@@ -16,6 +17,7 @@ from .api import (
     SECRET_GITHUB_TOKEN,
     GitHubRateLimitError,
     _fetch_pr_detail,
+    _match_exclude_repos,
     get_api_stats,
     get_approval_summary,
     get_authenticated_user_login,
@@ -431,6 +433,11 @@ def _group_prs_by(pr_details, group_by):
     )
 
 
+def _extract_repo_name(url):
+    parts = urlparse(url).path.strip("/").split("/")
+    return parts[1] if len(parts) >= 2 else ""
+
+
 def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     """Fetch a PR's detail plus optional check and approval statuses in one shot.
 
@@ -509,6 +516,15 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
 )
 @click.option("--organization", "-o", help="One or multiple organizations to report on")
 @click.option("--repo-filter", "-r", help="Filter for specific repo(s)")
+@click.option(
+    "--exclude-repo",
+    "exclude_repo",
+    multiple=True,
+    help=(
+        "Exclude repos matching this pattern (repeatable). "
+        "Supports glob patterns, e.g. --exclude-repo 'old-*'."
+    ),
+)
 @click.option(
     "--ignore-author",
     multiple=True,
@@ -763,6 +779,7 @@ def breakfast(
     update_config_cmd,
     organization,
     repo_filter,
+    exclude_repo,
     ignore_author,
     no_ignore_author,
     mine_only,
@@ -831,6 +848,7 @@ def breakfast(
 
     organization = organization if organization is not None else cfg.get("organization")
     repo_filter = repo_filter if repo_filter is not None else cfg.get("repo-filter", "")
+    exclude_repos = list(exclude_repo) + cfg.get("exclude-repos", [])
 
     if no_ignore_author:
         merged_ignore_authors = list(ignore_author)
@@ -1103,6 +1121,13 @@ def breakfast(
                 write_graphql_cache(organization, repo_filter, prs)
         else:
             click.echo(f"Fetching {organization} PRs...⚡...Done", err=True)
+
+        if exclude_repos and prs:
+            prs = [
+                url
+                for url in prs
+                if not _match_exclude_repos(_extract_repo_name(url), exclude_repos)
+            ]
 
         pr_details = []
         failed_urls = []

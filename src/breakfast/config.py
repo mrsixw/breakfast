@@ -45,6 +45,11 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Control which PRs appear in the output.
 # -----------------------------------------------------------------------------
 
+# Repositories to exclude from results. Supports glob patterns (same syntax as
+# --repo-filter). Useful for hiding archived repos, forks, or internal tooling.
+# Equivalent to: --exclude-repo "old-*" --exclude-repo "infra-*"
+# exclude-repos = ["old-*", "infra-*"]
+
 # Authors to exclude from the output (case-insensitive). Useful for hiding
 # bot PRs. List format — add as many entries as you like.
 # Equivalent to: --ignore-author dependabot[bot] --ignore-author renovate[bot]
@@ -238,7 +243,7 @@ def _key_present_in_file(key: str, content: str) -> bool:
     return bool(re.search(pattern, content, re.MULTILINE))
 
 
-_LIST_KEYS = {"ignore-author"}
+_LIST_KEYS = {"ignore-author", "exclude-repos"}
 
 
 def load_config(config_path=None):

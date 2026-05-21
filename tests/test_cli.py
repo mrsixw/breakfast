@@ -1001,6 +1001,55 @@ def test_no_update_check_env_var(monkeypatch):
     assert len(check_called) == 0
 
 
+def test_cli_exclude_repo_filtering(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    mock_urls = [
+        "https://github.com/org/repo-one/pull/1",
+        "https://github.com/org/exclude-me/pull/2",
+        "https://github.com/malformed-url-no-repo",
+    ]
+    monkeypatch.setattr(cli, "get_github_prs", lambda _o, _r: mock_urls)
+
+    fetched_urls = []
+
+    def fake_fetch_pr_detail(url):
+        fetched_urls.append(url)
+        return {
+            "id": hash(url),
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 1,
+            "deletions": 0,
+            "title": "Some PR",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": url,
+            "number": 1,
+        }
+
+    monkeypatch.setattr(cli, "_fetch_pr_detail", fake_fetch_pr_detail)
+    monkeypatch.setattr(cli, "render_pr_summary", lambda *a, **k: "PR SUMMARY")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "--exclude-repo", "exclude-me"],
+    )
+
+    assert result.exit_code == 0
+    assert "https://github.com/org/repo-one/pull/1" in fetched_urls
+    assert "https://github.com/org/exclude-me/pull/2" not in fetched_urls
+    assert "https://github.com/malformed-url-no-repo" in fetched_urls
+
+
 def test_cli_truncates_title_when_max_title_length_set(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])

@@ -17,11 +17,12 @@ When updating project rules, update **all four files** to keep them consistent.
 
 ## Mandatory Workflow
 1. **GitHub Issues First:** An issue MUST exist before work begins. If none exists, create one via `gh issue create`. (Do not use conventional commit prefixes for issue titles).
-2. **Branch Naming:** Format: `issue-N_short_description` (e.g., `issue-42_add_avocado_toast`).
-3. **PR Titles:** Include the issue number: `#N: Description` (e.g., `#42: Add Avocado Toast output`).
-4. **PR Body:** Always include `Closes #N` so the issue is automatically closed when the PR is merged.
-5. **CI Checks:** After pushing to a branch with an open PR, wait for all CI checks to complete (`gh pr checks`). If any check fails, investigate and fix the root cause — do not ignore failures or proceed without understanding them.
-6. **Conventional Git Commits:** Use standard prefixes for git commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, `ci:`.
+2. **One Issue = One PR:** Never combine fixes for multiple issues into a single PR. Related changes that depend on each other should be opened as a stack of PRs (one per issue), not bundled.
+3. **Branch Naming:** Format: `issue-N_short_description` (e.g., `issue-42_add_avocado_toast`).
+4. **PR Titles:** Include the issue number: `#N: Description` (e.g., `#42: Add Avocado Toast output`).
+5. **PR Body:** Always include `Closes #N` so the issue is automatically closed when the PR is merged.
+6. **CI Checks:** After pushing to a branch with an open PR, wait for all CI checks to complete (`gh pr checks`). If any check fails, investigate and fix the root cause — do not ignore failures or proceed without understanding them.
+7. **Conventional Git Commits:** Use standard prefixes for git commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, `ci:`.
 
 ## Tooling & Environment
 - **Python:** >= 3.11

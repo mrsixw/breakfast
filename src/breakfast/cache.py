@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -7,6 +8,17 @@ import click
 
 from .logger import logger
 from .xdg import get_cache_dir
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Write *content* to *path* atomically via temp file + os.replace.
+
+    Prevents truncated cache files when the process is interrupted mid-write.
+    """
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content)
+    os.replace(tmp, path)
+
 
 _CACHE_DIR = get_cache_dir()
 
@@ -19,6 +31,8 @@ def parse_ttl(value: str | int) -> int:
     Accepts: bare int, string int (e.g. "300"), or suffixed string ("5m", "2h", "30s").
     Raises ValueError for invalid or non-positive values.
     """
+    if isinstance(value, bool):
+        raise ValueError(f"Invalid TTL: {value!r}")
     if isinstance(value, int):
         if value <= 0:
             raise ValueError(f"TTL must be positive, got {value}")
@@ -111,7 +125,7 @@ def write_graphql_cache(org: str, repo_filter: str, urls: list) -> None:
             "url_count": len(urls),
             "urls": urls,
         }
-        path.write_text(json.dumps(payload))
+        _atomic_write_text(path, json.dumps(payload))
         logger.debug("cache_write layer=graphql path=%s url_count=%d", path, len(urls))
     except OSError as exc:
         logger.warning(
@@ -222,7 +236,7 @@ def write_pr_cache(
             payload["approval_details"] = {
                 str(k): v for k, v in approval_details.items()
             }
-        path.write_text(json.dumps(payload))
+        _atomic_write_text(path, json.dumps(payload))
         logger.debug(
             "cache_write layer=pr_detail path=%s pr_count=%d", path, len(pr_details)
         )

@@ -413,7 +413,9 @@ def _group_prs_by(pr_details, group_by):
             groups[key]["draft_count"] += 1
         age = get_pr_age_days(pr)
         groups[key]["oldest_age"] = max(groups[key]["oldest_age"], age)
-        groups[key]["total_comments"] += pr.get("review_comments", 0)
+        groups[key]["total_comments"] += pr.get("comments", 0) + pr.get(
+            "review_comments", 0
+        )
     return sorted(
         [
             (
@@ -1116,12 +1118,15 @@ def breakfast(
             click.echo(f"Fetching {organization} PRs...⚡...Done", err=True)
 
         if exclude_repos and prs:
+
+            def _extract_repo_name(url):
+                parts = urlparse(url).path.strip("/").split("/")
+                return parts[1] if len(parts) >= 2 else ""
+
             prs = [
                 url
                 for url in prs
-                if not _match_exclude_repos(
-                    urlparse(url).path.strip("/").split("/")[1], exclude_repos
-                )
+                if not _match_exclude_repos(_extract_repo_name(url), exclude_repos)
             ]
 
         pr_details = []

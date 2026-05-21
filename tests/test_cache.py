@@ -61,6 +61,15 @@ def test_parse_ttl_empty_string_raises():
         cache.parse_ttl("")
 
 
+def test_parse_ttl_bool_rejected():
+    """isinstance(True, int) is True; explicit reject so cache-ttl = true
+    in TOML doesn't silently become 1 second."""
+    with pytest.raises(ValueError):
+        cache.parse_ttl(True)
+    with pytest.raises(ValueError):
+        cache.parse_ttl(False)
+
+
 # ---------------------------------------------------------------------------
 # make_cache_key
 # ---------------------------------------------------------------------------
@@ -177,6 +186,24 @@ def test_write_pr_cache_creates_directory(monkeypatch, tmp_path):
     monkeypatch.setattr(cache, "_CACHE_DIR", nested)
     cache.write_pr_cache("org", "filter", [])
     assert nested.exists()
+
+
+def test_write_pr_cache_is_atomic_no_lingering_tmp(monkeypatch, tmp_path):
+    """Atomic write: no .tmp file should remain after a successful write."""
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_pr_cache("org", "filter", [{"number": 1}])
+    leftovers = list(tmp_path.glob("*.tmp"))
+    assert leftovers == []
+    # The real cache file should be present and valid JSON.
+    assert cache.cache_path("org", "filter").exists()
+
+
+def test_write_graphql_cache_is_atomic_no_lingering_tmp(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_graphql_cache("org", "filter", ["https://example.com/pr/1"])
+    leftovers = list(tmp_path.glob("*.tmp"))
+    assert leftovers == []
+    assert cache.graphql_cache_path("org", "filter").exists()
 
 
 def test_write_pr_cache_silent_on_failure(monkeypatch, tmp_path):

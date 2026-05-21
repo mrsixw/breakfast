@@ -433,6 +433,11 @@ def _group_prs_by(pr_details, group_by):
     )
 
 
+def _extract_repo_name(url):
+    parts = urlparse(url).path.strip("/").split("/")
+    return parts[1] if len(parts) >= 2 else ""
+
+
 def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     """Fetch a PR's detail plus optional check and approval statuses in one shot.
 
@@ -1118,11 +1123,6 @@ def breakfast(
             click.echo(f"Fetching {organization} PRs...⚡...Done", err=True)
 
         if exclude_repos and prs:
-
-            def _extract_repo_name(url):
-                parts = urlparse(url).path.strip("/").split("/")
-                return parts[1] if len(parts) >= 2 else ""
-
             prs = [
                 url
                 for url in prs

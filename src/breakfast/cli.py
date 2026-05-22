@@ -1587,6 +1587,9 @@ def breakfast(
         author = pr_detail["user"]
         author_url = author.get("html_url") or f"https://github.com/{author['login']}"
         pr_num = pr_detail["number"]
+        _pr_url_parts = pr_detail["html_url"].split("/")
+        org_name = repo.get("owner", {}).get("login") or _pr_url_parts[3]
+        org_url = f"https://github.com/{org_name}"
 
         def _seasonal_colour(text: str) -> str:
             """Apply seasonal colour to plain text when seasonal colouring is active."""
@@ -1600,16 +1603,17 @@ def breakfast(
                 return _styled_hyperlink(url, apply_seasonal_colour(text, pr_num))
             return generate_terminal_url_anchor(url, text)
 
-        row = {
-            "Repo": _seasonal_colour_link(repo_url, repo["name"]),
-            "PR Title": _seasonal_colour(pr_detail["title"]),
-            "Author": _seasonal_colour_link(author_url, author["login"]),
-            "State": state_label,
-            "Files": click_colour_grade_number(pr_detail["changed_files"]),
-            "Commits": click_colour_grade_number(pr_detail["commits"]),
-            "+/-": _seasonal_colour(f"{adds}/{subs}"),
-            "Comments": click_colour_grade_number(pr_detail["review_comments"]),
-        }
+        row = {}
+        if len(organizations) > 1:
+            row["Org"] = _seasonal_colour_link(org_url, org_name)
+        row["Repo"] = _seasonal_colour_link(repo_url, repo["name"])
+        row["PR Title"] = _seasonal_colour(pr_detail["title"])
+        row["Author"] = _seasonal_colour_link(author_url, author["login"])
+        row["State"] = state_label
+        row["Files"] = click_colour_grade_number(pr_detail["changed_files"])
+        row["Commits"] = click_colour_grade_number(pr_detail["commits"])
+        row["+/-"] = _seasonal_colour(f"{adds}/{subs}")
+        row["Comments"] = click_colour_grade_number(pr_detail["review_comments"])
         if age:
             row["Age"] = click_colour_grade_number(get_pr_age_days(pr_detail))
         if checks:

@@ -373,7 +373,7 @@ def consolidate_org_specs(
         grouped[low][1].append(scoped)
 
     consolidated = []
-    for low, (org, scoped_list) in grouped.items():
+    for _, (org, scoped_list) in grouped.items():
         # If all specs are None, keep it as None to preserve deferring to global filters
         if all(s is None for s in scoped_list):
             consolidated.append((org, None))
@@ -402,6 +402,14 @@ def consolidate_org_specs(
             consolidated.append((org, combined))
 
     return consolidated
+
+
+def _org_spec_cache_segment(org: str, scoped: list[str] | None) -> str:
+    """Cache key encodes each org with its effective scoped filter for determinism."""
+    if scoped is None:
+        return org.lower()
+    filter_str = ",".join(sorted(f.lower() for f in scoped)) if scoped else ""
+    return org.lower() + ":" + filter_str
 
 
 def get_pr_age_days(pr_detail, now=None):
@@ -1178,12 +1186,6 @@ def breakfast(
     t_acquire = time.monotonic()
 
     # Cache key encodes each org with its effective scoped filter for determinism
-    def _org_spec_cache_segment(org: str, scoped: list[str] | None) -> str:
-        if scoped is None:
-            return org.lower()
-        filter_str = ",".join(sorted(f.lower() for f in scoped)) if scoped else ""
-        return org.lower() + ":" + filter_str
-
     org_cache_key = "|".join(
         sorted(_org_spec_cache_segment(o, s) for o, s in org_specs)
     )

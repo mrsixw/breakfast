@@ -3431,6 +3431,15 @@ def test_consolidate_org_specs():
     assert res == [("org-b", ["platform", "f2"]), ("org-a", ["f1"])]
 
 
+def test_org_spec_cache_segment_multi_filter():
+    """Verify _org_spec_cache_segment behavior with multiple filters."""
+    seg_ab = cli._org_spec_cache_segment("org", ["filter-b", "filter-a"])
+    seg_ba = cli._org_spec_cache_segment("org", ["filter-a", "filter-b"])
+    seg_one = cli._org_spec_cache_segment("org", ["filter-a"])
+    assert seg_ab == seg_ba  # order-independent
+    assert seg_ab != seg_one  # different filter sets differ
+
+
 def test_cli_duplicate_org_fetches_prevented(monkeypatch):
     """CLI groups duplicate org definitions and calls get_github_prs once."""
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")

@@ -7,13 +7,24 @@
 The GitHub organization to query for pull requests. Repeat the flag to query
 multiple organizations at once — their PRs are combined and deduplicated.
 
+You can optionally append a **scoped repo filter** to any org using a colon separator:
+
+| Flag form | Behaviour |
+| --- | --- |
+| `-o my-org` | Use the global `-r` filter (or all repos if no `-r`) |
+| `-o my-org:api` | Override: only repos matching `api` for this org |
+| `-o my-org:` | Override: all repos for this org, ignoring any global `-r` |
+
 ```bash
-breakfast -o my-org -r my-app
-breakfast -o my-org -o another-org                  # two orgs
-breakfast -o my-org -o another-org -r platform      # two orgs, repo filter
+breakfast -o my-org -r my-app                           # global filter
+breakfast -o my-org -o another-org                      # two orgs, no filter
+breakfast -o my-org -o another-org -r platform          # global filter for both orgs
+breakfast -o my-org:api -o another-org:platform         # per-org filters
+breakfast -o my-org:api -o another-org -r platform      # scoped for my-org, global for another-org
+breakfast -o my-org: -o another-org -r platform         # all repos for my-org; filtered for another-org
 ```
 
-Config key supports both a single string and a list:
+Config key supports both a single string and a list, with optional scoped filters:
 
 ```toml
 # Single org
@@ -21,6 +32,12 @@ organization = "my-org"
 
 # Multiple orgs
 organization = ["my-org", "another-org"]
+
+# Per-org scoped filters
+organization = ["my-org:api", "another-org:platform"]
+
+# Mixed: scoped for one, global -r for the other
+organization = ["my-org:api", "another-org"]
 ```
 
 ### `--repo-filter`, `-r`

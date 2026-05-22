@@ -339,6 +339,20 @@ def _print_debug_summary(t0, pr_count, api_stats, graphql_rate_limit):
     click.echo("\n".join(lines), err=True)
 
 
+def _parse_org_spec(spec: str) -> tuple[str, list[str] | None]:
+    """Parse an org spec that may carry a scoped repo filter after a colon.
+
+    Returns (org_name, scoped_filters) where scoped_filters is:
+      - None  → no colon; defer to the global -r filters
+      - []    → colon present but no filter; match all repos for this org
+      - [str] → colon present with filter text; match only that pattern
+    """
+    if ":" not in spec:
+        return spec, None
+    org, _, filter_text = spec.partition(":")
+    return org, [filter_text] if filter_text else []
+
+
 def get_pr_age_days(pr_detail, now=None):
     from datetime import datetime, timezone
 
@@ -514,6 +528,9 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     help=(
         "GitHub organization to query for PRs. Repeat for multiple"
         " organizations, e.g. -o my-org -o another-org."
+        " Optionally append a scoped repo filter with a colon:"
+        " -o my-org:api (only 'api' repos for that org),"
+        " -o my-org: (all repos for that org, ignoring global -r)."
     ),
 )
 @click.option(
@@ -856,6 +873,9 @@ def breakfast(
             organizations = [cfg_org]
         else:
             organizations = []
+    # Parse org:filter scoped syntax; rebuild organizations to plain names
+    org_specs = [_parse_org_spec(s) for s in organizations]
+    organizations = [org for org, _ in org_specs]
     # repo_filter is a tuple from multiple=True; merge with config
     if repo_filter:
         repo_filters = list(repo_filter)
@@ -990,7 +1010,10 @@ def breakfast(
     if show_config:
         click.echo("Resolved config:")
         resolved = {
-            "organization": organizations,
+            "organization": [
+                org if scoped is None else (org + ":" + (scoped[0] if scoped else ""))
+                for org, scoped in org_specs
+            ],
             "repo-filter": repo_filters,
             "ignore-author": ignore_author,
             "mine-only": mine_only,
@@ -1021,12 +1044,12 @@ def breakfast(
         sys.exit(0)
 
     logger.info(
-        "startup org=%s repo_filter=%r mine_only=%s ignore_author=%r"
+        "startup org_specs=%s repo_filters=%r mine_only=%s ignore_author=%r"
         " cache_enabled=%s cache_ttl=%ss refresh=%s refresh_prs=%s"
         " checks=%s approvals=%s age=%s legendary=%s legendary_only=%s"
         " limit=%s max_title_length=%s status_style=%s format=%s"
         " filter_state=%r filter_check=%r filter_approval=%r search=%r api_stats=%s",
-        organizations,
+        org_specs,
         repo_filters,
         mine_only,
         ignore_author,
@@ -1085,8 +1108,15 @@ def breakfast(
     pr_data = []
     t_acquire = time.monotonic()
 
-    # Combined cache key for all orgs (sorted for determinism)
-    org_cache_key = "|".join(sorted(o.lower() for o in organizations))
+    # Cache key encodes each org with its effective scoped filter for determinism
+    def _org_spec_cache_segment(org: str, scoped: list[str] | None) -> str:
+        if scoped is None:
+            return org.lower()
+        return org.lower() + ":" + (scoped[0].lower() if scoped else "")
+
+    org_cache_key = "|".join(
+        sorted(_org_spec_cache_segment(o, s) for o, s in org_specs)
+    )
 
     # --- Layer 1: full PR detail cache (skip on --refresh or --refresh-prs) ---
     pr_details = None
@@ -1121,9 +1151,12 @@ def breakfast(
 
         if prs is None:
             prs = []
-            for org in organizations:
+            for org, scoped_filters in org_specs:
+                effective_filters = (
+                    repo_filters if scoped_filters is None else scoped_filters
+                )
                 try:
-                    prs.extend(get_github_prs(org, repo_filters))
+                    prs.extend(get_github_prs(org, effective_filters))
                 except (
                     requests.exceptions.ConnectionError,
                     requests.exceptions.Timeout,
@@ -1131,7 +1164,7 @@ def breakfast(
                     logger.exception(
                         "graphql_fetch_failed org=%s repo_filters=%r error=%r",
                         org,
-                        repo_filters,
+                        effective_filters,
                         str(exc),
                     )
                     msg = (

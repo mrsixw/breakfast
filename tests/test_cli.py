@@ -3233,3 +3233,112 @@ def test_multiple_repo_filters_config_list(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert set(captured) == {"api", "platform"}
+
+
+# ---------------------------------------------------------------------------
+# Per-org scoped repo filter — org:filter syntax (#292)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_org_spec_no_colon():
+    assert cli._parse_org_spec("my-org") == ("my-org", None)
+
+
+def test_parse_org_spec_with_filter():
+    assert cli._parse_org_spec("my-org:api") == ("my-org", ["api"])
+
+
+def test_parse_org_spec_empty_filter():
+    assert cli._parse_org_spec("my-org:") == ("my-org", [])
+
+
+def test_parse_org_spec_degenerate_multiple_colons():
+    # partition stops at first colon; extra colons go into the filter text
+    assert cli._parse_org_spec("my-org:a:b") == ("my-org", ["a:b"])
+
+
+def test_scoped_filter_overrides_global_repo_filter(monkeypatch):
+    """When org has a scoped filter, it wins over the global -r flag."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    captured = {}
+
+    def fake_get_prs(org, repo_filters):
+        captured[org] = list(repo_filters)
+        return []
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+
+    runner = CliRunner()
+    runner.invoke(cli.breakfast, ["-o", "my-org:api", "-r", "platform"])
+
+    assert captured["my-org"] == ["api"]
+
+
+def test_empty_scoped_filter_matches_all_ignoring_global(monkeypatch):
+    """org: (empty scoped) passes an empty filter list, matching all repos."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    captured = {}
+
+    def fake_get_prs(org, repo_filters):
+        captured[org] = list(repo_filters)
+        return []
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+
+    runner = CliRunner()
+    runner.invoke(cli.breakfast, ["-o", "my-org:", "-r", "platform"])
+
+    assert captured["my-org"] == []
+
+
+def test_mixed_scoped_and_global_filters(monkeypatch):
+    """Scoped org uses its own filter; unscoped org defers to global -r."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    captured = {}
+
+    def fake_get_prs(org, repo_filters):
+        captured[org] = list(repo_filters)
+        return []
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+
+    runner = CliRunner()
+    runner.invoke(cli.breakfast, ["-o", "org-a:api", "-o", "org-b", "-r", "platform"])
+
+    assert captured["org-a"] == ["api"]
+    assert captured["org-b"] == ["platform"]
+
+
+def test_scoped_filter_from_config(monkeypatch, tmp_path):
+    """Config file org:filter syntax routes per-org filters correctly."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    config_file = tmp_path / "breakfast.toml"
+    config_file.write_text(
+        'organization = ["my-org:api", "other-org"]\nrepo-filter = "platform"\n'
+    )
+
+    captured = {}
+
+    def fake_get_prs(org, repo_filters):
+        captured[org] = list(repo_filters)
+        return []
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+
+    runner = CliRunner()
+    runner.invoke(cli.breakfast, ["--config", str(config_file)])
+
+    assert captured["my-org"] == ["api"]
+    assert captured["other-org"] == ["platform"]

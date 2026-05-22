@@ -341,6 +341,20 @@ def _print_debug_summary(t0, pr_count, api_stats, graphql_rate_limit):
     click.echo("\n".join(lines), err=True)
 
 
+def _parse_org_spec(spec: str) -> tuple[str, list[str] | None]:
+    """Parse an org spec that may carry a scoped repo filter after a colon.
+
+    Returns (org_name, scoped_filters) where scoped_filters is:
+      - None  → no colon; defer to the global -r filters
+      - []    → colon present but no filter; match all repos for this org
+      - [str] → colon present with filter text; match only that pattern
+    """
+    if ":" not in spec:
+        return spec, None
+    org, _, filter_text = spec.partition(":")
+    return org, [filter_text] if filter_text else []
+
+
 def get_pr_age_days(pr_detail, now=None):
     from datetime import datetime, timezone
 
@@ -521,9 +535,20 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     help=(
         "GitHub organization to query for PRs. Repeat for multiple"
         " organizations, e.g. -o my-org -o another-org."
+        " Optionally append a scoped repo filter with a colon:"
+        " -o my-org:api (only 'api' repos for that org),"
+        " -o my-org: (all repos for that org, ignoring global -r)."
     ),
 )
-@click.option("--repo-filter", "-r", help="Filter for specific repo(s)")
+@click.option(
+    "--repo-filter",
+    "-r",
+    multiple=True,
+    help=(
+        "Filter PRs to repos matching this pattern. Repeat for multiple"
+        " filters, e.g. -r api -r platform (OR logic)."
+    ),
+)
 @click.option(
     "--exclude-repo",
     "exclude_repo",
@@ -865,7 +890,23 @@ def breakfast(
             organizations = [cfg_org]
         else:
             organizations = []
-    repo_filter = repo_filter if repo_filter is not None else cfg.get("repo-filter", "")
+    # Parse org:filter scoped syntax; rebuild organizations to plain names
+    org_specs = [_parse_org_spec(s) for s in organizations]
+    organizations = [org for org, _ in org_specs]
+    # repo_filter is a tuple from multiple=True; merge with config
+    if repo_filter:
+        repo_filters = list(repo_filter)
+    else:
+        cfg_rf = cfg.get("repo-filter", [])
+        if isinstance(cfg_rf, list):
+            repo_filters = cfg_rf
+        elif cfg_rf:
+            repo_filters = [cfg_rf]
+        else:
+            repo_filters = []
+    repo_cache_key = (
+        "|".join(sorted(f.lower() for f in repo_filters)) if repo_filters else ""
+    )
     exclude_repos = list(exclude_repo) + cfg.get("exclude-repos", [])
 
     if no_ignore_author:
@@ -987,8 +1028,11 @@ def breakfast(
     if show_config:
         click.echo("Resolved config:")
         resolved = {
-            "organization": organizations,
-            "repo-filter": repo_filter,
+            "organization": [
+                org if scoped is None else (org + ":" + (scoped[0] if scoped else ""))
+                for org, scoped in org_specs
+            ],
+            "repo-filter": repo_filters,
             "ignore-author": ignore_author,
             "mine-only": mine_only,
             "no-drafts": no_drafts,
@@ -1018,13 +1062,13 @@ def breakfast(
         sys.exit(0)
 
     logger.info(
-        "startup org=%s repo_filter=%r mine_only=%s ignore_author=%r"
+        "startup org_specs=%s repo_filters=%r mine_only=%s ignore_author=%r"
         " cache_enabled=%s cache_ttl=%ss refresh=%s refresh_prs=%s"
         " checks=%s approvals=%s age=%s legendary=%s legendary_only=%s"
         " limit=%s max_title_length=%s status_style=%s format=%s"
         " filter_state=%r filter_check=%r filter_approval=%r search=%r api_stats=%s",
-        organizations,
-        repo_filter,
+        org_specs,
+        repo_filters,
         mine_only,
         ignore_author,
         cache_enabled,
@@ -1082,8 +1126,15 @@ def breakfast(
     pr_data = []
     t_acquire = time.monotonic()
 
-    # Combined cache key for all orgs (sorted for determinism)
-    org_cache_key = "|".join(sorted(o.lower() for o in organizations))
+    # Cache key encodes each org with its effective scoped filter for determinism
+    def _org_spec_cache_segment(org: str, scoped: list[str] | None) -> str:
+        if scoped is None:
+            return org.lower()
+        return org.lower() + ":" + (scoped[0].lower() if scoped else "")
+
+    org_cache_key = "|".join(
+        sorted(_org_spec_cache_segment(o, s) for o, s in org_specs)
+    )
 
     # --- Layer 1: full PR detail cache (skip on --refresh or --refresh-prs) ---
     pr_details = None
@@ -1092,7 +1143,7 @@ def breakfast(
     cached_approval_details = None
     needs_cache_write = False
     if cache_enabled and not refresh and not refresh_prs:
-        cache_result = read_pr_cache(org_cache_key, repo_filter, cache_ttl_seconds)
+        cache_result = read_pr_cache(org_cache_key, repo_cache_key, cache_ttl_seconds)
         if cache_result is not None:
             pr_details = cache_result["prs"]
             cached_check_statuses = cache_result["check_statuses"]
@@ -1114,21 +1165,24 @@ def breakfast(
         # --- Layer 2: GraphQL URL list cache (skip only on --refresh) ---
         prs = None
         if cache_enabled and not refresh:
-            prs = read_graphql_cache(org_cache_key, repo_filter, cache_ttl_seconds)
+            prs = read_graphql_cache(org_cache_key, repo_cache_key, cache_ttl_seconds)
 
         if prs is None:
             prs = []
-            for org in organizations:
+            for org, scoped_filters in org_specs:
+                effective_filters = (
+                    repo_filters if scoped_filters is None else scoped_filters
+                )
                 try:
-                    prs.extend(get_github_prs(org, repo_filter))
+                    prs.extend(get_github_prs(org, effective_filters))
                 except (
                     requests.exceptions.ConnectionError,
                     requests.exceptions.Timeout,
                 ) as exc:
                     logger.exception(
-                        "graphql_fetch_failed org=%s repo_filter=%r error=%r",
+                        "graphql_fetch_failed org=%s repo_filters=%r error=%r",
                         org,
-                        repo_filter,
+                        effective_filters,
                         str(exc),
                     )
                     msg = (
@@ -1149,7 +1203,7 @@ def breakfast(
                     unique_prs.append(url)
             prs = unique_prs
             if cache_enabled:
-                write_graphql_cache(org_cache_key, repo_filter, prs)
+                write_graphql_cache(org_cache_key, repo_cache_key, prs)
         else:
             org_display = ", ".join(organizations)
             click.echo(f"Fetching {org_display} PRs...⚡...Done", err=True)
@@ -1163,7 +1217,8 @@ def breakfast(
 
         pr_details = []
         failed_urls = []
-        click.echo(f"Processing {repo_filter} PRs...", nl=False, err=True)
+        repo_display = ", ".join(repo_filters) if repo_filters else "all repos"
+        click.echo(f"Processing {repo_display} PRs...", nl=False, err=True)
         if prs:
             max_workers = min(workers, len(prs))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -1209,7 +1264,8 @@ def breakfast(
         if cache_enabled:
             needs_cache_write = True
     else:
-        click.echo(f"Processing {repo_filter} PRs...⚡...Done", err=True)
+        repo_display = ", ".join(repo_filters) if repo_filters else "all repos"
+        click.echo(f"Processing {repo_display} PRs...⚡...Done", err=True)
 
     # Fetch check statuses for cache-hit paths where statuses are absent.
     # In the live-fetch path statuses are already populated by _fetch_pr_bundle.
@@ -1290,7 +1346,7 @@ def breakfast(
     if needs_cache_write:
         write_pr_cache(
             org_cache_key,
-            repo_filter,
+            repo_cache_key,
             pr_details,
             check_statuses=check_statuses or None,
             approval_statuses=approval_statuses or None,

@@ -41,7 +41,7 @@ wheels = [
 
 [[package]]
 name = "breakfast"
-version = "0.59.7"
+version = "0.61.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

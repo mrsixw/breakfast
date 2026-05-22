@@ -355,6 +355,61 @@ def _parse_org_spec(spec: str) -> tuple[str, list[str] | None]:
     return org, [filter_text] if filter_text else []
 
 
+def consolidate_org_specs(
+    org_specs: list[tuple[str, list[str] | None]],
+    global_repo_filters: list[str],
+) -> list[tuple[str, list[str] | None]]:
+    """Consolidate multiple org specs targeting the same organization.
+
+    Preserves the order of first encounter and the casing of the first encounter.
+    """
+    grouped: dict[str, tuple[str, list[list[str] | None]]] = {}
+    for org, scoped in org_specs:
+        low = org.lower()
+        if low not in grouped:
+            grouped[low] = (org, [])
+        grouped[low][1].append(scoped)
+
+    consolidated = []
+    for _, (org, scoped_list) in grouped.items():
+        # If all specs are None, keep it as None to preserve deferring to global filters
+        if all(s is None for s in scoped_list):
+            consolidated.append((org, None))
+            continue
+
+        # Resolve each scoped filter
+        effective_lists = []
+        for s in scoped_list:
+            if s is None:
+                effective_lists.append(global_repo_filters)
+            else:
+                effective_lists.append(s)
+
+        # If any resolved list is empty, it matches all repos unconditionally
+        if any(not lst for lst in effective_lists):
+            consolidated.append((org, []))
+        else:
+            # Combine and deduplicate preserving order
+            combined = []
+            seen = set()
+            for lst in effective_lists:
+                for item in lst:
+                    if item not in seen:
+                        seen.add(item)
+                        combined.append(item)
+            consolidated.append((org, combined))
+
+    return consolidated
+
+
+def _org_spec_cache_segment(org: str, scoped: list[str] | None) -> str:
+    """Cache key encodes each org with its effective scoped filter for determinism."""
+    if scoped is None:
+        return org.lower()
+    filter_str = ",".join(sorted(f.lower() for f in scoped)) if scoped else ""
+    return org.lower() + ":" + filter_str
+
+
 def get_pr_age_days(pr_detail, now=None):
     from datetime import datetime, timezone
 
@@ -890,9 +945,8 @@ def breakfast(
             organizations = [cfg_org]
         else:
             organizations = []
-    # Parse org:filter scoped syntax; rebuild organizations to plain names
+    # Parse org:filter scoped syntax
     org_specs = [_parse_org_spec(s) for s in organizations]
-    organizations = [org for org, _ in org_specs]
     # repo_filter is a tuple from multiple=True; merge with config
     if repo_filter:
         repo_filters = list(repo_filter)
@@ -904,6 +958,9 @@ def breakfast(
             repo_filters = [cfg_rf]
         else:
             repo_filters = []
+    # Consolidate duplicate organization fetches and group their scoped filters
+    org_specs = consolidate_org_specs(org_specs, repo_filters)
+    organizations = [org for org, _ in org_specs]
     repo_cache_key = (
         "|".join(sorted(f.lower() for f in repo_filters)) if repo_filters else ""
     )
@@ -1127,11 +1184,6 @@ def breakfast(
     t_acquire = time.monotonic()
 
     # Cache key encodes each org with its effective scoped filter for determinism
-    def _org_spec_cache_segment(org: str, scoped: list[str] | None) -> str:
-        if scoped is None:
-            return org.lower()
-        return org.lower() + ":" + (scoped[0].lower() if scoped else "")
-
     org_cache_key = "|".join(
         sorted(_org_spec_cache_segment(o, s) for o, s in org_specs)
     )

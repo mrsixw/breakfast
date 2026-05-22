@@ -35,9 +35,12 @@ _DEFAULT_CONFIG_CONTENT = """\
 # For multiple orgs, use a list: organization = ["my-org", "another-org"]
 # organization = "my-org"
 
-# Filter repositories by name substring. Only repos whose name contains
-# this string are included. An empty string matches all repos.
-# Equivalent to: breakfast -r <value>
+# Filter repositories by name. Only repos whose name matches are included.
+# Supports substring matching and glob patterns (* ? [). Use a list to match
+# any of several filters (OR logic). Omit to match all repos.
+# Equivalent to: breakfast -r <value> (repeat -r for multiple filters).
+# Single filter:   repo-filter = "my-app"
+# Multiple:        repo-filter = ["api", "platform", "service-*"]
 # repo-filter = "my-app"
 
 

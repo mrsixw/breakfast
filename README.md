@@ -27,6 +27,7 @@ breakfast -o my-org -r my-app
 breakfast -o my-org -r my-app
 breakfast -o my-org -o another-org -r platform
 breakfast -o my-org:api -o another-org:platform
+breakfast -o my-org:api -o my-org:platform
 breakfast -o my-org -r my-app --ignore-author dependabot[bot] --ignore-author renovate[bot]
 breakfast -o my-org -r my-app --mine-only
 breakfast -o my-org -r my-app --age

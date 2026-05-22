@@ -39,6 +39,24 @@ breakfast -o my-org -r "app"           # substring: matches "app", "app-one", "h
 
 Glob matching is case-sensitive and uses Python's `fnmatch` semantics. To match all repos, omit `-r` entirely or pass an empty string.
 
+### `--exclude-repo`
+
+Exclude repositories matching a pattern from the results. Supports the same glob syntax as `--repo-filter`. Repeat the flag to exclude multiple patterns (OR logic).
+
+```bash
+breakfast -o my-org --exclude-repo "old-*"                      # exclude repos starting with "old-"
+breakfast -o my-org --exclude-repo "infra-*" --exclude-repo "archived-*"
+breakfast -o my-org -r "platform" --exclude-repo "platform-legacy"
+```
+
+Can also be set persistently in the config file:
+
+```toml
+exclude-repos = ["old-*", "infra-*"]
+```
+
+When used with `--repo-filter`, the include filter is applied first, then exclusions are removed from the resulting set.
+
 ## Filtering options
 
 ### `--ignore-author`

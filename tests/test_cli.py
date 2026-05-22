@@ -3391,3 +3391,84 @@ def test_scoped_filter_from_config(monkeypatch, tmp_path):
 
     assert captured["my-org"] == ["api"]
     assert captured["other-org"] == ["platform"]
+
+
+def test_consolidate_org_specs():
+    """Unit test for the consolidate_org_specs helper function."""
+    # Case 1: Simple combination
+    specs = [("org-a", ["filter-one"]), ("org-a", ["filter-two"])]
+    res = cli.consolidate_org_specs(specs, [])
+    assert res == [("org-a", ["filter-one", "filter-two"])]
+
+    # Case 2: Case insensitivity and preserving first casing
+    specs = [("ORG-A", ["filter-one"]), ("org-a", ["filter-two"])]
+    res = cli.consolidate_org_specs(specs, [])
+    assert res == [("ORG-A", ["filter-one", "filter-two"])]
+
+    # Case 3: Defer to global filters
+    specs = [("org-a", None), ("org-a", None)]
+    res = cli.consolidate_org_specs(specs, ["platform"])
+    assert res == [("org-a", None)]
+
+    # Case 4: Mixture of scoped and global where one has no scoped filter
+    specs = [("org-a", ["filter-one"]), ("org-a", None)]
+    res = cli.consolidate_org_specs(specs, ["platform"])
+    assert res == [("org-a", ["filter-one", "platform"])]
+
+    # Case 5: Mixture of scoped and global (empty global) resolves to []
+    specs = [("org-a", ["filter-one"]), ("org-a", None)]
+    res = cli.consolidate_org_specs(specs, [])
+    assert res == [("org-a", [])]
+
+    # Case 6: Explicitly empty scoped filter (colon with nothing) resolves to []
+    specs = [("org-a", ["filter-one"]), ("org-a", [])]
+    res = cli.consolidate_org_specs(specs, ["platform"])
+    assert res == [("org-a", [])]
+
+    # Case 7: Order of unique organizations is preserved
+    specs = [("org-b", None), ("org-a", ["f1"]), ("org-b", ["f2"])]
+    res = cli.consolidate_org_specs(specs, ["platform"])
+    assert res == [("org-b", ["platform", "f2"]), ("org-a", ["f1"])]
+
+
+def test_cli_duplicate_org_fetches_prevented(monkeypatch):
+    """CLI groups duplicate org definitions and calls get_github_prs once."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    calls = []
+
+    def fake_get_prs(org, repo_filters):
+        filters = list(repo_filters) if repo_filters is not None else None
+        calls.append((org, filters))
+        return []
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        [
+            "-o",
+            "org-a:filter-one",
+            "-o",
+            "ORG-A:filter-two",
+            "-o",
+            "org-b",
+            "-o",
+            "org-b:filter-three",
+            "-r",
+            "global-f",
+        ],
+    )
+
+    assert result.exit_code == 0
+    # org-a was specified twice, first as org-a:filter-one and ORG-A:filter-two.
+    # Its casing should be preserved as "org-a",
+    # and filters combined as ["filter-one", "filter-two"].
+    # org-b was specified as org-b (global-f) and org-b:filter-three.
+    # Its casing "org-b" preserved, filters combined as ["global-f", "filter-three"].
+    assert len(calls) == 2
+    assert calls[0] == ("org-a", ["filter-one", "filter-two"])
+    assert calls[1] == ("org-b", ["global-f", "filter-three"])

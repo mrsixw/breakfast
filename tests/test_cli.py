@@ -3167,3 +3167,69 @@ def test_missing_organization_exits_with_error(monkeypatch):
 
     assert result.exit_code == 1
     assert "Organization must be provided" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Multiple repo filters (#290)
+# ---------------------------------------------------------------------------
+
+
+def test_multiple_repo_filters_includes_matching_prs(monkeypatch):
+    """PRs from repos matching any filter are included (OR logic)."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    def fake_get_prs(_org, repo_filters):
+        assert set(repo_filters) == {"api", "platform"}
+        return [
+            "https://github.com/org/api-gateway/pull/1",
+            "https://github.com/org/platform-web/pull/2",
+        ]
+
+    def fake_api(path):
+        if "api-gateway" in path:
+            pr = _make_pr_detail(1)
+            pr["title"] = "API PR"
+            pr["base"]["repo"]["name"] = "api-gateway"
+            pr["html_url"] = "https://github.com/org/api-gateway/pull/1"
+            return pr
+        pr = _make_pr_detail(2)
+        pr["title"] = "Platform PR"
+        pr["base"]["repo"]["name"] = "platform-web"
+        pr["html_url"] = "https://github.com/org/platform-web/pull/2"
+        return pr
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "api", "-r", "platform"])
+
+    assert result.exit_code == 0
+    assert "API PR" in result.stdout
+    assert "Platform PR" in result.stdout
+
+
+def test_multiple_repo_filters_config_list(monkeypatch, tmp_path):
+    """Config file list for repo-filter is loaded and applied."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    config_file = tmp_path / "breakfast.toml"
+    config_file.write_text('organization = "org"\nrepo-filter = ["api", "platform"]\n')
+
+    captured = []
+
+    def fake_get_prs(_org, repo_filters):
+        captured.extend(repo_filters)
+        return []
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--config", str(config_file)])
+
+    assert result.exit_code == 0
+    assert set(captured) == {"api", "platform"}

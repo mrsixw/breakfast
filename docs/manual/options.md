@@ -25,19 +25,32 @@ organization = ["my-org", "another-org"]
 
 ### `--repo-filter`, `-r`
 
-Filter repositories by name. Supports both substring matching and glob patterns.
+Filter repositories by name. Repeat the flag to include multiple repos — a PR is included
+if its repo matches **any** of the supplied filters (OR logic).
+
+Each filter supports both substring matching and glob patterns:
 
 - **Plain string** (no glob characters): substring match — `platform` matches `"platform-api"`, `"my-platform"`, `"happyplatform"`.
 - **Glob pattern** (contains `*`, `?`, or `[`): uses shell-style glob matching via `fnmatch`.
 
 ```bash
-breakfast -o my-org -r platform        # substring: matches "platform-api", "my-platform"
-breakfast -o my-org -r "platform-*"    # glob: matches "platform-api", "platform-web" but not "my-platform"
-breakfast -o my-org -r "service-?"     # glob: matches "service-a" but not "service-ab"
-breakfast -o my-org -r "app"           # substring: matches "app", "app-one", "happyapp"
+breakfast -o my-org -r platform              # substring: matches "platform-api", "my-platform"
+breakfast -o my-org -r "platform-*"          # glob: matches "platform-api", "platform-web"
+breakfast -o my-org -r api -r platform       # two filters: matches either
+breakfast -o my-org -r api -r "service-?"   # mix of substring and glob
 ```
 
-Glob matching is case-sensitive and uses Python's `fnmatch` semantics. To match all repos, omit `-r` entirely or pass an empty string.
+Config key supports both a single string and a list:
+
+```toml
+# Single filter
+repo-filter = "platform"
+
+# Multiple filters
+repo-filter = ["api", "platform", "service-*"]
+```
+
+Glob matching is case-sensitive and uses Python's `fnmatch` semantics. To match all repos, omit `-r` entirely.
 
 ## Filtering options
 

@@ -363,9 +363,7 @@ def consolidate_org_specs(
 
     Preserves the order of first encounter and the casing of the first encounter.
     """
-    from collections import OrderedDict
-
-    grouped: OrderedDict[str, tuple[str, list[list[str] | None]]] = OrderedDict()
+    grouped: dict[str, tuple[str, list[list[str] | None]]] = {}
     for org, scoped in org_specs:
         low = org.lower()
         if low not in grouped:

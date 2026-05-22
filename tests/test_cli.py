@@ -3433,11 +3433,11 @@ def test_consolidate_org_specs():
 
 def test_org_spec_cache_segment_multi_filter():
     """Verify _org_spec_cache_segment behavior with multiple filters."""
-    seg_ab = cli._org_spec_cache_segment("org", ["filter-b", "filter-a"])
-    seg_ba = cli._org_spec_cache_segment("org", ["filter-a", "filter-b"])
+    seg_first = cli._org_spec_cache_segment("org", ["filter-b", "filter-a"])
+    seg_second = cli._org_spec_cache_segment("org", ["filter-a", "filter-b"])
     seg_one = cli._org_spec_cache_segment("org", ["filter-a"])
-    assert seg_ab == seg_ba  # order-independent
-    assert seg_ab != seg_one  # different filter sets differ
+    assert seg_first == seg_second  # order-independent
+    assert seg_first != seg_one  # different filter sets differ
 
 
 def test_cli_duplicate_org_fetches_prevented(monkeypatch):

@@ -173,6 +173,15 @@ breakfast -o my-org --exclude-label wip                  # hide WIP PRs
 breakfast -o my-org --exclude-label wip --exclude-label blocked
 ```
 
+### `--filter-reviewer`
+
+Only show PRs that have a specific user listed as a requested reviewer. Matching is **case-insensitive**. Repeat the flag to include any of the given reviewers (OR logic).
+
+```bash
+breakfast -o my-org --filter-reviewer alice              # PRs requesting review from alice
+breakfast -o my-org --filter-reviewer alice --filter-reviewer bob
+```
+
 ### `--search`, `-s`
 
 Filter PRs by title. Accepts a plain string or a regular expression pattern; matching is always **case-insensitive**.

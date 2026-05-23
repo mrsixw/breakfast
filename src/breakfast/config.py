@@ -404,6 +404,7 @@ def filter_pr_details(
     search_title=None,
     filter_label=None,
     exclude_label=None,
+    filter_reviewer=None,
 ):
     ignore_set = normalize_ignore_authors(ignore_authors)
     current_user_login_normalized = (
@@ -457,6 +458,12 @@ def filter_pr_details(
         if exclude_label:
             pr_labels = {lb["name"].lower() for lb in pr_detail.get("labels", [])}
             if any(lbl.lower() in pr_labels for lbl in exclude_label):
+                continue
+        if filter_reviewer:
+            reviewers = {
+                r["login"].lower() for r in pr_detail.get("requested_reviewers", [])
+            }
+            if not any(rv.lower() in reviewers for rv in filter_reviewer):
                 continue
 
         filtered.append(pr_detail)

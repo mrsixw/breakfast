@@ -653,10 +653,24 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     "--format",
     "output_format",
     default=None,
-    type=click.Choice(["table", "json", "markdown", "csv"], case_sensitive=False),
+    type=click.Choice(
+        ["table", "json", "markdown", "csv", "template"], case_sensitive=False
+    ),
     help=(
-        "Output format: table (default), json, or markdown. "
+        "Output format: table (default), json, markdown, csv, or template. "
         "Overrides --json/--no-json/--markdown when both are given."
+    ),
+)
+@click.option(
+    "--template",
+    "template_str",
+    default=None,
+    help=(
+        "Format string for --format template. "
+        "Fields: {repo}, {title}, {author}, {url}, {state}, {number},"
+        " {created_at}, {updated_at}, {additions}, {deletions},"
+        " {changed_files}, {commits}, {review_comments}, {labels},"
+        " {requested_reviewers}."
     ),
 )
 @click.option(
@@ -912,6 +926,7 @@ def breakfast(
     json_output,
     markdown_flag,
     output_format,
+    template_str,
     checks,
     approvals,
     head_branch,
@@ -1030,11 +1045,12 @@ def breakfast(
             "json",
             "markdown",
             "csv",
+            "template",
         }:
             click.echo(
                 click.style(
                     f"Warning: unrecognised format '{cfg_format}' in config"
-                    " — expected 'table', 'json', 'markdown', or 'csv'."
+                    " — expected 'table', 'json', 'markdown', 'csv', or 'template'."
                     " Falling back to 'table'.",
                     fg="yellow",
                 ),
@@ -1043,6 +1059,7 @@ def breakfast(
             cfg_format = "table"
         fmt = cfg_format or "table"
     json_output = fmt == "json"
+    template_str = template_str if template_str is not None else cfg.get("template")
     checks = checks if checks is not None else cfg.get("checks", False)
     approvals = approvals if approvals is not None else cfg.get("approvals", False)
     head_branch = (
@@ -1741,6 +1758,66 @@ def breakfast(
             update_msg = check_for_update()
             if update_msg:
                 logger.info("update_available msg=%r", update_msg)
+                click.echo(
+                    click.style(update_msg, fg="cyan", bold=True),
+                    err=True,
+                    color=colour,
+                )
+        if api_stats:
+            _print_debug_summary(
+                t0_total, len(pr_details), get_api_stats(), get_graphql_rate_limit()
+            )
+        return
+
+    if fmt == "template":
+        if not template_str:
+            click.echo(
+                click.style(
+                    "Error: --template is required when using --format template.",
+                    fg="red",
+                    bold=True,
+                ),
+                err=True,
+                color=colour,
+            )
+            sys.exit(1)
+        for pr_detail in pr_details:
+            fields = {
+                "repo": pr_detail["base"]["repo"]["name"],
+                "title": pr_detail.get("title", ""),
+                "author": pr_detail.get("user", {}).get("login", ""),
+                "url": pr_detail.get("html_url", ""),
+                "state": pr_detail.get("state", ""),
+                "number": pr_detail.get("number", ""),
+                "created_at": pr_detail.get("created_at", ""),
+                "updated_at": pr_detail.get("updated_at", ""),
+                "additions": pr_detail.get("additions", 0),
+                "deletions": pr_detail.get("deletions", 0),
+                "changed_files": pr_detail.get("changed_files", 0),
+                "commits": pr_detail.get("commits", 0),
+                "review_comments": pr_detail.get("review_comments", 0),
+                "labels": "|".join(lb["name"] for lb in pr_detail.get("labels", [])),
+                "requested_reviewers": "|".join(
+                    r["login"] for r in pr_detail.get("requested_reviewers", [])
+                ),
+            }
+            try:
+                click.echo(template_str.format_map(fields))
+            except KeyError as e:
+                click.echo(
+                    click.style(
+                        f"Error: unknown template field {e}. "
+                        "See --help for available fields.",
+                        fg="red",
+                        bold=True,
+                    ),
+                    err=True,
+                    color=colour,
+                )
+                sys.exit(1)
+        if not no_update_check:
+            update_msg = check_for_update()
+            if update_msg:
                 click.echo(
                     click.style(update_msg, fg="cyan", bold=True),
                     err=True,

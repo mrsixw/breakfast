@@ -24,6 +24,7 @@ from .api import (
     get_check_status,
     get_github_prs,
     get_graphql_rate_limit,
+    get_pr_age_days,
 )
 from .cache import (
     parse_ttl,
@@ -419,27 +420,6 @@ def _org_spec_cache_segment(org: str, scoped: list[str] | None) -> str:
     return org.lower() + ":" + filter_str
 
 
-def get_pr_age_days(pr_detail, now=None):
-    from datetime import datetime, timezone
-
-    created_at = pr_detail.get("created_at")
-    if not created_at:
-        return 0
-
-    try:
-        created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-    except ValueError:
-        logger.debug("get_pr_age_days invalid_date created_at=%r", created_at)
-        return 0
-
-    if created_dt.tzinfo is None:
-        created_dt = created_dt.replace(tzinfo=timezone.utc)
-    if now is None:
-        now = datetime.now(timezone.utc)
-
-    return max((now - created_dt).days, 0)
-
-
 _LEGENDARY_COMMENT_THRESHOLD = 100
 _LEGENDARY_AGE_THRESHOLD_DAYS = 30
 _LEGENDARY_EMOJI = "⚔️"
@@ -813,6 +793,18 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     ),
 )
 @click.option(
+    "--filter-stale",
+    type=int,
+    default=None,
+    help="Only show PRs older than N days (by creation date).",
+)
+@click.option(
+    "--filter-inactive",
+    type=int,
+    default=None,
+    help="Only show PRs not updated in the last N days.",
+)
+@click.option(
     "--legendary/--no-legendary",
     default=None,
     help=(
@@ -930,6 +922,8 @@ def breakfast(
     filter_label,
     exclude_label,
     filter_reviewer,
+    filter_stale,
+    filter_inactive,
     legendary,
     legendary_only,
     search,
@@ -1461,6 +1455,8 @@ def breakfast(
         filter_label=filter_label,
         exclude_label=exclude_label,
         filter_reviewer=filter_reviewer,
+        filter_stale=filter_stale,
+        filter_inactive=filter_inactive,
     )
     logger.info(
         "filter_result before=%d after=%d",

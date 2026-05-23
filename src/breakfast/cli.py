@@ -30,8 +30,10 @@ from .cache import (
     parse_ttl,
     read_graphql_cache,
     read_pr_cache,
+    read_repo_pr_cache,
     write_graphql_cache,
     write_pr_cache,
+    write_repo_pr_cache,
 )
 from .config import (
     filter_pr_details,
@@ -1328,29 +1330,81 @@ def breakfast(
                 if not _match_exclude_repos(_extract_repo_name(url), exclude_repos)
             ]
 
+        # --- Layer 2.5: per-repo PR cache ---
+        # Group URLs by repo so we can check per-repo cache before fetching.
+        urls_to_fetch = list(prs) if prs else []
+        repo_hit_prs: list = []
+        repo_hit_checks: dict = {}
+        repo_hit_approvals: dict = {}
+        repo_hit_approval_details: dict = {}
+
+        if cache_enabled and not refresh_prs and prs:
+            repos_to_urls: dict[tuple[str, str], list[str]] = {}
+            for url in prs:
+                parts = urlparse(url).path.strip("/").split("/")
+                if len(parts) >= 4:
+                    repos_to_urls.setdefault((parts[0], parts[1]), []).append(url)
+
+            uncached_urls: list[str] = []
+            for (org_name, rname), repo_urls in repos_to_urls.items():
+                cached = read_repo_pr_cache(org_name, rname, cache_ttl_seconds)
+                if cached is not None:
+                    repo_hit_prs.extend(cached["prs"])
+                    if cached["check_statuses"]:
+                        repo_hit_checks.update(cached["check_statuses"])
+                    if cached["approval_statuses"]:
+                        repo_hit_approvals.update(cached["approval_statuses"])
+                    if cached["approval_details"]:
+                        repo_hit_approval_details.update(cached["approval_details"])
+                else:
+                    uncached_urls.extend(repo_urls)
+            urls_to_fetch = uncached_urls
+
         pr_details = []
         failed_urls = []
+        newly_fetched_by_repo: dict[str, dict] = {}
         repo_display = ", ".join(repo_filters) if repo_filters else "all repos"
         click.echo(f"Processing {repo_display} PRs...", nl=False, err=True)
-        if prs:
-            max_workers = min(workers, len(prs))
+
+        if not urls_to_fetch and repo_hit_prs:
+            click.echo("⚡", nl=False, err=True)
+
+        if urls_to_fetch:
+            max_workers = min(workers, len(urls_to_fetch))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_url = {
                     executor.submit(_fetch_pr_bundle, url, checks, approvals): url
-                    for url in prs
+                    for url in urls_to_fetch
                 }
                 for future in as_completed(future_to_url):
                     url = future_to_url[future]
                     try:
                         pr_detail, check_status, approval_detail = future.result()
                         pr_details.append(pr_detail)
+                        rname = pr_detail["base"]["repo"]["name"]
+                        org_key = (
+                            pr_detail["base"]["repo"].get("owner", {}).get("login", "")
+                        )
+                        rd = newly_fetched_by_repo.setdefault(
+                            (org_key, rname),
+                            {
+                                "prs": [],
+                                "checks": {},
+                                "approvals": {},
+                                "approval_details": {},
+                            },
+                        )
+                        rd["prs"].append(pr_detail)
                         if check_status is not None:
                             check_statuses[pr_detail["id"]] = check_status
+                            rd["checks"][pr_detail["id"]] = check_status
                         if approval_detail is not None:
                             approval_statuses[pr_detail["id"]] = approval_detail[
                                 "status"
                             ]
                             approval_details[pr_detail["id"]] = approval_detail
+                            rd["approvals"][pr_detail["id"]] = approval_detail["status"]
+                            rd["approval_details"][pr_detail["id"]] = approval_detail
                         click.echo(
                             random.choices(BREAKFAST_ITEMS)[0],
                             nl=False,
@@ -1364,7 +1418,32 @@ def breakfast(
                             "pr_detail_fetch_failed url=%s error=%r", url, str(exc)
                         )
                         failed_urls.append(url)
-        statuses_from_bundle = True
+
+        # Write per-repo cache for repos fetched in this run
+        if cache_enabled and newly_fetched_by_repo:
+            for (org_key, rname), rdata in newly_fetched_by_repo.items():
+                write_repo_pr_cache(
+                    org_key,
+                    rname,
+                    rdata["prs"],
+                    check_statuses=rdata["checks"] or None,
+                    approval_statuses=rdata["approvals"] or None,
+                    approval_details=rdata["approval_details"] or None,
+                )
+
+        # Merge per-repo cache hits into the main collections
+        pr_details.extend(repo_hit_prs)
+        check_statuses.update(repo_hit_checks)
+        approval_statuses.update(repo_hit_approvals)
+        approval_details.update(repo_hit_approval_details)
+
+        # When all PRs came from per-repo cache, use cached statuses path
+        statuses_from_bundle = bool(urls_to_fetch)
+        if not statuses_from_bundle and repo_hit_prs:
+            cached_check_statuses = repo_hit_checks or None
+            cached_approval_statuses = repo_hit_approvals or None
+            cached_approval_details = repo_hit_approval_details or None
+
         click.echo("...Done", err=True)
         if failed_urls:
             examples = ", ".join(failed_urls[:3])

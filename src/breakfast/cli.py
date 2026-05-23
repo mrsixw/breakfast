@@ -788,6 +788,23 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     help="Only show PRs with this review approval status. Repeat for multiple values.",
 )
 @click.option(
+    "--label",
+    "filter_label",
+    multiple=True,
+    help=(
+        "Only show PRs that have this label (repeatable, case-insensitive)."
+        " e.g. --label bug --label enhancement"
+    ),
+)
+@click.option(
+    "--exclude-label",
+    multiple=True,
+    help=(
+        "Exclude PRs that have this label (repeatable, case-insensitive)."
+        " e.g. --exclude-label wip"
+    ),
+)
+@click.option(
     "--legendary/--no-legendary",
     default=None,
     help=(
@@ -902,6 +919,8 @@ def breakfast(
     filter_state,
     filter_check,
     filter_approval,
+    filter_label,
+    exclude_label,
     legendary,
     legendary_only,
     search,
@@ -1430,6 +1449,8 @@ def breakfast(
         check_statuses=check_statuses,
         approval_statuses=approval_statuses,
         search_title=search,
+        filter_label=filter_label,
+        exclude_label=exclude_label,
     )
     logger.info(
         "filter_result before=%d after=%d",

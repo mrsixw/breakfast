@@ -141,6 +141,16 @@ _DEFAULT_CONFIG_CONTENT = """\
 # A little something extra for the observant. 🌟
 # seasonal-colours = true
 
+# Which cultural holiday calendar drives seasonal colours.
+#   western  — Christmas 🎄, Easter 🐣, Pride Month 🌈, Halloween 🎃 (default)
+#   jewish   — Hanukkah 🕎, Passover 🪬, Rosh Hashanah 🍎
+#   islamic  — Eid al-Fitr 🌙
+#   hindu    — Diwali 🪔, Holi 🌈
+#   sikh     — Vaisakhi 🌾, Bandi Chhor Divas 🪔
+#   off      — disable seasonal colours entirely
+# Note: seasonal-colours = false is equivalent to seasonal-calendar = "off"
+# seasonal-calendar = "western"
+
 
 # -----------------------------------------------------------------------------
 # Legendary PRs ⚔️
@@ -293,6 +303,9 @@ def load_config(config_path=None):
                     msg = f"Warning: Failed to parse config {path}: {e}"
                     click.echo(click.style(msg, fg="yellow"), err=True)
                     continue
+            # seasonal-colours = false → seasonal-calendar = "off" (backward compat)
+            if not data.get("seasonal-colours", True):
+                data.setdefault("seasonal-calendar", "off")
             for key in _LIST_KEYS:
                 if key in data and not isinstance(data[key], list):
                     logger.warning(

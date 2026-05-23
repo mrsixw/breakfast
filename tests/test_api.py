@@ -211,6 +211,25 @@ def _single_page_response(repos):
     }
 
 
+def _single_page_graphql(pr_urls):
+    """Return a one-page GraphQL response with a single repo containing pr_urls."""
+    return {
+        "data": {
+            "organization": {
+                "repositories": {
+                    "nodes": [
+                        {
+                            "name": "repo",
+                            "pullRequests": {"nodes": [{"url": u} for u in pr_urls]},
+                        }
+                    ],
+                    "pageInfo": {"endCursor": None, "hasNextPage": False},
+                }
+            }
+        }
+    }
+
+
 def test_get_github_prs_skips_null_repo_nodes(monkeypatch):
     response = {
         "data": {
@@ -257,6 +276,73 @@ def test_match_exclude_repos_multiple_patterns():
 def test_match_exclude_repos_empty():
     assert api._match_exclude_repos("anything", []) is False
     assert api._match_exclude_repos("anything", None) is False
+
+
+def test_get_github_prs_fetch_state_open_uses_open_enum(monkeypatch):
+    captured = []
+
+    def fake_graphql(query, _variables):
+        captured.append(query)
+        return _single_page_graphql(["https://github.com/org/repo/pull/1"])
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
+    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+
+    api.get_github_prs("org", "", "open")
+
+    assert "OPEN" in captured[0]
+    assert "CLOSED" not in captured[0]
+    assert "MERGED" not in captured[0]
+
+
+def test_get_github_prs_fetch_state_closed_uses_closed_enum(monkeypatch):
+    captured = []
+
+    def fake_graphql(query, _variables):
+        captured.append(query)
+        return _single_page_graphql([])
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
+    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+
+    api.get_github_prs("org", "", "closed")
+
+    assert "CLOSED" in captured[0]
+    assert "OPEN" not in captured[0]
+
+
+def test_get_github_prs_fetch_state_all_includes_all_enums(monkeypatch):
+    captured = []
+
+    def fake_graphql(query, _variables):
+        captured.append(query)
+        return _single_page_graphql([])
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
+    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+
+    api.get_github_prs("org", "", "all")
+
+    assert "OPEN" in captured[0]
+    assert "CLOSED" in captured[0]
+    assert "MERGED" in captured[0]
+
+
+def test_get_github_prs_fetch_state_merged(monkeypatch):
+    captured = []
+
+    def fake_graphql(query, _variables):
+        captured.append(query)
+        return _single_page_graphql([])
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
+    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+
+    api.get_github_prs("org", "", "merged")
+
+    assert "MERGED" in captured[0]
+    assert "OPEN" not in captured[0]
+    assert "CLOSED" not in captured[0]
 
 
 def test_get_authenticated_user_login(monkeypatch):

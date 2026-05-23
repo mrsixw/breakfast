@@ -55,6 +55,11 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Equivalent to: --exclude-repo "old-*" --exclude-repo "infra-*"
 # exclude-repos = ["old-*", "infra-*"]
 
+# Which PR states to fetch from GitHub. Default: open.
+# Choices: open, closed, merged, all.
+# Equivalent to: --fetch-state <value>
+# fetch-state = "open"
+
 # Authors to exclude from the output (case-insensitive). Useful for hiding
 # bot PRs. List format — add as many entries as you like.
 # Equivalent to: --ignore-author dependabot[bot] --ignore-author renovate[bot]

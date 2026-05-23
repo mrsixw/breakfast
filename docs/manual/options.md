@@ -122,6 +122,25 @@ With `--ignore-author dependabot[bot]`, the bot PR is excluded:
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
 ```
 
+### `--fetch-state`
+
+Control which PR states are **fetched** from GitHub. By default only open PRs are
+retrieved. Use this flag to include closed or merged PRs in your results.
+
+Accepted values: `open` (default), `closed`, `merged`, `all`.
+
+```bash
+breakfast -o my-org -r platform --fetch-state closed    # closed PRs only
+breakfast -o my-org -r platform --fetch-state merged    # merged PRs only
+breakfast -o my-org -r platform --fetch-state all       # every state
+```
+
+> **Note:** Fetching closed or merged PRs can be significantly slower since
+> there are usually many more of them. Combine with `--limit` to keep output
+> manageable.
+
+Config key: `fetch-state = "open"`
+
 ### `--filter-state`
 
 Only show PRs with a specific state. Accepted values: `open`, `closed`, `draft`. Repeat the flag to match multiple states.

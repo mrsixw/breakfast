@@ -1093,6 +1093,7 @@ def breakfast(
     seasonal_colours = cfg.get("seasonal-colours", True)
     summarise_user_prs = summarise_user_prs or cfg.get("summarise-user-prs", False)
     summarise_repo_prs = summarise_repo_prs or cfg.get("summarise-repo-prs", False)
+    show_update_summary = cfg.get("update-summary", False)
 
     if summarise_user_prs and summarise_repo_prs:
         click.echo(
@@ -1603,7 +1604,7 @@ def breakfast(
             color=colour and _stdout_is_tty(),
         )
         if not no_update_check:
-            update_msg = check_for_update()
+            update_msg = check_for_update(show_summary=show_update_summary)
             if update_msg:
                 logger.info("update_available msg=%r", update_msg)
                 click.echo(
@@ -1662,7 +1663,7 @@ def breakfast(
             "render_complete elapsed_ms=%d", int((time.monotonic() - t_render) * 1000)
         )
         if not no_update_check:
-            update_msg = check_for_update()
+            update_msg = check_for_update(show_summary=show_update_summary)
             if update_msg:
                 logger.info("update_available msg=%r", update_msg)
                 click.echo(
@@ -1754,7 +1755,7 @@ def breakfast(
             "render_complete elapsed_ms=%d", int((time.monotonic() - t_render) * 1000)
         )
         if not no_update_check:
-            update_msg = check_for_update()
+            update_msg = check_for_update(show_summary=show_update_summary)
             if update_msg:
                 logger.info("update_available msg=%r", update_msg)
                 click.echo(
@@ -1834,7 +1835,7 @@ def breakfast(
             "render_complete elapsed_ms=%d", int((time.monotonic() - t_render) * 1000)
         )
         if not no_update_check:
-            update_msg = check_for_update()
+            update_msg = check_for_update(show_summary=show_update_summary)
             if update_msg:
                 logger.info("update_available msg=%r", update_msg)
                 click.echo(
@@ -2023,7 +2024,7 @@ def breakfast(
     )
 
     if not no_update_check:
-        update_msg = check_for_update()
+        update_msg = check_for_update(show_summary=show_update_summary)
         if update_msg:
             logger.info("update_available msg=%r", update_msg)
             click.echo(

@@ -37,6 +37,8 @@ breakfast -o my-org -r my-app --checks --status-style ascii
 breakfast -o my-org -r my-app --filter-state open
 breakfast -o my-org -r my-app --filter-check fail --filter-check pending
 breakfast -o my-org -r my-app --filter-approval approved
+breakfast -o my-org -r my-app --label bug --label enhancement
+breakfast -o my-org -r my-app --exclude-label wip
 breakfast -o my-org -r my-app --json
 breakfast -o my-org -r my-app --cache
 breakfast -o my-org -r my-app --cache --refresh
@@ -67,6 +69,8 @@ breakfast -o my-org -r my-app --legendary-only
 - `--filter-state`: Only show PRs with this state (`open`, `closed`). Repeatable.
 - `--filter-check`: Only show PRs with this CI result (`pass`, `fail`, `pending`, `none`). Repeatable. Implies `--checks`.
 - `--filter-approval`: Only show PRs with this review status (`approved`, `pending`, `changes`). Repeatable.
+- `--label`: Only show PRs that have this label (case-insensitive, repeatable — OR logic).
+- `--exclude-label`: Hide PRs that have this label (case-insensitive, repeatable).
 
 ### Caching
 

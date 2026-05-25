@@ -39,12 +39,21 @@ breakfast -o my-org -r my-app --filter-check fail --filter-check pending
 breakfast -o my-org -r my-app --filter-approval approved
 breakfast -o my-org -r my-app --label bug --label enhancement
 breakfast -o my-org -r my-app --exclude-label wip
-breakfast -o my-org -r my-app --json
+breakfast -o my-org -r my-app --filter-reviewer alice
+breakfast -o my-org -r my-app --filter-stale 30
+breakfast -o my-org -r my-app --filter-inactive 7
+breakfast -o my-org -r my-app --fetch-state all
+breakfast -o my-org -r my-app --search "hotfix"
+breakfast -o my-org -r my-app --format json
+breakfast -o my-org -r my-app --format markdown
+breakfast -o my-org -r my-app --format template --template "{repo}: {title} ({url})"
 breakfast -o my-org -r my-app --cache
 breakfast -o my-org -r my-app --cache --refresh
 breakfast -o my-org -r my-app --cache --refresh-prs
 breakfast -o my-org -r my-app --legendary
 breakfast -o my-org -r my-app --legendary-only
+breakfast -o my-org -r my-app --summarise-user-prs
+breakfast -o my-org -r my-app --summarise-repo-prs
 ```
 
 ## Options
@@ -56,21 +65,39 @@ breakfast -o my-org -r my-app --legendary-only
 - `--age`: Add an age column (days since creation).
 - `--checks`: Add a checks column showing CI status (✅ pass / ❌ fail / ⚠️ pending).
 - `--approvals`: Add an approvals column showing review status (✅ approved / ✅ 1/2 approvals / ❌ changes / ⏳ pending).
+- `--head-branch`: Add a head branch column.
+- `--base-branch`: Add a base branch column.
 - `--status-style`: Render status cells with `emoji` (default) or `ascii` labels.
-- `--json`: Output as JSON instead of a table.
 - `--limit`: Cap the number of PRs shown.
 - `--max-title-length`: Truncate PR titles to this many characters.
+
+### Output format
+
+- `--format`: Output format: `table` (default), `json`, `markdown`, `csv`, `template`.
+- `--template`: Format string used with `--format template`. Available fields: `{repo}`, `{title}`, `{author}`, `{url}`, `{state}`, `{number}`, `{created_at}`, `{updated_at}`, `{additions}`, `{deletions}`, `{changed_files}`, `{commits}`, `{review_comments}`, `{labels}`, `{requested_reviewers}`.
 
 ### Filtering
 
 - `--ignore-author`: Exclude PRs by author (case-insensitive, repeatable).
 - `--no-ignore-author`: Clear `ignore-author` config defaults for this run.
 - `--mine-only`: Show only your own PRs.
-- `--filter-state`: Only show PRs with this state (`open`, `closed`). Repeatable.
+- `--no-drafts`: Hide draft PRs.
+- `--drafts-only`: Show only draft PRs.
+- `--fetch-state`: Which PR states to fetch from GitHub: `open` (default), `closed`, `merged`, `all`.
+- `--filter-state`: Only show PRs with this state (`open`, `closed`, `draft`). Repeatable.
 - `--filter-check`: Only show PRs with this CI result (`pass`, `fail`, `pending`, `none`). Repeatable. Implies `--checks`.
 - `--filter-approval`: Only show PRs with this review status (`approved`, `pending`, `changes`). Repeatable.
 - `--label`: Only show PRs that have this label (case-insensitive, repeatable — OR logic).
 - `--exclude-label`: Hide PRs that have this label (case-insensitive, repeatable).
+- `--filter-reviewer`: Only show PRs with this user as a requested reviewer (case-insensitive, repeatable — OR logic).
+- `--filter-stale`: Only show PRs older than N days.
+- `--filter-inactive`: Only show PRs not updated in the last N days.
+- `--search`, `-s`: Filter PRs by title (plain string or regex, case-insensitive).
+
+### Summary views
+
+- `--summarise-user-prs`: Print a per-author PR count summary instead of the full table.
+- `--summarise-repo-prs`: Print a per-repo PR count summary instead of the full table.
 
 ### Caching
 

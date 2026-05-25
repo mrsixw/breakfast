@@ -46,3 +46,9 @@ When updating project rules, update **all four files** to keep them consistent.
 - **Testing with Cache:** Since caching is implemented, all manual testing must be performed both *with* the cache enabled and *without* the cache (e.g., clearing the cache or disabling it).
 - **Real App Testing:** Always perform a real, end-to-end test of the CLI application in the terminal, not just unit tests.
 - **Documentation:** If CLI options, features, or user-visible behaviors change, you MUST update the relevant manual pages in `docs/manual/` (`options.md`, `usage.md`, etc.). If the project structure or developer workflow changes, you MUST update `CONTRIBUTING.md`. These updates should be in the same PR.
+
+## Working Style
+- **Narrate intent before acting.** If a task would take the work beyond the literal ask, say so first and wait for confirmation. Never expand scope silently.
+- **Surface, don't solve.** If related work is spotted (missing docs, adjacent bugs, cleanup opportunities), flag it as an observation and ask before doing anything. "I notice X — want me to address that too?"
+- **Ask when scope is ambiguous.** When an instruction could mean a narrow or a broad thing, ask which is wanted before writing a single line of code or docs.
+- **Pause at natural checkpoints on large changes.** For multi-step or multi-file work, describe the plan and confirm before committing and pushing. That way the user can redirect early rather than unpicking completed work.

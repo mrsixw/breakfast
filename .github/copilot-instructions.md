@@ -81,3 +81,9 @@ When updating project rules, update **all four files** to keep them consistent.
 - If CLI options, features, or user-visible behaviors change, you MUST update the relevant manual pages in `docs/manual/` (`options.md`, `usage.md`, etc.).
 - If the project structure or developer workflow changes, you MUST update `CONTRIBUTING.md`.
 - These updates should be in the same PR.
+
+## Working Style
+- **Narrate intent before acting.** If a task would take the work beyond the literal ask, say so first and wait for confirmation. Never expand scope silently.
+- **Surface, don't solve.** If related work is spotted (missing docs, adjacent bugs, cleanup opportunities), flag it as an observation and ask before doing anything. "I notice X — want me to address that too?"
+- **Ask when scope is ambiguous.** When an instruction could mean a narrow or a broad thing, ask which is wanted before writing a single line of code or docs.
+- **Pause at natural checkpoints on large changes.** For multi-step or multi-file work, describe the plan and confirm before committing and pushing. That way the user can redirect early rather than unpicking completed work.

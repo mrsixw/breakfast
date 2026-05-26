@@ -405,6 +405,7 @@ def filter_pr_details(
     search_title=None,
     filter_stale=None,
     filter_inactive=None,
+    filter_reviewer=None,
     filter_label=None,
     exclude_label=None,
 ):
@@ -457,6 +458,12 @@ def filter_pr_details(
             continue
         if filter_inactive is not None:
             if get_pr_inactive_days(pr_detail) < filter_inactive:
+                continue
+        if filter_reviewer:
+            reviewers = {
+                r["login"].lower() for r in pr_detail.get("requested_reviewers", [])
+            }
+            if not any(rv.lower() in reviewers for rv in filter_reviewer):
                 continue
         if filter_label:
             pr_labels = {lb["name"].lower() for lb in pr_detail.get("labels", [])}

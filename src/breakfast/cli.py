@@ -422,7 +422,6 @@ def _org_spec_cache_segment(org: str, scoped: list[str] | None) -> str:
     return org.lower() + ":" + filter_str
 
 
-
 _LEGENDARY_COMMENT_THRESHOLD = 100
 _LEGENDARY_AGE_THRESHOLD_DAYS = 30
 _LEGENDARY_EMOJI = "⚔️"

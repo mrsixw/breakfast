@@ -4,27 +4,88 @@
 
 ### `--organization`, `-o`
 
-The GitHub organization to query for pull requests.
+The GitHub organization to query for pull requests. Repeat the flag to query
+multiple organizations at once — their PRs are combined and deduplicated.
+
+You can optionally append a **scoped repo filter** to any org using a colon separator:
+
+| Flag form | Behaviour |
+| --- | --- |
+| `-o my-org` | Use the global `-r` filter (or all repos if no `-r`) |
+| `-o my-org:api` | Override: only repos matching `api` for this org |
+| `-o my-org:` | Override: all repos for this org, ignoring any global `-r` |
 
 ```bash
-breakfast -o my-org -r my-app
+breakfast -o my-org -r my-app                           # global filter
+breakfast -o my-org -o another-org                      # two orgs, no filter
+breakfast -o my-org -o another-org -r platform          # global filter for both orgs
+breakfast -o my-org:api -o another-org:platform         # per-org filters
+breakfast -o my-org:api -o another-org -r platform      # scoped for my-org, global for another-org
+breakfast -o my-org: -o another-org -r platform         # all repos for my-org; filtered for another-org
+```
+
+Config key supports both a single string and a list, with optional scoped filters:
+
+```toml
+# Single org
+organization = "my-org"
+
+# Multiple orgs
+organization = ["my-org", "another-org"]
+
+# Per-org scoped filters
+organization = ["my-org:api", "another-org:platform"]
+
+# Mixed: scoped for one, global -r for the other
+organization = ["my-org:api", "another-org"]
 ```
 
 ### `--repo-filter`, `-r`
 
-Filter repositories by name. Supports both substring matching and glob patterns.
+Filter repositories by name. Repeat the flag to include multiple repos — a PR is included
+if its repo matches **any** of the supplied filters (OR logic).
+
+Each filter supports both substring matching and glob patterns:
 
 - **Plain string** (no glob characters): substring match — `platform` matches `"platform-api"`, `"my-platform"`, `"happyplatform"`.
 - **Glob pattern** (contains `*`, `?`, or `[`): uses shell-style glob matching via `fnmatch`.
 
 ```bash
-breakfast -o my-org -r platform        # substring: matches "platform-api", "my-platform"
-breakfast -o my-org -r "platform-*"    # glob: matches "platform-api", "platform-web" but not "my-platform"
-breakfast -o my-org -r "service-?"     # glob: matches "service-a" but not "service-ab"
-breakfast -o my-org -r "app"           # substring: matches "app", "app-one", "happyapp"
+breakfast -o my-org -r platform              # substring: matches "platform-api", "my-platform"
+breakfast -o my-org -r "platform-*"          # glob: matches "platform-api", "platform-web"
+breakfast -o my-org -r api -r platform       # two filters: matches either
+breakfast -o my-org -r api -r "service-?"   # mix of substring and glob
 ```
 
-Glob matching is case-sensitive and uses Python's `fnmatch` semantics. To match all repos, omit `-r` entirely or pass an empty string.
+Config key supports both a single string and a list:
+
+```toml
+# Single filter
+repo-filter = "platform"
+
+# Multiple filters
+repo-filter = ["api", "platform", "service-*"]
+```
+
+Glob matching is case-sensitive and uses Python's `fnmatch` semantics. To match all repos, omit `-r` entirely.
+
+### `--exclude-repo`
+
+Exclude repositories matching a pattern from the results. Supports the same glob syntax as `--repo-filter`. Repeat the flag to exclude multiple patterns (OR logic).
+
+```bash
+breakfast -o my-org --exclude-repo "old-*"                      # exclude repos starting with "old-"
+breakfast -o my-org --exclude-repo "infra-*" --exclude-repo "archived-*"
+breakfast -o my-org -r "platform" --exclude-repo "platform-legacy"
+```
+
+Can also be set persistently in the config file:
+
+```toml
+exclude-repos = ["old-*", "infra-*"]
+```
+
+When used with `--repo-filter`, the include filter is applied first, then exclusions are removed from the resulting set.
 
 ## Filtering options
 
@@ -93,6 +154,24 @@ breakfast -o my-org -r my-app --filter-approval pending --filter-approval change
 ```
 
 > **Note:** Review and check statuses are cached alongside PR details, so repeated runs with these flags skip redundant API calls.
+
+### `--label`
+
+Only show PRs that have a specific label. Matching is **case-insensitive**. Repeat the flag to require any of the given labels (OR logic).
+
+```bash
+breakfast -o my-org --label bug                          # only PRs labelled "bug"
+breakfast -o my-org --label bug --label enhancement      # PRs with "bug" OR "enhancement"
+```
+
+### `--exclude-label`
+
+Exclude PRs that have a specific label. Matching is **case-insensitive**. Repeat to exclude any of the given labels.
+
+```bash
+breakfast -o my-org --exclude-label wip                  # hide WIP PRs
+breakfast -o my-org --exclude-label wip --exclude-label blocked
+```
 
 ### `--search`, `-s`
 

@@ -235,21 +235,38 @@ def make_github_graphql_request(query, variables=None):
 _GLOB_CHARS = frozenset("*?[")
 
 
-def _match_repo_filter(repo_name, repo_filter):
-    """Match a repo name against a filter pattern.
+def _match_repo_filter(repo_name, repo_filters):
+    """Match a repo name against one or more filter patterns (OR logic).
 
-    If the pattern contains glob characters (``*``, ``?``, ``[``), uses
-    ``fnmatch`` for precise glob matching. Otherwise falls back to
-    substring matching for backwards compatibility.
+    Each filter uses glob matching when it contains ``*``, ``?``, or ``[``,
+    otherwise falls back to substring matching for backwards compatibility.
+    An empty list matches all repos.
     """
-    if not repo_filter:
+    if not repo_filters:
         return True
+    return any(_match_single_filter(repo_name, f) for f in repo_filters)
+
+
+def _match_single_filter(repo_name, repo_filter):
     if any(c in repo_filter for c in _GLOB_CHARS):
         return fnmatch.fnmatch(repo_name, repo_filter)
     return repo_filter in repo_name
 
 
-def get_github_prs(organization, repo_filter):
+def _match_exclude_repos(repo_name, exclude_repos):
+    """Return True if repo_name matches any exclusion pattern (glob or substring)."""
+    if not exclude_repos:
+        return False
+    for pattern in exclude_repos:
+        if any(c in pattern for c in _GLOB_CHARS):
+            if fnmatch.fnmatch(repo_name, pattern):
+                return True
+        elif pattern in repo_name:
+            return True
+    return False
+
+
+def get_github_prs(organization, repo_filters):
     base_query = """
     query($organization: String!, $cursor: String){
       organization(login: $organization){
@@ -288,7 +305,9 @@ def get_github_prs(organization, repo_filter):
     prs = []
     for response in gql_responses:
         for repo in response["data"]["organization"]["repositories"]["nodes"]:
-            if _match_repo_filter(repo["name"], repo_filter):
+            if repo is None:
+                continue
+            if _match_repo_filter(repo["name"], repo_filters):
                 for pr in repo["pullRequests"]["nodes"]:
                     prs.append(pr["url"])
     return prs
@@ -372,7 +391,47 @@ def get_required_approving_review_count(owner, repo, branch):
     return None
 
 
-def get_approval_summary(owner, repo, pr_number, base_branch=None):
+_REVIEW_DECISION_QUERY = """
+query($owner: String!, $repo: String!, $prNumber: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $prNumber) {
+      reviewDecision
+    }
+  }
+}
+"""
+
+_REVIEW_DECISION_MAP = {
+    "APPROVED": "approved",
+    "CHANGES_REQUESTED": "changes",
+    "REVIEW_REQUIRED": "pending",
+}
+
+_REVIEW_DECISION_SENTINEL = object()
+
+
+def _fetch_review_decision(owner, repo, pr_number):
+    """Return GitHub's ``reviewDecision`` for a PR, or None if unavailable."""
+    variables = {"owner": owner, "repo": repo, "prNumber": pr_number}
+    try:
+        response = make_github_graphql_request(_REVIEW_DECISION_QUERY, variables)
+        return (
+            response.get("data", {})
+            .get("repository", {})
+            .get("pullRequest", {})
+            .get("reviewDecision")
+        )
+    except (ValueError, requests.exceptions.RequestException):
+        return None
+
+
+def get_approval_summary(
+    owner,
+    repo,
+    pr_number,
+    base_branch=None,
+    review_decision=_REVIEW_DECISION_SENTINEL,
+):
     """Return approval status plus optional obtained/required review counts.
 
     Args:
@@ -380,6 +439,9 @@ def get_approval_summary(owner, repo, pr_number, base_branch=None):
         repo: Repository name.
         pr_number: Pull request number.
         base_branch: Base branch name for branch protection lookup.
+        review_decision: Optional pre-fetched GitHub ``reviewDecision`` value.
+            When provided (including ``None``), skips the internal GraphQL
+            query — used by ``get_approval_status`` to avoid a duplicate call.
 
     Returns:
         dict: Summary with ``status`` and optional ``current`` / ``required``
@@ -397,40 +459,13 @@ def get_approval_summary(owner, repo, pr_number, base_branch=None):
         except requests.exceptions.RequestException:
             required_reviews = None
 
-    query = """
-    query($owner: String!, $repo: String!, $prNumber: Int!) {
-      repository(owner: $owner, name: $repo) {
-        pullRequest(number: $prNumber) {
-          reviewDecision
-        }
-      }
-    }
-    """
-    variables = {"owner": owner, "repo": repo, "prNumber": pr_number}
+    if review_decision is _REVIEW_DECISION_SENTINEL:
+        review_decision = _fetch_review_decision(owner, repo, pr_number)
 
-    try:
-        response = make_github_graphql_request(query, variables)
-        review_decision = (
-            response.get("data", {})
-            .get("repository", {})
-            .get("pullRequest", {})
-            .get("reviewDecision")
-        )
-    except (ValueError, requests.exceptions.RequestException):
-        review_decision = None
-
-    decision_map = {
-        "APPROVED": "approved",
-        "CHANGES_REQUESTED": "changes",
-        "REVIEW_REQUIRED": "pending",
-    }
-    status = decision_map.get(review_decision, review_summary["status"])
+    status = _REVIEW_DECISION_MAP.get(review_decision, review_summary["status"])
 
     if required_reviews is not None and review_decision is None and status != "changes":
         status = "approved" if current_reviews >= required_reviews else "pending"
-
-    if required_reviews is not None and status == "approved":
-        current_reviews = max(current_reviews, required_reviews)
 
     return {
         "status": status,
@@ -457,37 +492,13 @@ def get_approval_status(owner, repo, pr_number, base_branch=None):
         GraphQL signal is unavailable, it falls back to the latest REST review
         events.
     """
-    query = """
-    query($owner: String!, $repo: String!, $prNumber: Int!) {
-      repository(owner: $owner, name: $repo) {
-        pullRequest(number: $prNumber) {
-          reviewDecision
-        }
-      }
-    }
-    """
-    variables = {"owner": owner, "repo": repo, "prNumber": pr_number}
+    review_decision = _fetch_review_decision(owner, repo, pr_number)
+    if review_decision in _REVIEW_DECISION_MAP:
+        return _REVIEW_DECISION_MAP[review_decision]
 
-    try:
-        response = make_github_graphql_request(query, variables)
-        review_decision = (
-            response.get("data", {})
-            .get("repository", {})
-            .get("pullRequest", {})
-            .get("reviewDecision")
-        )
-    except (ValueError, requests.exceptions.RequestException):
-        review_decision = None
-
-    decision_map = {
-        "APPROVED": "approved",
-        "CHANGES_REQUESTED": "changes",
-        "REVIEW_REQUIRED": "pending",
-    }
-    if review_decision in decision_map:
-        return decision_map[review_decision]
-
-    return get_approval_summary(owner, repo, pr_number, base_branch)["status"]
+    return get_approval_summary(
+        owner, repo, pr_number, base_branch, review_decision=review_decision
+    )["status"]
 
 
 def get_check_status(owner, repo, sha):

@@ -198,6 +198,67 @@ def test_get_github_prs_filters_and_paginates(monkeypatch):
     ]
 
 
+def _single_page_response(repos):
+    return {
+        "data": {
+            "organization": {
+                "repositories": {
+                    "nodes": repos,
+                    "pageInfo": {"endCursor": None, "hasNextPage": False},
+                }
+            }
+        }
+    }
+
+
+def test_get_github_prs_skips_null_repo_nodes(monkeypatch):
+    response = {
+        "data": {
+            "organization": {
+                "repositories": {
+                    "nodes": [
+                        None,
+                        {
+                            "name": "valid-repo",
+                            "pullRequests": {
+                                "nodes": [{"url": "https://example.com/valid-repo/1"}]
+                            },
+                        },
+                    ],
+                    "pageInfo": {"endCursor": None, "hasNextPage": False},
+                }
+            }
+        }
+    }
+    monkeypatch.setattr(api, "make_github_graphql_request", lambda _q, _v: response)
+    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+
+    prs = api.get_github_prs("org", None)
+
+    assert prs == ["https://example.com/valid-repo/1"]
+
+
+def test_match_exclude_repos_exact():
+    assert api._match_exclude_repos("old-service", ["old-service"]) is True
+    assert api._match_exclude_repos("app", ["old-service"]) is False
+
+
+def test_match_exclude_repos_glob():
+    assert api._match_exclude_repos("old-api", ["old-*"]) is True
+    assert api._match_exclude_repos("old-web", ["old-*"]) is True
+    assert api._match_exclude_repos("app", ["old-*"]) is False
+
+
+def test_match_exclude_repos_multiple_patterns():
+    assert api._match_exclude_repos("infra-prod", ["old-*", "infra-*"]) is True
+    assert api._match_exclude_repos("app", ["old-*", "infra-*"]) is False
+
+
+def test_match_exclude_repos_empty():
+    assert api._match_exclude_repos("anything", []) is False
+    assert api._match_exclude_repos("anything", None) is False
+
+
 def test_get_authenticated_user_login(monkeypatch):
     monkeypatch.setattr(
         api,
@@ -469,6 +530,28 @@ def test_get_approval_status_falls_back_to_rest_reviews_on_graphql_error(monkeyp
     assert api.get_approval_status("org", "repo", 1) == "approved"
 
 
+def test_get_approval_status_makes_only_one_graphql_call_on_fallback(monkeypatch):
+    """When reviewDecision is null, the REST-fallback path must not re-query GraphQL."""
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+
+    graphql_calls = []
+
+    def fake_graphql(query, variables):
+        graphql_calls.append(variables)
+        return {"data": {"repository": {"pullRequest": {"reviewDecision": None}}}}
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
+    monkeypatch.setattr(
+        api,
+        "make_paginated_github_api_request",
+        lambda path: [{"user": {"login": "alice"}, "state": "APPROVED"}],
+    )
+
+    assert api.get_approval_status("org", "repo", 1) == "approved"
+    assert len(graphql_calls) == 1
+
+
 def test_get_required_approving_review_count(monkeypatch):
     monkeypatch.setattr(
         api,
@@ -508,6 +591,9 @@ def test_get_approval_summary_includes_counts_for_multi_review_branch(monkeypatc
 def test_get_approval_summary_preserves_approved_when_github_reports_approved(
     monkeypatch,
 ):
+    """When GitHub reports APPROVED but the latest review tally is below the
+    required count, the displayed count must reflect the actual review tally,
+    not be silently inflated to required."""
     monkeypatch.setattr(
         api,
         "make_github_graphql_request",
@@ -528,7 +614,7 @@ def test_get_approval_summary_preserves_approved_when_github_reports_approved(
 
     summary = api.get_approval_summary("org", "repo", 1, base_branch="main")
 
-    assert summary == {"status": "approved", "current": 2, "required": 2}
+    assert summary == {"status": "approved", "current": 1, "required": 2}
 
 
 def test_get_check_status_mixed_sources(monkeypatch):
@@ -810,51 +896,65 @@ def test_get_graphql_rate_limit_returns_none_on_error(monkeypatch):
 
 
 def test_match_repo_filter_empty_matches_all():
-    assert api._match_repo_filter("any-repo", "") is True
+    assert api._match_repo_filter("any-repo", []) is True
 
 
 def test_match_repo_filter_substring_backward_compat():
     """Plain strings use substring matching for backward compatibility."""
-    assert api._match_repo_filter("platform-api", "platform") is True
-    assert api._match_repo_filter("happyapp", "app") is True
-    assert api._match_repo_filter("mapper", "app") is True
+    assert api._match_repo_filter("platform-api", ["platform"]) is True
+    assert api._match_repo_filter("happyapp", ["app"]) is True
+    assert api._match_repo_filter("mapper", ["app"]) is True
 
 
 def test_match_repo_filter_substring_no_match():
-    assert api._match_repo_filter("platform-api", "frontend") is False
+    assert api._match_repo_filter("platform-api", ["frontend"]) is False
 
 
 def test_match_repo_filter_glob_star_prefix():
     """app-* matches repos starting with 'app-' only."""
-    assert api._match_repo_filter("app-one", "app-*") is True
-    assert api._match_repo_filter("app-two", "app-*") is True
-    assert api._match_repo_filter("happyapp", "app-*") is False
-    assert api._match_repo_filter("mapper", "app-*") is False
+    assert api._match_repo_filter("app-one", ["app-*"]) is True
+    assert api._match_repo_filter("app-two", ["app-*"]) is True
+    assert api._match_repo_filter("happyapp", ["app-*"]) is False
+    assert api._match_repo_filter("mapper", ["app-*"]) is False
 
 
 def test_match_repo_filter_glob_question_mark():
     """? matches exactly one character."""
-    assert api._match_repo_filter("service-a", "service-?") is True
-    assert api._match_repo_filter("service-ab", "service-?") is False
+    assert api._match_repo_filter("service-a", ["service-?"]) is True
+    assert api._match_repo_filter("service-ab", ["service-?"]) is False
 
 
 def test_match_repo_filter_glob_bracket():
     """[abc] matches a single character from the set."""
-    assert api._match_repo_filter("service-a", "service-[abc]") is True
-    assert api._match_repo_filter("service-z", "service-[abc]") is False
+    assert api._match_repo_filter("service-a", ["service-[abc]"]) is True
+    assert api._match_repo_filter("service-z", ["service-[abc]"]) is False
 
 
 def test_match_repo_filter_glob_exact_match():
     """Glob without wildcards requires exact match."""
     # fnmatch treats a bare pattern with no wildcards as exact match
-    assert api._match_repo_filter("app", "app") is True
+    assert api._match_repo_filter("app", ["app"]) is True
+
+
+def test_match_repo_filter_multiple_or_logic():
+    """Multiple filters: repo matches if it satisfies any one filter."""
+    assert api._match_repo_filter("api-gateway", ["api", "platform"]) is True
+    assert api._match_repo_filter("platform-web", ["api", "platform"]) is True
+    assert api._match_repo_filter("auth-service", ["api", "platform"]) is False
+
+
+def test_match_repo_filter_multiple_with_glob():
+    """Multiple filters support mixing substring and glob patterns."""
+    assert api._match_repo_filter("service-a", ["api", "service-?"]) is True
+    assert api._match_repo_filter("service-ab", ["api", "service-?"]) is False
+    assert api._match_repo_filter("api-gw", ["api", "service-?"]) is True
 
 
 def test_match_repo_filter_glob_no_partial_match():
     """Glob pattern without trailing * does not match mid-string."""
-    assert api._match_repo_filter("app-one", "app") is True  # substring fallback
+    assert api._match_repo_filter("app-one", ["app"]) is True  # substring fallback
     # But if user adds glob chars, fnmatch is used (no partial match)
-    assert api._match_repo_filter("app-one", "app?") is False  # 'app-one' != 'app?'
+    assert api._match_repo_filter("app-one", ["app?"]) is False  # 'app-one' != 'app?'
 
 
 # ---------------------------------------------------------------------------

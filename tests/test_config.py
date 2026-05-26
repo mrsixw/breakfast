@@ -306,6 +306,62 @@ def test_filter_pr_details_exclude_label_case_insensitive():
     assert [r["id"] for r in result] == [2]
 
 
+def _make_pr_dated(pr_id, created_at, updated_at):
+    return {
+        "id": pr_id,
+        "user": {"login": "alice"},
+        "state": "open",
+        "created_at": created_at,
+        "updated_at": updated_at,
+        "base": {"repo": {"name": "repo"}},
+        "number": pr_id,
+    }
+
+
+def test_filter_pr_details_filter_stale():
+    pr_details = [
+        _make_pr_dated(1, "2020-01-01T00:00:00Z", "2020-01-02T00:00:00Z"),
+        _make_pr_dated(2, "2099-12-31T00:00:00Z", "2099-12-31T00:00:00Z"),
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_stale=7)
+    assert [r["id"] for r in result] == [1]
+
+
+def test_filter_pr_details_filter_stale_boundary():
+    pr_details = [
+        _make_pr_dated(1, "2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z"),
+    ]
+    result_old = config.filter_pr_details(pr_details, [], filter_stale=1)
+    assert len(result_old) == 1
+
+    result_not_old_enough = config.filter_pr_details(
+        pr_details, [], filter_stale=999999
+    )
+    assert len(result_not_old_enough) == 0
+
+
+def test_filter_pr_details_filter_inactive():
+    pr_details = [
+        _make_pr_dated(1, "2020-01-01T00:00:00Z", "2020-01-02T00:00:00Z"),
+        _make_pr_dated(2, "2020-01-01T00:00:00Z", "2099-12-31T00:00:00Z"),
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_inactive=7)
+    assert [r["id"] for r in result] == [1]
+
+
+def test_filter_pr_details_stale_and_inactive_combined():
+    pr_details = [
+        _make_pr_dated(1, "2020-01-01T00:00:00Z", "2020-01-02T00:00:00Z"),
+        _make_pr_dated(2, "2020-01-01T00:00:00Z", "2099-12-31T00:00:00Z"),
+        _make_pr_dated(3, "2099-12-31T00:00:00Z", "2020-01-01T00:00:00Z"),
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_stale=7, filter_inactive=7)
+    assert [r["id"] for r in result] == [1]
+
+
 def test_get_config_dir_xdg(tmp_path, monkeypatch):
     custom_path = tmp_path / "custom-xdg"
     monkeypatch.setenv("XDG_CONFIG_HOME", str(custom_path))

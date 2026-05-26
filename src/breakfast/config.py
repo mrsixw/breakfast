@@ -5,6 +5,7 @@ from pathlib import Path
 
 import click
 
+from .api import get_pr_age_days, get_pr_inactive_days
 from .logger import logger
 from .xdg import get_config_dir, get_config_paths
 
@@ -48,6 +49,11 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Filtering
 # Control which PRs appear in the output.
 # -----------------------------------------------------------------------------
+
+# Which PR states to fetch from GitHub. Default: open.
+# Choices: open, closed, merged, all.
+# Equivalent to: --fetch-state <value>
+# fetch-state = "open"
 
 # Repositories to exclude from results. Supports glob patterns (same syntax as
 # --repo-filter). Useful for hiding archived repos, forks, or internal tooling.
@@ -114,8 +120,17 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Output format. "table" renders a coloured terminal table (default).
 # "json" outputs machine-readable JSON — useful for scripting or piping.
 # "markdown" renders a GitHub-flavoured Markdown table — great for pasting into docs.
-# Equivalent to: --format table|json|markdown
+# "csv" outputs comma-separated values for spreadsheet import.
+# "template" renders each PR using a custom format string (see template below).
+# Equivalent to: --format table|json|markdown|csv|template
 # format = "table"
+
+# Custom format string for --format template.
+# Available fields: {repo}, {title}, {author}, {url}, {state}, {number},
+#   {created_at}, {updated_at}, {additions}, {deletions}, {changed_files},
+#   {commits}, {review_comments}, {labels}, {requested_reviewers}
+# Equivalent to: --template <value>
+# template = "{repo}: {title} ({url})"
 
 # How status columns (Checks, Approved, Mergeable?) are rendered.
 #   emoji  — colourful emoji labels, e.g. ✅ pass, ❌ fail  (default)
@@ -205,6 +220,20 @@ _DEFAULT_CONFIG_CONTENT = """\
 # oldest PR age, and total comments per repo.
 # Equivalent to: --summarise-repo-prs
 # summarise-repo-prs = false
+
+
+# -----------------------------------------------------------------------------
+# Sorting
+# Control how the PR list is ordered.
+# -----------------------------------------------------------------------------
+
+# Sort PRs by field. Choices: repo (default), age, updated, author, comments, reviews.
+# Equivalent to: --sort <field>
+# sort = "repo"
+
+# Reverse the sort order.
+# Equivalent to: --reverse
+# sort-reverse = false
 """
 
 
@@ -405,6 +434,8 @@ def filter_pr_details(
     filter_reviewer=None,
     filter_label=None,
     exclude_label=None,
+    filter_stale=None,
+    filter_inactive=None,
 ):
     ignore_set = normalize_ignore_authors(ignore_authors)
     current_user_login_normalized = (
@@ -464,6 +495,11 @@ def filter_pr_details(
         if exclude_label:
             pr_labels = {lb["name"].lower() for lb in pr_detail.get("labels", [])}
             if any(lbl.lower() in pr_labels for lbl in exclude_label):
+                continue
+        if filter_stale is not None and get_pr_age_days(pr_detail) < filter_stale:
+            continue
+        if filter_inactive is not None:
+            if get_pr_inactive_days(pr_detail) < filter_inactive:
                 continue
 
         filtered.append(pr_detail)

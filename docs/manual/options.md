@@ -122,6 +122,25 @@ With `--ignore-author dependabot[bot]`, the bot PR is excluded:
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
 ```
 
+### `--fetch-state`
+
+Control which PR states are **fetched** from GitHub. By default only open PRs are
+retrieved. Use this flag to include closed or merged PRs in your results.
+
+Accepted values: `open` (default), `closed`, `merged`, `all`.
+
+```bash
+breakfast -o my-org -r platform --fetch-state closed    # closed PRs only
+breakfast -o my-org -r platform --fetch-state merged    # merged PRs only
+breakfast -o my-org -r platform --fetch-state all       # every state
+```
+
+> **Note:** Fetching closed or merged PRs can be significantly slower since
+> there are usually many more of them. Combine with `--limit` to keep output
+> manageable.
+
+Config key: `fetch-state = "open"`
+
 ### `--filter-state`
 
 Only show PRs with a specific state. Accepted values: `open`, `closed`, `draft`. Repeat the flag to match multiple states.
@@ -180,6 +199,24 @@ Exclude PRs that have a specific label. Matching is **case-insensitive**. Repeat
 ```bash
 breakfast -o my-org --exclude-label wip                  # hide WIP PRs
 breakfast -o my-org --exclude-label wip --exclude-label blocked
+```
+
+### `--filter-stale`
+
+Only show PRs that have been open for more than N days (based on creation date). Pairs naturally with `--age` to see the age column.
+
+```bash
+breakfast -o my-org --filter-stale 14         # PRs open for more than 14 days
+breakfast -o my-org --filter-stale 30 --age   # stale PRs with age column visible
+```
+
+### `--filter-inactive`
+
+Only show PRs that have not been updated in the last N days. Useful for surfacing PRs that need a nudge.
+
+```bash
+breakfast -o my-org --filter-inactive 7       # not updated in the last 7 days
+breakfast -o my-org --filter-stale 14 --filter-inactive 3
 ```
 
 ### `--search`, `-s`
@@ -264,12 +301,13 @@ Processing platform PRs...🍩🧇...Done
 
 ### `--format`
 
-Choose the output format. Accepted values: `table` (default), `json`, `markdown`, `csv`.
+Choose the output format. Accepted values: `table` (default), `json`, `markdown`, `csv`, `template`.
 
 ```text
 breakfast -o my-org -r platform --format markdown
 breakfast -o my-org -r platform --format json
 breakfast -o my-org -r platform --format csv
+breakfast -o my-org -r platform --format template --template "{repo}: {title}"
 ```
 
 You can also set a persistent default in your config file:
@@ -279,6 +317,39 @@ format = "csv"
 ```
 
 See [Output Formats](output-formats.md) for full details on each format.
+
+### `--template`
+
+A Python format string used when `--format template` is active. One line is printed per PR with the template fields substituted.
+
+Available fields:
+
+| Field                    | Description                          |
+|--------------------------|--------------------------------------|
+| `{repo}`                 | Repository name                      |
+| `{title}`                | PR title                             |
+| `{author}`               | Author GitHub login                  |
+| `{url}`                  | PR URL                               |
+| `{state}`                | PR state (`open`, `closed`)          |
+| `{number}`               | PR number                            |
+| `{created_at}`           | ISO 8601 creation timestamp          |
+| `{updated_at}`           | ISO 8601 last-updated timestamp      |
+| `{additions}`            | Lines added                          |
+| `{deletions}`            | Lines deleted                        |
+| `{changed_files}`        | Files changed                        |
+| `{commits}`              | Commit count                         |
+| `{review_comments}`      | Review comment count                 |
+| `{labels}`               | Pipe-separated label names           |
+| `{requested_reviewers}`  | Pipe-separated reviewer logins       |
+
+```bash
+breakfast -o my-org --format template --template "{repo}: {title} by {author} — {url}"
+breakfast -o my-org --format template --template "{number}\t{title}\t{url}"
+```
+
+If an unknown field is used, breakfast exits with an error message.
+
+Config keys: `format = "template"` and `template = "{repo}: {title} ({url})"`
 
 ### `--markdown`
 
@@ -800,6 +871,40 @@ Config key: `summarise-repo-prs = true`
 > **Note:** `--summarise-user-prs` and `--summarise-repo-prs` are mutually
 > exclusive. All standard filter flags (`--author`, `--repo-filter`,
 > `--filter-state`, etc.) apply before the summary is computed.
+
+## Sorting
+
+### `--sort`
+
+Sort the PR list by a named field. By default PRs are grouped by repository
+(`repo`). Available choices:
+
+| Value      | Sorts by                                      |
+|------------|-----------------------------------------------|
+| `repo`     | Repository name (default)                     |
+| `age`      | Days since the PR was opened (oldest first)   |
+| `updated`  | Last-updated timestamp (most-recently first)  |
+| `author`   | PR author login (alphabetical)                |
+| `comments` | Total comment count (issue + review comments) |
+| `reviews`  | Review comment count only                     |
+
+```bash
+breakfast -o my-org --sort age          # oldest PRs first
+breakfast -o my-org --sort comments     # most commented first
+```
+
+Config key: `sort = "repo"`
+
+### `--reverse`
+
+Reverse the sort order imposed by `--sort`.
+
+```bash
+breakfast -o my-org --sort age --reverse    # newest PRs first
+breakfast -o my-org --sort author --reverse # Z→A author order
+```
+
+Config key: `sort-reverse = false`
 
 ## Other options
 

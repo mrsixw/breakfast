@@ -3347,6 +3347,118 @@ def test_group_prs_by_sums_both_comment_fields():
 
 
 # ---------------------------------------------------------------------------
+# --sort / --reverse tests
+# ---------------------------------------------------------------------------
+
+
+def _make_sort_pr(number, repo, author, created_at, updated_at, comments=0):
+    return {
+        "base": {
+            "repo": {"name": repo, "owner": {"login": "org"}},
+            "ref": "main",
+        },
+        "head": {"sha": "abc123"},
+        "mergeable": True,
+        "mergeable_state": "clean",
+        "additions": 1,
+        "deletions": 0,
+        "title": f"PR {number}",
+        "user": {"login": author},
+        "state": "open",
+        "draft": False,
+        "changed_files": 1,
+        "commits": 1,
+        "comments": comments,
+        "review_comments": comments,
+        "created_at": created_at,
+        "updated_at": updated_at,
+        "html_url": f"https://github.com/org/{repo}/pull/{number}",
+        "number": number,
+        "id": 2000 + number,
+        "labels": [],
+        "requested_reviewers": [],
+    }
+
+
+def _sort_invoke(monkeypatch, prs, *extra_args):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    pr_by_url = {pr["html_url"]: pr for pr in prs}
+
+    def _fake_api(path):
+        # path looks like /repos/org/repo/pulls/N — map back to the PR
+        for pr in prs:
+            parts = pr["html_url"].split("/")
+            owner, repo_name, num = parts[-4], parts[-3], parts[-1]
+            if path == f"/repos/{owner}/{repo_name}/pulls/{num}":
+                return pr
+        raise KeyError(path)
+
+    monkeypatch.setattr(cli, "get_github_prs", lambda *_: list(pr_by_url))
+    monkeypatch.setattr(api, "make_github_api_request", _fake_api)
+    runner = CliRunner()
+    return runner.invoke(cli.breakfast, ["-o", "org", *extra_args])
+
+
+_TS_A = "2025-01-01T00:00:00Z"
+_TS_B = "2025-06-01T00:00:00Z"
+_TS_OLD = "2024-01-01T00:00:00Z"
+
+
+def test_sort_default_by_repo(monkeypatch):
+    prs = [
+        _make_sort_pr(1, "zebra", "alice", _TS_A, _TS_B),
+        _make_sort_pr(2, "alpha", "bob", _TS_A, _TS_A),
+    ]
+    result = _sort_invoke(monkeypatch, prs)
+    assert result.exit_code == 0
+    assert result.stdout.index("alpha") < result.stdout.index("zebra")
+
+
+def test_sort_by_age(monkeypatch):
+    prs = [
+        _make_sort_pr(1, "repo", "alice", _TS_B, _TS_B),
+        _make_sort_pr(2, "repo", "bob", _TS_OLD, _TS_OLD),
+    ]
+    result = _sort_invoke(monkeypatch, prs, "--sort", "age", "--age")
+    assert result.exit_code == 0
+    # ascending age: newest PR (smallest age in days) first
+    assert result.stdout.index("PR 1") < result.stdout.index("PR 2")
+
+
+def test_sort_by_age_reverse(monkeypatch):
+    prs = [
+        _make_sort_pr(1, "repo", "alice", _TS_B, _TS_B),
+        _make_sort_pr(2, "repo", "bob", _TS_OLD, _TS_OLD),
+    ]
+    result = _sort_invoke(monkeypatch, prs, "--sort", "age", "--reverse", "--age")
+    assert result.exit_code == 0
+    # reversed: oldest PR (most days) first
+    assert result.stdout.index("PR 2") < result.stdout.index("PR 1")
+
+
+def test_sort_by_author(monkeypatch):
+    prs = [
+        _make_sort_pr(1, "repo", "zara", _TS_A, _TS_A),
+        _make_sort_pr(2, "repo", "alice", _TS_A, _TS_A),
+    ]
+    result = _sort_invoke(monkeypatch, prs, "--sort", "author")
+    assert result.exit_code == 0
+    assert result.stdout.index("alice") < result.stdout.index("zara")
+
+
+def test_sort_reverse(monkeypatch):
+    prs = [
+        _make_sort_pr(1, "alpha", "alice", _TS_A, _TS_A),
+        _make_sort_pr(2, "zebra", "bob", _TS_A, _TS_A),
+    ]
+    result = _sort_invoke(monkeypatch, prs, "--sort", "repo", "--reverse")
+    assert result.exit_code == 0
+    assert result.stdout.index("zebra") < result.stdout.index("alpha")
+
+
+# ---------------------------------------------------------------------------
 # --format template (#183)
 # ---------------------------------------------------------------------------
 

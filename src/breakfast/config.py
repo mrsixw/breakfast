@@ -220,6 +220,20 @@ _DEFAULT_CONFIG_CONTENT = """\
 # oldest PR age, and total comments per repo.
 # Equivalent to: --summarise-repo-prs
 # summarise-repo-prs = false
+
+
+# -----------------------------------------------------------------------------
+# Sorting
+# Control how the PR list is ordered.
+# -----------------------------------------------------------------------------
+
+# Sort PRs by field. Choices: repo (default), age, updated, author, comments, reviews.
+# Equivalent to: --sort <field>
+# sort = "repo"
+
+# Reverse the sort order.
+# Equivalent to: --reverse
+# sort-reverse = false
 """
 
 

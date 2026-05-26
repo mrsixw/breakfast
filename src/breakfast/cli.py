@@ -852,6 +852,26 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     ),
 )
 @click.option(
+    "--sort",
+    "sort_by",
+    type=click.Choice(
+        ["repo", "age", "updated", "author", "comments", "reviews"],
+        case_sensitive=False,
+    ),
+    default=None,
+    help=(
+        "Sort PRs by field. Choices: repo (default), age, updated,"
+        " author, comments, reviews."
+    ),
+)
+@click.option(
+    "--reverse",
+    "sort_reverse",
+    is_flag=True,
+    default=False,
+    help="Reverse the sort order.",
+)
+@click.option(
     "--api-stats",
     is_flag=True,
     default=False,
@@ -955,6 +975,8 @@ def breakfast(
     colour_diagnostics,
     summarise_user_prs,
     summarise_repo_prs,
+    sort_by,
+    sort_reverse,
 ):
     t0_total = time.monotonic()
     configure_logging()
@@ -1089,6 +1111,8 @@ def breakfast(
     seasonal_colours = cfg.get("seasonal-colours", True)
     summarise_user_prs = summarise_user_prs or cfg.get("summarise-user-prs", False)
     summarise_repo_prs = summarise_repo_prs or cfg.get("summarise-repo-prs", False)
+    sort_by = sort_by if sort_by is not None else cfg.get("sort", "repo")
+    sort_reverse = sort_reverse or cfg.get("sort-reverse", False)
 
     if summarise_user_prs and summarise_repo_prs:
         click.echo(
@@ -1578,7 +1602,18 @@ def breakfast(
             err=True,
             color=colour,
         )
-    pr_details.sort(key=lambda pr: pr["base"]["repo"]["name"])
+    _SORT_KEYS = {
+        "repo": lambda pr: pr["base"]["repo"]["name"],
+        "age": lambda pr: get_pr_age_days(pr),
+        "updated": lambda pr: pr.get("updated_at", ""),
+        "author": lambda pr: pr.get("user", {}).get("login", "").lower(),
+        "comments": lambda pr: pr.get("comments", 0) + pr.get("review_comments", 0),
+        "reviews": lambda pr: pr.get("review_comments", 0),
+    }
+    pr_details.sort(
+        key=_SORT_KEYS.get(sort_by or "repo", _SORT_KEYS["repo"]),
+        reverse=sort_reverse,
+    )
     if legendary_only:
         pr_details = [pr for pr in pr_details if is_legendary(pr)]
     if limit is not None:

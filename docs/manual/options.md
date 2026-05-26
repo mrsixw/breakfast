@@ -122,6 +122,25 @@ With `--ignore-author dependabot[bot]`, the bot PR is excluded:
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
 ```
 
+### `--fetch-state`
+
+Control which PR states are **fetched** from GitHub. By default only open PRs are
+retrieved. Use this flag to include closed or merged PRs in your results.
+
+Accepted values: `open` (default), `closed`, `merged`, `all`.
+
+```bash
+breakfast -o my-org -r platform --fetch-state closed    # closed PRs only
+breakfast -o my-org -r platform --fetch-state merged    # merged PRs only
+breakfast -o my-org -r platform --fetch-state all       # every state
+```
+
+> **Note:** Fetching closed or merged PRs can be significantly slower since
+> there are usually many more of them. Combine with `--limit` to keep output
+> manageable.
+
+Config key: `fetch-state = "open"`
+
 ### `--filter-state`
 
 Only show PRs with a specific state. Accepted values: `open`, `closed`, `draft`. Repeat the flag to match multiple states.
@@ -154,6 +173,33 @@ breakfast -o my-org -r my-app --filter-approval pending --filter-approval change
 ```
 
 > **Note:** Review and check statuses are cached alongside PR details, so repeated runs with these flags skip redundant API calls.
+
+### `--filter-stale`
+
+Only show PRs that have been open for more than N days (based on creation date). Pairs naturally with `--age` to see the age column.
+
+```bash
+breakfast -o my-org --filter-stale 14         # PRs open for more than 14 days
+breakfast -o my-org --filter-stale 30 --age   # stale PRs with age column visible
+```
+
+### `--filter-inactive`
+
+Only show PRs that have not been updated in the last N days. Useful for surfacing PRs that need a nudge.
+
+```bash
+breakfast -o my-org --filter-inactive 7       # not updated in the last 7 days
+breakfast -o my-org --filter-stale 14 --filter-inactive 3
+```
+
+### `--filter-reviewer`
+
+Only show PRs that have a specific user listed as a requested reviewer. Matching is **case-insensitive**. Repeat the flag to include any of the given reviewers (OR logic).
+
+```bash
+breakfast -o my-org --filter-reviewer alice              # PRs requesting review from alice
+breakfast -o my-org --filter-reviewer alice --filter-reviewer bob
+```
 
 ### `--label`
 
@@ -255,12 +301,13 @@ Processing platform PRs...🍩🧇...Done
 
 ### `--format`
 
-Choose the output format. Accepted values: `table` (default), `json`, `markdown`, `csv`.
+Choose the output format. Accepted values: `table` (default), `json`, `markdown`, `csv`, `template`.
 
 ```text
 breakfast -o my-org -r platform --format markdown
 breakfast -o my-org -r platform --format json
 breakfast -o my-org -r platform --format csv
+breakfast -o my-org -r platform --format template --template "{repo}: {title}"
 ```
 
 You can also set a persistent default in your config file:
@@ -270,6 +317,39 @@ format = "csv"
 ```
 
 See [Output Formats](output-formats.md) for full details on each format.
+
+### `--template`
+
+A Python format string used when `--format template` is active. One line is printed per PR with the template fields substituted.
+
+Available fields:
+
+| Field                    | Description                          |
+|--------------------------|--------------------------------------|
+| `{repo}`                 | Repository name                      |
+| `{title}`                | PR title                             |
+| `{author}`               | Author GitHub login                  |
+| `{url}`                  | PR URL                               |
+| `{state}`                | PR state (`open`, `closed`)          |
+| `{number}`               | PR number                            |
+| `{created_at}`           | ISO 8601 creation timestamp          |
+| `{updated_at}`           | ISO 8601 last-updated timestamp      |
+| `{additions}`            | Lines added                          |
+| `{deletions}`            | Lines deleted                        |
+| `{changed_files}`        | Files changed                        |
+| `{commits}`              | Commit count                         |
+| `{review_comments}`      | Review comment count                 |
+| `{labels}`               | Pipe-separated label names           |
+| `{requested_reviewers}`  | Pipe-separated reviewer logins       |
+
+```bash
+breakfast -o my-org --format template --template "{repo}: {title} by {author} — {url}"
+breakfast -o my-org --format template --template "{number}\t{title}\t{url}"
+```
+
+If an unknown field is used, breakfast exits with an error message.
+
+Config keys: `format = "template"` and `template = "{repo}: {title} ({url})"`
 
 ### `--markdown`
 

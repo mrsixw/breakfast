@@ -241,6 +241,19 @@ _DEFAULT_CONFIG_CONTENT = """\
 # what's new (pulled from the GitHub release notes) below the update banner.
 # Equivalent to: --update-summary
 # update-summary = false
+
+# -----------------------------------------------------------------------------
+# Sorting
+# Control how the PR list is ordered.
+# -----------------------------------------------------------------------------
+
+# Sort PRs by field. Choices: repo (default), age, updated, author, comments, reviews.
+# Equivalent to: --sort <field>
+# sort = "repo"
+
+# Reverse the sort order.
+# Equivalent to: --reverse
+# sort-reverse = false
 """
 
 

@@ -24,13 +24,16 @@ from .api import (
     get_check_status,
     get_github_prs,
     get_graphql_rate_limit,
+    get_pr_age_days,
 )
 from .cache import (
     parse_ttl,
     read_graphql_cache,
     read_pr_cache,
+    read_repo_pr_cache,
     write_graphql_cache,
     write_pr_cache,
+    write_repo_pr_cache,
 )
 from .config import (
     filter_pr_details,
@@ -381,12 +384,10 @@ def consolidate_org_specs(
 
     consolidated = []
     for _, (org, scoped_list) in grouped.items():
-        # If all specs are None, keep it as None to preserve deferring to global filters
         if all(s is None for s in scoped_list):
             consolidated.append((org, None))
             continue
 
-        # Resolve each scoped filter
         effective_lists = []
         for s in scoped_list:
             if s is None:
@@ -394,11 +395,9 @@ def consolidate_org_specs(
             else:
                 effective_lists.append(s)
 
-        # If any resolved list is empty, it matches all repos unconditionally
         if any(not lst for lst in effective_lists):
             consolidated.append((org, []))
         else:
-            # Combine and deduplicate preserving order
             combined = []
             seen = set()
             for lst in effective_lists:
@@ -417,27 +416,6 @@ def _org_spec_cache_segment(org: str, scoped: list[str] | None) -> str:
         return org.lower()
     filter_str = ",".join(sorted(f.lower() for f in scoped)) if scoped else ""
     return org.lower() + ":" + filter_str
-
-
-def get_pr_age_days(pr_detail, now=None):
-    from datetime import datetime, timezone
-
-    created_at = pr_detail.get("created_at")
-    if not created_at:
-        return 0
-
-    try:
-        created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-    except ValueError:
-        logger.debug("get_pr_age_days invalid_date created_at=%r", created_at)
-        return 0
-
-    if created_dt.tzinfo is None:
-        created_dt = created_dt.replace(tzinfo=timezone.utc)
-    if now is None:
-        now = datetime.now(timezone.utc)
-
-    return max((now - created_dt).days, 0)
 
 
 _LEGENDARY_COMMENT_THRESHOLD = 100
@@ -781,6 +759,15 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     ),
 )
 @click.option(
+    "--fetch-state",
+    type=click.Choice(["open", "closed", "merged", "all"], case_sensitive=False),
+    default=None,
+    help=(
+        "Which PR states to fetch from GitHub. 'open' fetches only open PRs"
+        " (default). Use 'closed', 'merged', or 'all' to include other states."
+    ),
+)
+@click.option(
     "--filter-state",
     type=click.Choice(["open", "closed", "draft"], case_sensitive=False),
     multiple=True,
@@ -800,6 +787,26 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     type=click.Choice(["approved", "pending", "changes"], case_sensitive=False),
     multiple=True,
     help="Only show PRs with this review approval status. Repeat for multiple values.",
+)
+@click.option(
+    "--filter-stale",
+    type=int,
+    default=None,
+    help="Only show PRs older than N days (by creation date).",
+)
+@click.option(
+    "--filter-inactive",
+    type=int,
+    default=None,
+    help="Only show PRs not updated in the last N days.",
+)
+@click.option(
+    "--filter-reviewer",
+    multiple=True,
+    help=(
+        "Only show PRs that have this user as a requested reviewer"
+        " (repeatable, case-insensitive). e.g. --filter-reviewer alice"
+    ),
 )
 @click.option(
     "--label",
@@ -931,9 +938,13 @@ def breakfast(
     cache,
     refresh,
     refresh_prs,
+    fetch_state,
     filter_state,
     filter_check,
     filter_approval,
+    filter_stale,
+    filter_inactive,
+    filter_reviewer,
     filter_label,
     exclude_label,
     legendary,
@@ -1063,6 +1074,9 @@ def breakfast(
         else cfg.get("max-title-length")
     )
     workers = workers if workers is not None else cfg.get("workers", 64)
+    fetch_state = (
+        fetch_state if fetch_state is not None else cfg.get("fetch-state", "open")
+    )
     if status_style not in {"emoji", "ascii"}:
         status_style = "emoji"
     legendary = legendary if legendary is not None else cfg.get("legendary", False)
@@ -1271,7 +1285,7 @@ def breakfast(
                     repo_filters if scoped_filters is None else scoped_filters
                 )
                 try:
-                    prs.extend(get_github_prs(org, effective_filters))
+                    prs.extend(get_github_prs(org, effective_filters, fetch_state))
                 except (
                     requests.exceptions.ConnectionError,
                     requests.exceptions.Timeout,
@@ -1312,29 +1326,81 @@ def breakfast(
                 if not _match_exclude_repos(_extract_repo_name(url), exclude_repos)
             ]
 
+        # --- Layer 2.5: per-repo PR cache ---
+        # Group URLs by repo so we can check per-repo cache before fetching.
+        urls_to_fetch = list(prs) if prs else []
+        repo_hit_prs: list = []
+        repo_hit_checks: dict = {}
+        repo_hit_approvals: dict = {}
+        repo_hit_approval_details: dict = {}
+
+        if cache_enabled and not refresh_prs and prs:
+            # Key: (org, repo) → list of URLs
+            org_repo_to_urls: dict[tuple[str, str], list[str]] = {}
+            for url in prs:
+                parts = urlparse(url).path.strip("/").split("/")
+                if len(parts) >= 4:
+                    org_repo_to_urls.setdefault((parts[0], parts[1]), []).append(url)
+
+            uncached_urls: list[str] = []
+            for (repo_org, rname), repo_urls in org_repo_to_urls.items():
+                cached = read_repo_pr_cache(repo_org, rname, cache_ttl_seconds)
+                if cached is not None:
+                    repo_hit_prs.extend(cached["prs"])
+                    if cached["check_statuses"]:
+                        repo_hit_checks.update(cached["check_statuses"])
+                    if cached["approval_statuses"]:
+                        repo_hit_approvals.update(cached["approval_statuses"])
+                    if cached["approval_details"]:
+                        repo_hit_approval_details.update(cached["approval_details"])
+                else:
+                    uncached_urls.extend(repo_urls)
+            urls_to_fetch = uncached_urls
+
         pr_details = []
         failed_urls = []
+        newly_fetched_by_repo: dict[str, dict] = {}
         repo_display = ", ".join(repo_filters) if repo_filters else "all repos"
         click.echo(f"Processing {repo_display} PRs...", nl=False, err=True)
-        if prs:
-            max_workers = min(workers, len(prs))
+
+        if not urls_to_fetch and repo_hit_prs:
+            click.echo("⚡", nl=False, err=True)
+
+        if urls_to_fetch:
+            max_workers = min(workers, len(urls_to_fetch))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_url = {
                     executor.submit(_fetch_pr_bundle, url, checks, approvals): url
-                    for url in prs
+                    for url in urls_to_fetch
                 }
                 for future in as_completed(future_to_url):
                     url = future_to_url[future]
                     try:
                         pr_detail, check_status, approval_detail = future.result()
                         pr_details.append(pr_detail)
+                        rname = pr_detail["base"]["repo"]["name"]
+                        url_parts = urlparse(url).path.strip("/").split("/")
+                        pr_org = url_parts[0] if len(url_parts) >= 1 else ""
+                        rd = newly_fetched_by_repo.setdefault(
+                            (pr_org, rname),
+                            {
+                                "prs": [],
+                                "checks": {},
+                                "approvals": {},
+                                "approval_details": {},
+                            },
+                        )
+                        rd["prs"].append(pr_detail)
                         if check_status is not None:
                             check_statuses[pr_detail["id"]] = check_status
+                            rd["checks"][pr_detail["id"]] = check_status
                         if approval_detail is not None:
                             approval_statuses[pr_detail["id"]] = approval_detail[
                                 "status"
                             ]
                             approval_details[pr_detail["id"]] = approval_detail
+                            rd["approvals"][pr_detail["id"]] = approval_detail["status"]
+                            rd["approval_details"][pr_detail["id"]] = approval_detail
                         click.echo(
                             random.choices(BREAKFAST_ITEMS)[0],
                             nl=False,
@@ -1348,7 +1414,32 @@ def breakfast(
                             "pr_detail_fetch_failed url=%s error=%r", url, str(exc)
                         )
                         failed_urls.append(url)
-        statuses_from_bundle = True
+
+        # Write per-repo cache for repos fetched in this run
+        if cache_enabled and newly_fetched_by_repo:
+            for (pr_org, rname), rdata in newly_fetched_by_repo.items():
+                write_repo_pr_cache(
+                    pr_org,
+                    rname,
+                    rdata["prs"],
+                    check_statuses=rdata["checks"] or None,
+                    approval_statuses=rdata["approvals"] or None,
+                    approval_details=rdata["approval_details"] or None,
+                )
+
+        # Merge per-repo cache hits into the main collections
+        pr_details.extend(repo_hit_prs)
+        check_statuses.update(repo_hit_checks)
+        approval_statuses.update(repo_hit_approvals)
+        approval_details.update(repo_hit_approval_details)
+
+        # When all PRs came from per-repo cache, use cached statuses path
+        statuses_from_bundle = bool(urls_to_fetch)
+        if not statuses_from_bundle and repo_hit_prs:
+            cached_check_statuses = repo_hit_checks or None
+            cached_approval_statuses = repo_hit_approvals or None
+            cached_approval_details = repo_hit_approval_details or None
+
         click.echo("...Done", err=True)
         if failed_urls:
             examples = ", ".join(failed_urls[:3])
@@ -1466,6 +1557,9 @@ def breakfast(
         check_statuses=check_statuses,
         approval_statuses=approval_statuses,
         search_title=search,
+        filter_stale=filter_stale,
+        filter_inactive=filter_inactive,
+        filter_reviewer=filter_reviewer,
         filter_label=filter_label,
         exclude_label=exclude_label,
     )

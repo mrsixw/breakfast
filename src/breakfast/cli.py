@@ -24,6 +24,7 @@ from .api import (
     get_check_status,
     get_github_prs,
     get_graphql_rate_limit,
+    get_pr_age_days,
 )
 from .cache import (
     parse_ttl,
@@ -381,12 +382,10 @@ def consolidate_org_specs(
 
     consolidated = []
     for _, (org, scoped_list) in grouped.items():
-        # If all specs are None, keep it as None to preserve deferring to global filters
         if all(s is None for s in scoped_list):
             consolidated.append((org, None))
             continue
 
-        # Resolve each scoped filter
         effective_lists = []
         for s in scoped_list:
             if s is None:
@@ -394,11 +393,9 @@ def consolidate_org_specs(
             else:
                 effective_lists.append(s)
 
-        # If any resolved list is empty, it matches all repos unconditionally
         if any(not lst for lst in effective_lists):
             consolidated.append((org, []))
         else:
-            # Combine and deduplicate preserving order
             combined = []
             seen = set()
             for lst in effective_lists:
@@ -417,27 +414,6 @@ def _org_spec_cache_segment(org: str, scoped: list[str] | None) -> str:
         return org.lower()
     filter_str = ",".join(sorted(f.lower() for f in scoped)) if scoped else ""
     return org.lower() + ":" + filter_str
-
-
-def get_pr_age_days(pr_detail, now=None):
-    from datetime import datetime, timezone
-
-    created_at = pr_detail.get("created_at")
-    if not created_at:
-        return 0
-
-    try:
-        created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-    except ValueError:
-        logger.debug("get_pr_age_days invalid_date created_at=%r", created_at)
-        return 0
-
-    if created_dt.tzinfo is None:
-        created_dt = created_dt.replace(tzinfo=timezone.utc)
-    if now is None:
-        now = datetime.now(timezone.utc)
-
-    return max((now - created_dt).days, 0)
 
 
 _LEGENDARY_COMMENT_THRESHOLD = 100
@@ -797,6 +773,26 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     help="Only show PRs with this review approval status. Repeat for multiple values.",
 )
 @click.option(
+    "--filter-stale",
+    type=int,
+    default=None,
+    help="Only show PRs older than N days (by creation date).",
+)
+@click.option(
+    "--filter-inactive",
+    type=int,
+    default=None,
+    help="Only show PRs not updated in the last N days.",
+)
+@click.option(
+    "--filter-reviewer",
+    multiple=True,
+    help=(
+        "Only show PRs that have this user as a requested reviewer"
+        " (repeatable, case-insensitive). e.g. --filter-reviewer alice"
+    ),
+)
+@click.option(
     "--label",
     "filter_label",
     multiple=True,
@@ -929,6 +925,9 @@ def breakfast(
     filter_state,
     filter_check,
     filter_approval,
+    filter_stale,
+    filter_inactive,
+    filter_reviewer,
     filter_label,
     exclude_label,
     legendary,
@@ -1462,6 +1461,9 @@ def breakfast(
         check_statuses=check_statuses,
         approval_statuses=approval_statuses,
         search_title=search,
+        filter_stale=filter_stale,
+        filter_inactive=filter_inactive,
+        filter_reviewer=filter_reviewer,
         filter_label=filter_label,
         exclude_label=exclude_label,
     )

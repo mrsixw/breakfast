@@ -174,6 +174,33 @@ breakfast -o my-org -r my-app --filter-approval pending --filter-approval change
 
 > **Note:** Review and check statuses are cached alongside PR details, so repeated runs with these flags skip redundant API calls.
 
+### `--filter-stale`
+
+Only show PRs that have been open for more than N days (based on creation date). Pairs naturally with `--age` to see the age column.
+
+```bash
+breakfast -o my-org --filter-stale 14         # PRs open for more than 14 days
+breakfast -o my-org --filter-stale 30 --age   # stale PRs with age column visible
+```
+
+### `--filter-inactive`
+
+Only show PRs that have not been updated in the last N days. Useful for surfacing PRs that need a nudge.
+
+```bash
+breakfast -o my-org --filter-inactive 7       # not updated in the last 7 days
+breakfast -o my-org --filter-stale 14 --filter-inactive 3
+```
+
+### `--filter-reviewer`
+
+Only show PRs that have a specific user listed as a requested reviewer. Matching is **case-insensitive**. Repeat the flag to include any of the given reviewers (OR logic).
+
+```bash
+breakfast -o my-org --filter-reviewer alice              # PRs requesting review from alice
+breakfast -o my-org --filter-reviewer alice --filter-reviewer bob
+```
+
 ### `--label`
 
 Only show PRs that have a specific label. Matching is **case-insensitive**. Repeat the flag to require any of the given labels (OR logic).

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import click
 
+from .api import get_pr_age_days, get_pr_inactive_days
 from .logger import logger
 from .xdg import get_config_dir, get_config_paths
 
@@ -48,6 +49,11 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Filtering
 # Control which PRs appear in the output.
 # -----------------------------------------------------------------------------
+
+# Which PR states to fetch from GitHub. Default: open.
+# Choices: open, closed, merged, all.
+# Equivalent to: --fetch-state <value>
+# fetch-state = "open"
 
 # Repositories to exclude from results. Supports glob patterns (same syntax as
 # --repo-filter). Useful for hiding archived repos, forks, or internal tooling.
@@ -402,6 +408,9 @@ def filter_pr_details(
     check_statuses=None,
     approval_statuses=None,
     search_title=None,
+    filter_stale=None,
+    filter_inactive=None,
+    filter_reviewer=None,
     filter_label=None,
     exclude_label=None,
 ):
@@ -449,6 +458,17 @@ def filter_pr_details(
         if search_title is not None:
             title = pr_detail.get("title", "")
             if not re.search(search_title, title, re.IGNORECASE):
+                continue
+        if filter_stale is not None and get_pr_age_days(pr_detail) < filter_stale:
+            continue
+        if filter_inactive is not None:
+            if get_pr_inactive_days(pr_detail) < filter_inactive:
+                continue
+        if filter_reviewer:
+            reviewers = {
+                r["login"].lower() for r in pr_detail.get("requested_reviewers", [])
+            }
+            if not any(rv.lower() in reviewers for rv in filter_reviewer):
                 continue
         if filter_label:
             pr_labels = {lb["name"].lower() for lb in pr_detail.get("labels", [])}

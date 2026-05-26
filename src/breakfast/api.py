@@ -253,6 +253,14 @@ def _match_single_filter(repo_name, repo_filter):
     return repo_filter in repo_name
 
 
+_FETCH_STATE_MAP = {
+    "open": ["OPEN"],
+    "closed": ["CLOSED"],
+    "merged": ["MERGED"],
+    "all": ["OPEN", "CLOSED", "MERGED"],
+}
+
+
 def _match_exclude_repos(repo_name, exclude_repos):
     """Return True if repo_name matches any exclusion pattern (glob or substring)."""
     if not exclude_repos:
@@ -266,26 +274,28 @@ def _match_exclude_repos(repo_name, exclude_repos):
     return False
 
 
-def get_github_prs(organization, repo_filters):
-    base_query = """
-    query($organization: String!, $cursor: String){
-      organization(login: $organization){
-        repositories(after: $cursor, first:100){
-          nodes{
+def get_github_prs(organization, repo_filters, fetch_state="open"):
+    states_list = _FETCH_STATE_MAP.get(fetch_state.lower(), ["OPEN"])
+    states_gql = ", ".join(states_list)
+    base_query = f"""
+    query($organization: String!, $cursor: String){{
+      organization(login: $organization){{
+        repositories(after: $cursor, first:100){{
+          nodes{{
             name
-            pullRequests(first:100,states: [OPEN]){
-                nodes{
+            pullRequests(first:100,states: [{states_gql}]){{
+                nodes{{
                     url
-                 }
-            }
-          }
-          pageInfo {
+                 }}
+            }}
+          }}
+          pageInfo {{
             endCursor
             hasNextPage
-          }
-        }
-      }
-    }
+          }}
+        }}
+      }}
+    }}
         """
     variables = {"organization": organization}
 
@@ -534,3 +544,28 @@ def get_check_status(owner, repo, sha):
         return "fail"
 
     return "pass"
+
+
+def _pr_days_since(timestamp_str, now=None):
+    """Return the number of days since the given ISO 8601 timestamp, or 0 on error."""
+    if not timestamp_str:
+        return 0
+    try:
+        dt = datetime.datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    if now is None:
+        now = datetime.datetime.now(datetime.timezone.utc)
+    return max((now - dt).days, 0)
+
+
+def get_pr_age_days(pr_detail, now=None):
+    """Return the age in days of a PR since it was created."""
+    return _pr_days_since(pr_detail.get("created_at"), now=now)
+
+
+def get_pr_inactive_days(pr_detail, now=None):
+    """Return the number of days since a PR was last updated."""
+    return _pr_days_since(pr_detail.get("updated_at"), now=now)

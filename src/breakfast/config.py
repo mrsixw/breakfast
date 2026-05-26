@@ -402,6 +402,7 @@ def filter_pr_details(
     check_statuses=None,
     approval_statuses=None,
     search_title=None,
+    filter_reviewer=None,
     filter_label=None,
     exclude_label=None,
 ):
@@ -449,6 +450,12 @@ def filter_pr_details(
         if search_title is not None:
             title = pr_detail.get("title", "")
             if not re.search(search_title, title, re.IGNORECASE):
+                continue
+        if filter_reviewer:
+            reviewers = {
+                r["login"].lower() for r in pr_detail.get("requested_reviewers", [])
+            }
+            if not any(rv.lower() in reviewers for rv in filter_reviewer):
                 continue
         if filter_label:
             pr_labels = {lb["name"].lower() for lb in pr_detail.get("labels", [])}

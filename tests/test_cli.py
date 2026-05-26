@@ -1001,6 +1001,55 @@ def test_no_update_check_env_var(monkeypatch):
     assert len(check_called) == 0
 
 
+def test_cli_exclude_repo_filtering(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    mock_urls = [
+        "https://github.com/org/repo-one/pull/1",
+        "https://github.com/org/exclude-me/pull/2",
+        "https://github.com/malformed-url-no-repo",
+    ]
+    monkeypatch.setattr(cli, "get_github_prs", lambda _o, _r: mock_urls)
+
+    fetched_urls = []
+
+    def fake_fetch_pr_detail(url):
+        fetched_urls.append(url)
+        return {
+            "id": hash(url),
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 1,
+            "deletions": 0,
+            "title": "Some PR",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": url,
+            "number": 1,
+        }
+
+    monkeypatch.setattr(cli, "_fetch_pr_detail", fake_fetch_pr_detail)
+    monkeypatch.setattr(cli, "render_pr_summary", lambda *a, **k: "PR SUMMARY")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "--exclude-repo", "exclude-me"],
+    )
+
+    assert result.exit_code == 0
+    assert "https://github.com/org/repo-one/pull/1" in fetched_urls
+    assert "https://github.com/org/exclude-me/pull/2" not in fetched_urls
+    assert "https://github.com/malformed-url-no-repo" in fetched_urls
+
+
 def test_cli_truncates_title_when_max_title_length_set(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
@@ -1134,6 +1183,35 @@ def _make_pr_fixture(title="Test PR", number=1):
         "html_url": f"https://github.com/org/repo/pull/{number}",
         "number": number,
     }
+
+
+def test_table_width_matches_tabulate_border():
+    """_table_width must agree with the actual tabulate outline border width."""
+    test_cases = [
+        [{"Repo": "repo", "PR Title": "title", "Author": "alice"}],
+        [
+            {"Repo": "short", "PR Title": "a", "Author": "bob"},
+            {
+                "Repo": "a-very-long-repository-name",
+                "PR Title": "longer title here",
+                "Author": "carol",
+            },
+        ],
+        [{"Col": "x"} for _ in range(10)],
+        [{"A": "hello", "B": "\x1b[32mgreen\x1b[0m", "C": "plain"}],
+    ]
+    for rows in test_cases:
+        plain_rows = [{k: cli._strip_ansi(v) for k, v in row.items()} for row in rows]
+        expected = len(
+            tabulate(
+                plain_rows,
+                headers="keys",
+                showindex="always",
+                tablefmt="outline",
+                disable_numparse=True,
+            ).splitlines()[0]
+        )
+        assert cli._table_width(rows) == expected, f"Mismatch for rows={rows!r}"
 
 
 def test_auto_fit_measures_later_rows_when_fitting_table():
@@ -3195,3 +3273,352 @@ def test_sort_reverse(monkeypatch):
     result = _sort_invoke(monkeypatch, prs, "--sort", "repo", "--reverse")
     assert result.exit_code == 0
     assert result.stdout.index("zebra") < result.stdout.index("alpha")
+
+
+# ---------------------------------------------------------------------------
+# Multiple organizations (#62)
+# ---------------------------------------------------------------------------
+
+
+def test_multiple_orgs_aggregates_prs(monkeypatch):
+    """PRs from both orgs are included in the output."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    def fake_get_prs(org, _repo, _state="open"):
+        if org == "org-a":
+            return ["https://github.com/org-a/repo/pull/1"]
+        if org == "org-b":
+            return ["https://github.com/org-b/repo/pull/2"]
+        return []
+
+    def fake_api(path):
+        if "org-a" in path:
+            pr = _make_pr_detail(1)
+            pr["title"] = "PR from org-a"
+            pr["base"]["repo"]["name"] = "repo"
+            pr["html_url"] = "https://github.com/org-a/repo/pull/1"
+            return pr
+        pr = _make_pr_detail(2)
+        pr["title"] = "PR from org-b"
+        pr["base"]["repo"]["name"] = "repo"
+        pr["html_url"] = "https://github.com/org-b/repo/pull/2"
+        return pr
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org-a", "-o", "org-b"])
+
+    assert result.exit_code == 0
+    assert "PR from org-a" in result.stdout
+    assert "PR from org-b" in result.stdout
+
+
+def test_multiple_orgs_deduplicates_shared_prs(monkeypatch):
+    """A URL returned by two orgs appears only once."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    shared_url = "https://github.com/shared-org/repo/pull/1"
+    call_count = []
+
+    def fake_get_prs(_org, _repo, _state="open"):
+        return [shared_url]
+
+    def fake_api(_path):
+        call_count.append(1)
+        pr = _make_pr_detail(1)
+        pr["title"] = "Shared PR"
+        pr["base"]["repo"]["name"] = "repo"
+        pr["html_url"] = shared_url
+        return pr
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org-a", "-o", "org-b"])
+
+    assert result.exit_code == 0
+    assert result.stdout.count("Shared PR") == 1
+    assert len(call_count) == 1
+
+
+def test_missing_organization_exits_with_error(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, [])
+
+    assert result.exit_code == 1
+    assert "Organization must be provided" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Multiple repo filters (#290)
+# ---------------------------------------------------------------------------
+
+
+def test_multiple_repo_filters_includes_matching_prs(monkeypatch):
+    """PRs from repos matching any filter are included (OR logic)."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    def fake_get_prs(_org, repo_filters):
+        assert set(repo_filters) == {"api", "platform"}
+        return [
+            "https://github.com/org/api-gateway/pull/1",
+            "https://github.com/org/platform-web/pull/2",
+        ]
+
+    def fake_api(path):
+        if "api-gateway" in path:
+            pr = _make_pr_detail(1)
+            pr["title"] = "API PR"
+            pr["base"]["repo"]["name"] = "api-gateway"
+            pr["html_url"] = "https://github.com/org/api-gateway/pull/1"
+            return pr
+        pr = _make_pr_detail(2)
+        pr["title"] = "Platform PR"
+        pr["base"]["repo"]["name"] = "platform-web"
+        pr["html_url"] = "https://github.com/org/platform-web/pull/2"
+        return pr
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "api", "-r", "platform"])
+
+    assert result.exit_code == 0
+    assert "API PR" in result.stdout
+    assert "Platform PR" in result.stdout
+
+
+def test_multiple_repo_filters_config_list(monkeypatch, tmp_path):
+    """Config file list for repo-filter is loaded and applied."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    config_file = tmp_path / "breakfast.toml"
+    config_file.write_text('organization = "org"\nrepo-filter = ["api", "platform"]\n')
+
+    captured = []
+
+    def fake_get_prs(_org, repo_filters):
+        captured.extend(repo_filters)
+        return []
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--config", str(config_file)])
+
+    assert result.exit_code == 0
+    assert set(captured) == {"api", "platform"}
+
+
+# ---------------------------------------------------------------------------
+# Per-org scoped repo filter — org:filter syntax (#292)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_org_spec_no_colon():
+    assert cli._parse_org_spec("my-org") == ("my-org", None)
+
+
+def test_parse_org_spec_with_filter():
+    assert cli._parse_org_spec("my-org:api") == ("my-org", ["api"])
+
+
+def test_parse_org_spec_empty_filter():
+    assert cli._parse_org_spec("my-org:") == ("my-org", [])
+
+
+def test_parse_org_spec_degenerate_multiple_colons():
+    # partition stops at first colon; extra colons go into the filter text
+    assert cli._parse_org_spec("my-org:a:b") == ("my-org", ["a:b"])
+
+
+def test_scoped_filter_overrides_global_repo_filter(monkeypatch):
+    """When org has a scoped filter, it wins over the global -r flag."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    captured = {}
+
+    def fake_get_prs(org, repo_filters):
+        captured[org] = list(repo_filters)
+        return []
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+
+    runner = CliRunner()
+    runner.invoke(cli.breakfast, ["-o", "my-org:api", "-r", "platform"])
+
+    assert captured["my-org"] == ["api"]
+
+
+def test_empty_scoped_filter_matches_all_ignoring_global(monkeypatch):
+    """org: (empty scoped) passes an empty filter list, matching all repos."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    captured = {}
+
+    def fake_get_prs(org, repo_filters):
+        captured[org] = list(repo_filters)
+        return []
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+
+    runner = CliRunner()
+    runner.invoke(cli.breakfast, ["-o", "my-org:", "-r", "platform"])
+
+    assert captured["my-org"] == []
+
+
+def test_mixed_scoped_and_global_filters(monkeypatch):
+    """Scoped org uses its own filter; unscoped org defers to global -r."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    captured = {}
+
+    def fake_get_prs(org, repo_filters):
+        captured[org] = list(repo_filters)
+        return []
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+
+    runner = CliRunner()
+    runner.invoke(cli.breakfast, ["-o", "org-a:api", "-o", "org-b", "-r", "platform"])
+
+    assert captured["org-a"] == ["api"]
+    assert captured["org-b"] == ["platform"]
+
+
+def test_scoped_filter_from_config(monkeypatch, tmp_path):
+    """Config file org:filter syntax routes per-org filters correctly."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    config_file = tmp_path / "breakfast.toml"
+    config_file.write_text(
+        'organization = ["my-org:api", "other-org"]\nrepo-filter = "platform"\n'
+    )
+
+    captured = {}
+
+    def fake_get_prs(org, repo_filters):
+        captured[org] = list(repo_filters)
+        return []
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+
+    runner = CliRunner()
+    runner.invoke(cli.breakfast, ["--config", str(config_file)])
+
+    assert captured["my-org"] == ["api"]
+    assert captured["other-org"] == ["platform"]
+
+
+def test_consolidate_org_specs():
+    """Unit test for the consolidate_org_specs helper function."""
+    # Case 1: Simple combination
+    specs = [("org-a", ["filter-one"]), ("org-a", ["filter-two"])]
+    res = cli.consolidate_org_specs(specs, [])
+    assert res == [("org-a", ["filter-one", "filter-two"])]
+
+    # Case 2: Case insensitivity and preserving first casing
+    specs = [("ORG-A", ["filter-one"]), ("org-a", ["filter-two"])]
+    res = cli.consolidate_org_specs(specs, [])
+    assert res == [("ORG-A", ["filter-one", "filter-two"])]
+
+    # Case 3: Defer to global filters
+    specs = [("org-a", None), ("org-a", None)]
+    res = cli.consolidate_org_specs(specs, ["platform"])
+    assert res == [("org-a", None)]
+
+    # Case 4: Mixture of scoped and global where one has no scoped filter
+    specs = [("org-a", ["filter-one"]), ("org-a", None)]
+    res = cli.consolidate_org_specs(specs, ["platform"])
+    assert res == [("org-a", ["filter-one", "platform"])]
+
+    # Case 5: Mixture of scoped and global (empty global) resolves to []
+    specs = [("org-a", ["filter-one"]), ("org-a", None)]
+    res = cli.consolidate_org_specs(specs, [])
+    assert res == [("org-a", [])]
+
+    # Case 6: Explicitly empty scoped filter (colon with nothing) resolves to []
+    specs = [("org-a", ["filter-one"]), ("org-a", [])]
+    res = cli.consolidate_org_specs(specs, ["platform"])
+    assert res == [("org-a", [])]
+
+    # Case 7: Order of unique organizations is preserved
+    specs = [("org-b", None), ("org-a", ["f1"]), ("org-b", ["f2"])]
+    res = cli.consolidate_org_specs(specs, ["platform"])
+    assert res == [("org-b", ["platform", "f2"]), ("org-a", ["f1"])]
+
+
+def test_org_spec_cache_segment_multi_filter():
+    """Verify _org_spec_cache_segment behavior with multiple filters."""
+    seg_first = cli._org_spec_cache_segment("org", ["filter-b", "filter-a"])
+    seg_second = cli._org_spec_cache_segment("org", ["filter-a", "filter-b"])
+    seg_one = cli._org_spec_cache_segment("org", ["filter-a"])
+    assert seg_first == seg_second  # order-independent
+    assert seg_first != seg_one  # different filter sets differ
+
+
+def test_cli_duplicate_org_fetches_prevented(monkeypatch):
+    """CLI groups duplicate org definitions and calls get_github_prs once."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+
+    calls = []
+
+    def fake_get_prs(org, repo_filters):
+        filters = list(repo_filters) if repo_filters is not None else None
+        calls.append((org, filters))
+        return []
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        [
+            "-o",
+            "org-a:filter-one",
+            "-o",
+            "ORG-A:filter-two",
+            "-o",
+            "org-b",
+            "-o",
+            "org-b:filter-three",
+            "-r",
+            "global-f",
+        ],
+    )
+
+    assert result.exit_code == 0
+    # org-a was specified twice, first as org-a:filter-one and ORG-A:filter-two.
+    # Its casing should be preserved as "org-a",
+    # and filters combined as ["filter-one", "filter-two"].
+    # org-b was specified as org-b (global-f) and org-b:filter-three.
+    # Its casing "org-b" preserved, filters combined as ["global-f", "filter-three"].
+    assert len(calls) == 2
+    assert calls[0] == ("org-a", ["filter-one", "filter-two"])
+    assert calls[1] == ("org-b", ["global-f", "filter-three"])

@@ -25,6 +25,9 @@ breakfast -o my-org -r my-app
 
 ```bash
 breakfast -o my-org -r my-app
+breakfast -o my-org -o another-org -r platform
+breakfast -o my-org:api -o another-org:platform
+breakfast -o my-org:api -o my-org:platform
 breakfast -o my-org -r my-app --ignore-author dependabot[bot] --ignore-author renovate[bot]
 breakfast -o my-org -r my-app --mine-only
 breakfast -o my-org -r my-app --age
@@ -46,7 +49,7 @@ breakfast -o my-org -r my-app --legendary-only
 
 ### Display
 
-- `--organization`, `-o`: Organization to query for PRs.
+- `--organization`, `-o`: One or multiple organizations to query for PRs (repeatable). Supports scoped filters like `org:repo`.
 - `--repo-filter`, `-r`: Filter repos by name substring.
 - `--age`: Add an age column (days since creation).
 - `--checks`: Add a checks column showing CI status (✅ pass / ❌ fail / ⚠️ pending).

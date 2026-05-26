@@ -29,14 +29,18 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Which organisation and repos to query by default.
 # -----------------------------------------------------------------------------
 
-# GitHub organisation to query for open pull requests.
-# Equivalent to: breakfast -o <value>
+# GitHub organisation(s) to query for open pull requests.
+# Equivalent to: breakfast -o <value> (repeat -o for multiple orgs).
 # Required (must be set here or passed with -o on every run).
+# For multiple orgs, use a list: organization = ["my-org", "another-org"]
 # organization = "my-org"
 
-# Filter repositories by name substring. Only repos whose name contains
-# this string are included. An empty string matches all repos.
-# Equivalent to: breakfast -r <value>
+# Filter repositories by name. Only repos whose name matches are included.
+# Supports substring matching and glob patterns (* ? [). Use a list to match
+# any of several filters (OR logic). Omit to match all repos.
+# Equivalent to: breakfast -r <value> (repeat -r for multiple filters).
+# Single filter:   repo-filter = "my-app"
+# Multiple:        repo-filter = ["api", "platform", "service-*"]
 # repo-filter = "my-app"
 
 
@@ -44,6 +48,11 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Filtering
 # Control which PRs appear in the output.
 # -----------------------------------------------------------------------------
+
+# Repositories to exclude from results. Supports glob patterns (same syntax as
+# --repo-filter). Useful for hiding archived repos, forks, or internal tooling.
+# Equivalent to: --exclude-repo "old-*" --exclude-repo "infra-*"
+# exclude-repos = ["old-*", "infra-*"]
 
 # Authors to exclude from the output (case-insensitive). Useful for hiding
 # bot PRs. List format — add as many entries as you like.
@@ -238,7 +247,7 @@ def _key_present_in_file(key: str, content: str) -> bool:
     return bool(re.search(pattern, content, re.MULTILINE))
 
 
-_LIST_KEYS = {"ignore-author"}
+_LIST_KEYS = {"ignore-author", "exclude-repos"}
 
 
 def load_config(config_path=None):
@@ -393,6 +402,8 @@ def filter_pr_details(
     check_statuses=None,
     approval_statuses=None,
     search_title=None,
+    filter_label=None,
+    exclude_label=None,
 ):
     ignore_set = normalize_ignore_authors(ignore_authors)
     current_user_login_normalized = (
@@ -438,6 +449,14 @@ def filter_pr_details(
         if search_title is not None:
             title = pr_detail.get("title", "")
             if not re.search(search_title, title, re.IGNORECASE):
+                continue
+        if filter_label:
+            pr_labels = {lb["name"].lower() for lb in pr_detail.get("labels", [])}
+            if not any(lbl.lower() in pr_labels for lbl in filter_label):
+                continue
+        if exclude_label:
+            pr_labels = {lb["name"].lower() for lb in pr_detail.get("labels", [])}
+            if any(lbl.lower() in pr_labels for lbl in exclude_label):
                 continue
 
         filtered.append(pr_detail)

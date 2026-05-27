@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 import click
 import requests
+import wcwidth
 from tabulate import tabulate
 
 from .api import (
@@ -90,6 +91,13 @@ def _strip_ansi(s):
     return _ANSI_RE.sub("", str(s))
 
 
+def _visible_width(s):
+    """Return the terminal display width of a string, ignoring ANSI escape codes."""
+    plain = _strip_ansi(s)
+    w = wcwidth.wcswidth(plain)
+    return w if w >= 0 else len(plain)
+
+
 def _osc8_to_markdown(s):
     """Convert OSC 8 hyperlinks and ANSI codes in *s* to Markdown link syntax."""
     result = _OSC8_ANY_RE.sub(
@@ -109,7 +117,7 @@ def _truncate_formatted_text(value, limit):
         The truncated value with any existing formatting preserved.
     """
     plain = _strip_ansi(value)
-    if len(plain) <= limit:
+    if _visible_width(plain) <= limit:
         return value
 
     truncated = plain[: limit - 1] + "…"
@@ -155,10 +163,10 @@ def _table_width(rows):
     total = 1 + max(4, idx_width + 2) + 1
     for h in headers:
         cell_max = max(
-            (len(_strip_ansi(str(row.get(h, "")))) for row in rows),
+            (_visible_width(str(row.get(h, ""))) for row in rows),
             default=0,
         )
-        total += max(len(h) + 4, cell_max + 2) + 1
+        total += max(_visible_width(h) + 4, cell_max + 2) + 1
     return total
 
 
@@ -181,7 +189,7 @@ def _truncate_col(pr_data, key, terminal_width, min_len=8):
         excess = _table_width(pr_data) - terminal_width
         if excess <= 0:
             return pr_data
-        current_max = max(len(_strip_ansi(row[key])) for row in pr_data)
+        current_max = max(_visible_width(row[key]) for row in pr_data)
         limit = max(current_max - excess, min_len)
 
     if limit < min_len:

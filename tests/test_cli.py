@@ -3883,3 +3883,38 @@ def test_cli_duplicate_org_fetches_prevented(monkeypatch):
     assert len(calls) == 2
     assert calls[0] == ("org-a", ["filter-one", "filter-two"])
     assert calls[1] == ("org-b", ["global-f", "filter-three"])
+
+
+def test_table_width_auto_fit_emoji_regression():
+    """Verify that _table_width accounts for double-width emojis correctly
+
+    so that auto-fit does not underestimate table display width.
+    """
+    rows = [
+        {
+            "Repo": "short",
+            "PR Title": "short title",
+            "Author": "alice",
+            "Checks": "✅ pass",
+            "Approved": "⏳ pending",
+            "Mergeable?": "❌ (dirty)",
+        }
+    ]
+    # Estimate width using _table_width
+    estimated_width = cli._table_width(rows)
+
+    # Actual width from tabulate (with wcwidth installed)
+    from tabulate import tabulate
+
+    actual_width = len(
+        tabulate(
+            rows,
+            headers="keys",
+            showindex="always",
+            tablefmt="outline",
+            disable_numparse=True,
+        ).splitlines()[0]
+    )
+
+    # They should match exactly, preventing line wrap double spacing
+    assert estimated_width == actual_width

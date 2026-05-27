@@ -15,6 +15,7 @@ dependencies = [
   "click",
   "requests",
   "tabulate",
+  "wcwidth",
 ]
 
 [project.scripts]

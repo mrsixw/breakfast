@@ -3883,3 +3883,73 @@ def test_cli_duplicate_org_fetches_prevented(monkeypatch):
     assert len(calls) == 2
     assert calls[0] == ("org-a", ["filter-one", "filter-two"])
     assert calls[1] == ("org-b", ["global-f", "filter-three"])
+
+
+def test_template_auto_implies_format(monkeypatch):
+    """Test that passing --template implies --format template."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        ["-o", "org", "--template", "{repo}:{title}"],
+    )
+
+    assert result.exit_code == 0
+    assert "repo:My PR" in result.stdout
+
+
+def test_template_auto_implies_format_overridden_by_explicit_format(monkeypatch):
+    """Test that passing --template with explicit format takes precedence."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        ["-o", "org", "--template", "{repo}:{title}", "--format", "json"],
+    )
+
+    assert result.exit_code == 0
+    # Should output as JSON, not plain template
+    assert "repo" in result.stdout
+    assert "My PR" in result.stdout
+    assert "My PR" in json.loads(result.stdout)[0]["title"]
+
+
+def test_template_config_implies_format(monkeypatch, tmp_path):
+    """Test that a template in config implies --format template
+
+    when no format is configured.
+    """
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+
+    config_content = """
+organization = "org"
+template = "{repo} -> {title}"
+"""
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(config_content)
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        ["--config", str(config_file)],
+    )
+
+    assert result.exit_code == 0
+    assert "repo -> My PR" in result.stdout

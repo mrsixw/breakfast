@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 import click
 import requests
+import wcwidth
 from tabulate import tabulate
 
 from .api import (
@@ -92,8 +93,6 @@ def _strip_ansi(s):
 
 def _visible_width(s):
     """Return the terminal display width of a string, ignoring ANSI escape codes."""
-    import wcwidth
-
     plain = _strip_ansi(s)
     w = wcwidth.wcswidth(plain)
     return w if w >= 0 else len(plain)

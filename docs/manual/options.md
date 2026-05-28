@@ -781,7 +781,7 @@ Choose which cultural holiday calendar drives the seasonal colour effects in the
 
 | Value | Description |
 | --- | --- |
-| `"east-asian"` | East/Southeast Asian: Lunar New Year 🧧 (gold), Mid-Autumn Festival 🎑 (yellow), Songkran 💦 (blue), Hanami 🌸 (pink) |
+| `"east-asian"` | East/Southeast Asian: Lunar New Year 🧧 (red), Mid-Autumn Festival 🎑 (yellow), Songkran 💦 (blue), Hanami 🌸 (pink) |
 | `"hindu"` | Diwali 🪔 (gold), Holi 🌈 (rainbow) |
 | `"islamic"` | Eid al-Fitr 🌙 (green), Eid al-Adha 🐑 (green) |
 | `"jewish"` | Hanukkah 🕎 (blue), Rosh Hashanah 🍎 (gold), Passover 🪬 (spring green), Sukkot 🌿 (orange) |

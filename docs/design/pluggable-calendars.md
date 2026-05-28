@@ -25,7 +25,7 @@ CalendarFn = Callable[[datetime.date], str | list[str] | None]
 
 | Key | Holidays | Notes |
 | --- | --- | --- |
-| `"east-asian"` | Lunar New Year 🧧 (3 days, gold), Mid-Autumn Festival 🎑 (2 days, yellow), Songkran 💦 (3 days, blue), Hanami 🌸 (7 days, pink) | Uses pre-computed LNY and Mid-Autumn tables for 2024–2045. |
+| `"east-asian"` | Lunar New Year 🧧 (3 days, red), Mid-Autumn Festival 🎑 (2 days, yellow), Songkran 💦 (3 days, blue), Hanami 🌸 (7 days, pink) | Uses pre-computed LNY and Mid-Autumn tables for 2024–2045. |
 | `"hindu"` | Diwali 🪔 (5 days, gold), Holi 🌈 (2 days, rainbow) | Uses pre-computed tables for 2024–2045. |
 | `"islamic"` | Eid al-Fitr 🌙 (3 days, green), Eid al-Adha 🐑 (3 days, green) | Uses pre-computed tables for 2024–2045. Dates are approximate. |
 | `"jewish"` | Hanukkah 🕎 (8 nights, blue), Rosh Hashanah 🍎 (2 days, gold), Passover 🪬 (7 days, spring green), Sukkot 🌿 (7 days, orange) | Uses pre-computed tables for 2024–2045. |

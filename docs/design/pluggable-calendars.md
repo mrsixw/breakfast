@@ -26,17 +26,18 @@ CalendarFn = Callable[[datetime.date], str | list[str] | None]
 | Key | Holidays | Notes |
 | --- | --- | --- |
 | `"western"` | Christmas 🎄 (candy-cane), Easter 🐣, Pride Month 🌈, Halloween 🎃, Valentine's Day 💕, Lunar New Year 🧧 | Default. January is always purple — Steve's birthday month must never be overridden. |
-| `"jewish"` | Hanukkah 🕎 (8 nights, blue), Rosh Hashanah 🍎 (2 days, gold), Passover 🪬 (7 days, spring green) | Uses pre-computed tables for 2024–2045. |
-| `"islamic"` | Eid al-Fitr 🌙 (3 days, green) | Uses pre-computed tables for 2024–2045. Dates are approximate (moon-sighting varies by location). |
+| `"jewish"` | Hanukkah 🕎 (8 nights, blue), Rosh Hashanah 🍎 (2 days, gold), Passover 🪬 (7 days, spring green), Sukkot 🌿 (7 days, orange) | Uses pre-computed tables for 2024–2045. |
+| `"islamic"` | Eid al-Fitr 🌙 (3 days, green), Eid al-Adha 🐑 (3 days, green) | Uses pre-computed tables for 2024–2045. Dates are approximate. |
 | `"hindu"` | Diwali 🪔 (5 days, gold), Holi 🌈 (2 days, rainbow) | Uses pre-computed tables for 2024–2045. |
 | `"sikh"` | Vaisakhi 🌾 (April 13, spring green), Bandi Chhor Divas 🪔 (5 days, gold) | Vaisakhi is fixed; Bandi Chhor Divas shares Diwali dates. |
+| `"east-asian"` | Lunar New Year 🧧 (3 days, gold), Mid-Autumn Festival 🎑 (2 days, yellow), Songkran 💦 (3 days, blue), Hanami 🌸 (7 days, pink) | Uses pre-computed LNY and Mid-Autumn tables for 2024–2045. |
 | `"off"` | — | Disables all seasonal colours. |
 
 ## Implementation
 
 ### `src/breakfast/ui.py`
 
-- Pre-computed lookup tables (`_ROSH_HASHANAH`, `_HANUKKAH_START`, `_PASSOVER_START`, `_EID_AL_FITR`, `_DIWALI`, `_HOLI`) covering 2024–2045.
+- Pre-computed lookup tables (`_ROSH_HASHANAH`, `_HANUKKAH_START`, `_PASSOVER_START`, `_SUKKOT_START`, `_EID_AL_FITR`, `_EID_AL_ADHA`, `_DIWALI`, `_HOLI`, `_MID_AUTUMN`) covering 2024–2045.
 - `_in_holiday_window(today, table, days)` helper.
 - `_western_calendar(today)` — refactored from the old `apply_seasonal_colour` logic. Returns `list` for cycling effects (December, June), `str` for fixed colours, `None` otherwise.
 - `_jewish_calendar`, `_islamic_calendar`, `_hindu_calendar`, `_sikh_calendar` — same signature.
@@ -61,4 +62,4 @@ CalendarFn = Callable[[datetime.date], str | list[str] | None]
 
 ## Constraint: January Is Always Purple
 
-January is Steve's birthday month. The western calendar function returns `SEASONAL_PALETTES["purple"]` for January **before** checking for Lunar New Year, which can fall in January. LNY gold is only applied when LNY falls in February.
+January is Steve's birthday month. The birthday month check is globally enforced directly at the dispatch layer (`apply_seasonal_colour` and `_seasonal_colour()`) before delegating to any specific calendar functions. This guarantees that January is always styled entirely with `SEASONAL_PALETTES["purple"]` regardless of the active calendar or any floating holidays.

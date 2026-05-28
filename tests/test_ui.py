@@ -141,7 +141,6 @@ def test_easter_month_known_years():
 @pytest.mark.parametrize(
     "month,expected_key",
     [
-        (1, "purple"),
         (4, "yellow"),  # 2026 Easter is in April
         (10, "orange"),
     ],
@@ -163,7 +162,7 @@ def test_western_calendar_june_returns_pride_rainbow():
     assert result == ui.PRIDE_RAINBOW
 
 
-@pytest.mark.parametrize("month", [2, 3, 5, 7, 8, 9, 11])
+@pytest.mark.parametrize("month", [1, 2, 3, 5, 7, 8, 9, 11])
 def test_western_calendar_non_special_months_return_none(month):
     result = ui._western_calendar(_today(month))
     assert result is None
@@ -568,8 +567,10 @@ def test_in_holiday_window_unknown_year():
 
 def test_western_calendar_january_stays_purple_on_lny_2025():
     # 2025 LNY is Jan 29 — must return purple, not LNY gold.
-    result = ui._western_calendar(datetime.date(2025, 1, 29))
-    assert result == ui.SEASONAL_PALETTES["purple"]
+    with patch("breakfast.ui.datetime") as mock_dt:
+        mock_dt.date.today.return_value = datetime.date(2025, 1, 29)
+        result = ui.apply_seasonal_colour("alice", 0, calendar="western")
+    assert result.startswith(ui.SEASONAL_PALETTES["purple"])
 
 
 def test_render_pr_summary_seasonal_calendar():
@@ -579,3 +580,65 @@ def test_render_pr_summary_seasonal_calendar():
         mock_dt.date.today.return_value = _today(1)  # January → purple
         result = ui.render_pr_summary(groups, "Title", "Author", True, "western")
     assert "\033[" in result
+
+
+def test_global_january_purple_across_calendars():
+    # Eid al-Fitr (2031-01-24), Eid al-Adha (2038-01-16), or LNY (2025-01-29)
+    # falling in January must always return purple regardless of calendar.
+    for cal in ["jewish", "islamic", "hindu", "sikh", "east-asian", "western"]:
+        with patch("breakfast.ui.datetime") as mock_dt:
+            mock_dt.date.today.return_value = datetime.date(2025, 1, 29)
+            result = ui.apply_seasonal_colour("x", 0, calendar=cal)
+        assert result.startswith(ui.SEASONAL_PALETTES["purple"]), f"cal={cal}"
+
+
+def test_islamic_calendar_eid_al_adha():
+    # Eid al-Adha 2024 starts June 16, 3-day window
+    for d in range(16, 19):
+        result = ui._islamic_calendar(datetime.date(2024, 6, d))
+        assert result == ui.SEASONAL_PALETTES["green"], f"day={d}"
+
+
+def test_jewish_calendar_sukkot():
+    # Sukkot 2025 starts Oct 6, 7-day window
+    for d in range(6, 13):
+        result = ui._jewish_calendar(datetime.date(2025, 10, d))
+        assert result == ui.SEASONAL_PALETTES["orange"], f"day={d}"
+
+
+def test_east_asian_calendar_songkran():
+    # Songkran: April 13-15 (fixed)
+    for d in range(13, 16):
+        result = ui._east_asian_calendar(datetime.date(2025, 4, d))
+        assert result == ui.SEASONAL_PALETTES["blue"], f"day={d}"
+
+
+def test_east_asian_calendar_hanami():
+    # Hanami: April 1-7 (fixed)
+    for d in range(1, 8):
+        result = ui._east_asian_calendar(datetime.date(2025, 4, d))
+        assert result == ui.SEASONAL_PALETTES["pink"], f"day={d}"
+
+
+def test_east_asian_calendar_lny():
+    # Lunar New Year 2026 starts Feb 17, 3-day window
+    for d in range(17, 20):
+        result = ui._east_asian_calendar(datetime.date(2026, 2, d))
+        assert result == ui.SEASONAL_PALETTES["lny"], f"day={d}"
+
+
+def test_east_asian_calendar_mid_autumn():
+    # Mid-Autumn Festival 2024 starts Sep 17, 2-day window
+    for d in range(17, 19):
+        result = ui._east_asian_calendar(datetime.date(2024, 9, d))
+        assert result == ui.SEASONAL_PALETTES["yellow"], f"day={d}"
+
+
+def test_east_asian_calendar_non_holiday():
+    result = ui._east_asian_calendar(datetime.date(2025, 8, 15))
+    assert result is None
+
+
+def test_unknown_year_graceful_east_asian():
+    result = ui._east_asian_calendar(datetime.date(2099, 5, 5))
+    assert result is None

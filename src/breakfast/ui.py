@@ -316,6 +316,81 @@ _HOLI: dict[int, tuple[int, int]] = {
     2045: (3, 5),
 }
 
+_MID_AUTUMN: dict[int, tuple[int, int]] = {
+    2024: (9, 17),
+    2025: (10, 6),
+    2026: (9, 25),
+    2027: (9, 15),
+    2028: (10, 3),
+    2029: (9, 22),
+    2030: (9, 12),
+    2031: (10, 1),
+    2032: (9, 19),
+    2033: (9, 8),
+    2034: (9, 27),
+    2035: (9, 16),
+    2036: (10, 4),
+    2037: (9, 24),
+    2038: (9, 13),
+    2039: (10, 2),
+    2040: (9, 20),
+    2041: (9, 9),
+    2042: (9, 28),
+    2043: (9, 17),
+    2044: (10, 5),
+    2045: (9, 24),
+}
+
+_EID_AL_ADHA: dict[int, tuple[int, int]] = {
+    2024: (6, 16),
+    2025: (6, 6),
+    2026: (5, 26),
+    2027: (5, 16),
+    2028: (5, 4),
+    2029: (4, 24),
+    2030: (4, 13),
+    2031: (4, 2),
+    2032: (3, 22),
+    2033: (3, 11),
+    2034: (3, 1),
+    2035: (2, 18),
+    2036: (2, 7),
+    2037: (1, 26),
+    2038: (1, 16),
+    2039: (12, 26),
+    2040: (12, 14),
+    2041: (12, 4),
+    2042: (11, 23),
+    2043: (11, 13),
+    2044: (11, 1),
+    2045: (10, 22),
+}
+
+_SUKKOT_START: dict[int, tuple[int, int]] = {
+    2024: (10, 16),
+    2025: (10, 6),
+    2026: (9, 25),
+    2027: (10, 15),
+    2028: (10, 4),
+    2029: (9, 23),
+    2030: (10, 12),
+    2031: (10, 1),
+    2032: (9, 19),
+    2033: (10, 8),
+    2034: (9, 28),
+    2035: (10, 17),
+    2036: (10, 4),
+    2037: (9, 24),
+    2038: (10, 13),
+    2039: (10, 3),
+    2040: (9, 21),
+    2041: (10, 10),
+    2042: (9, 30),
+    2043: (10, 18),
+    2044: (10, 5),
+    2045: (9, 25),
+}
+
 # Holi rainbow: a burst of festival colours for the Festival of Colours 🌈
 HOLI_RAINBOW = [
     "\033[38;5;218m",  # pink
@@ -348,8 +423,6 @@ def _western_calendar(today: datetime.date) -> "str | list[str] | None":
 
     Returns a list for PR-number-cycling effects (December, Pride Month),
     a single colour string for fixed colours, or None for unthemed dates.
-    January is always purple — it is Steve's birthday month and must never
-    be overridden by any floating holiday (including Lunar New Year).
     """
     month = today.month
     day = today.day
@@ -368,9 +441,6 @@ def _western_calendar(today: datetime.date) -> "str | list[str] | None":
     if lny == (month, day) and month == 2:
         return SEASONAL_PALETTES["lny"]
 
-    if month == 1:
-        return SEASONAL_PALETTES["purple"]  # 🎂 Steve's birthday month
-
     if month == _easter_month(today.year):
         return SEASONAL_PALETTES["yellow"]
 
@@ -388,12 +458,16 @@ def _jewish_calendar(today: datetime.date) -> "str | list[str] | None":
         return SEASONAL_PALETTES["lny"]
     if _in_holiday_window(today, _PASSOVER_START, days=7):
         return SEASONAL_PALETTES["spring_green"]
+    if _in_holiday_window(today, _SUKKOT_START, days=7):
+        return SEASONAL_PALETTES["orange"]
     return None
 
 
 def _islamic_calendar(today: datetime.date) -> "str | list[str] | None":
     """Return seasonal colour for Islamic holiday calendar."""
     if _in_holiday_window(today, _EID_AL_FITR, days=3):
+        return SEASONAL_PALETTES["green"]
+    if _in_holiday_window(today, _EID_AL_ADHA, days=3):
         return SEASONAL_PALETTES["green"]
     return None
 
@@ -416,12 +490,39 @@ def _sikh_calendar(today: datetime.date) -> "str | list[str] | None":
     return None
 
 
+def _east_asian_calendar(today: datetime.date) -> "str | list[str] | None":
+    """Return seasonal colour for East/Southeast Asian holiday calendar."""
+    # Songkran (Thai Water Festival / New Year): April 13-15 (fixed)
+    if today.month == 4 and 13 <= today.day <= 15:
+        return SEASONAL_PALETTES["blue"]
+
+    # Hanami (Cherry Blossom Festival): April 1-7 (fixed)
+    if today.month == 4 and 1 <= today.day <= 7:
+        return SEASONAL_PALETTES["pink"]
+
+    # Lunar New Year: 3-day window starting at LNY date
+    try:
+        lny_m, lny_d = _lny_date(today.year)
+        lny_start = _real_date(today.year, lny_m, lny_d)
+        if lny_start <= today < lny_start + _real_timedelta(days=3):
+            return SEASONAL_PALETTES["lny"]
+    except ValueError:
+        pass
+
+    # Mid-Autumn / Moon Festival (Chuseok / Tsukimi): 2-day window
+    if _in_holiday_window(today, _MID_AUTUMN, days=2):
+        return SEASONAL_PALETTES["yellow"]
+
+    return None
+
+
 CALENDARS: dict[str, object] = {
     "western": _western_calendar,
     "jewish": _jewish_calendar,
     "islamic": _islamic_calendar,
     "hindu": _hindu_calendar,
     "sikh": _sikh_calendar,
+    "east-asian": _east_asian_calendar,
 }
 
 
@@ -432,6 +533,8 @@ def _seasonal_colour() -> "str | None":
     colour from their cycling lists rather than the full list.
     """
     today = datetime.date.today()
+    if today.month == 1:
+        return SEASONAL_PALETTES["purple"]
     result = _western_calendar(today)
     if isinstance(result, list):
         return result[0]
@@ -453,6 +556,9 @@ def apply_seasonal_colour(text: str, pr_number: int, calendar: str = "western") 
     if calendar_fn is None:
         return text
     today = datetime.date.today()
+    if today.month == 1:
+        colour = SEASONAL_PALETTES["purple"]
+        return f"{colour}{text}\033[0m"
     result = calendar_fn(today)
     if result is None:
         return text

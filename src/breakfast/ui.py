@@ -757,13 +757,15 @@ def render_colour_diagnostics() -> str:
     # ------------------------------------------------------------------
     lines.append(click.style("Seasonal colours  (author & PR title)", bold=True))
     palette_rows = [
-        ("January 🗓️", "purple"),
-        ("Valentine's Day 💕 (14 Feb)", "pink"),
-        ("Lunar New Year 🧧 (Feb)", "lny"),
-        ("Easter 🐣", "yellow"),
-        ("October 🎃", "orange"),
+        ("January 🗓️ (purple)", "purple"),
+        ("Valentine's / Hanami 🌸 (pink)", "pink"),
+        ("LNY / Rosh / Diwali 🧧 (lny)", "lny"),
+        ("Easter / Mid-Autumn 🎑 (yellow)", "yellow"),
+        ("October / Sukkot 🌿 (orange)", "orange"),
         ("December 🎄 (red)", "red"),
-        ("December 🎄 (green)", "green"),
+        ("December / Eid 🌙 (green)", "green"),
+        ("Hanukkah / Songkran 💦 (blue)", "blue"),
+        ("Passover / Vaisakhi 🌾 (spring)", "spring_green"),
     ]
 
     def _seasonal_swatch(code: str) -> str:
@@ -782,6 +784,10 @@ def render_colour_diagnostics() -> str:
     # Pride Month rainbow — one swatch per colour in the cycle.
     pride_swatches = "  ".join(f"{code}{BLOCK}\033[0m" for code in PRIDE_RAINBOW)
     lines.append(f"  {_vpad('Pride Month 🌈 (June)', 28)}  {pride_swatches}")
+
+    # Holi rainbow — one swatch per colour in the cycle.
+    holi_swatches = "  ".join(f"{code}{BLOCK}\033[0m" for code in HOLI_RAINBOW)
+    lines.append(f"  {_vpad('Holi 🌈 (spring)', 28)}  {holi_swatches}")
     lines.append("")
 
     # ------------------------------------------------------------------

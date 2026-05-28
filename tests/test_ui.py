@@ -642,3 +642,10 @@ def test_east_asian_calendar_non_holiday():
 def test_unknown_year_graceful_east_asian():
     result = ui._east_asian_calendar(datetime.date(2099, 5, 5))
     assert result is None
+
+
+def test_render_colour_diagnostics_shows_all_new_palettes_and_holi():
+    result = ui.render_colour_diagnostics()
+    assert "Hanukkah / Songkran" in result
+    assert "Passover / Vaisakhi" in result
+    assert "Holi 🌈" in result

@@ -471,7 +471,7 @@ def test_jewish_calendar_hanukkah_window():
 def test_jewish_calendar_rosh_hashanah():
     rosh_2024 = datetime.date(2024, 10, 2)
     result = ui._jewish_calendar(rosh_2024)
-    assert result == ui.SEASONAL_PALETTES["lny"]
+    assert result == ui.SEASONAL_PALETTES["gold"]
 
 
 def test_jewish_calendar_passover():
@@ -506,7 +506,7 @@ def test_islamic_calendar_non_holiday_returns_none():
 def test_hindu_calendar_diwali():
     diwali_2024 = datetime.date(2024, 11, 1)
     result = ui._hindu_calendar(diwali_2024)
-    assert result == ui.SEASONAL_PALETTES["lny"]
+    assert result == ui.SEASONAL_PALETTES["gold"]
 
 
 def test_hindu_calendar_holi_returns_rainbow():
@@ -530,7 +530,7 @@ def test_sikh_calendar_vaisakhi():
 def test_sikh_calendar_diwali():
     diwali_2024 = datetime.date(2024, 11, 1)
     result = ui._sikh_calendar(diwali_2024)
-    assert result == ui.SEASONAL_PALETTES["lny"]
+    assert result == ui.SEASONAL_PALETTES["gold"]
 
 
 def test_sikh_calendar_non_holiday_returns_none():
@@ -648,4 +648,6 @@ def test_render_colour_diagnostics_shows_all_new_palettes_and_holi():
     result = ui.render_colour_diagnostics()
     assert "Hanukkah / Songkran" in result
     assert "Passover / Vaisakhi" in result
+    assert "Lunar New Year" in result
+    assert "Rosh / Diwali / Bandi" in result
     assert "Holi 🌈" in result

@@ -13,9 +13,10 @@ SEASONAL_PALETTES = {
     "orange": "\033[38;5;208m",
     "red": "\033[31m",
     "pink": "\033[38;5;218m",
-    "lny": "\033[38;5;214m",
+    "lny": "\033[38;5;196m",
     "blue": "\033[38;5;75m",
     "spring_green": "\033[38;5;120m",
+    "gold": "\033[38;5;220m",
 }
 
 # Pride Month 🏳️‍🌈 rainbow: one colour per row, cycling by PR number.
@@ -447,7 +448,7 @@ def _east_asian_calendar(today: datetime.date) -> "str | list[str] | None":
 def _hindu_calendar(today: datetime.date) -> "str | list[str] | None":
     """Return seasonal colour for Hindu holiday calendar."""
     if _in_holiday_window(today, _DIWALI, days=5):
-        return SEASONAL_PALETTES["lny"]
+        return SEASONAL_PALETTES["gold"]
     if _in_holiday_window(today, _HOLI, days=2):
         return HOLI_RAINBOW
     return None
@@ -467,7 +468,7 @@ def _jewish_calendar(today: datetime.date) -> "str | list[str] | None":
     if _in_holiday_window(today, _HANUKKAH_START, days=8):
         return SEASONAL_PALETTES["blue"]
     if _in_holiday_window(today, _ROSH_HASHANAH, days=2):
-        return SEASONAL_PALETTES["lny"]
+        return SEASONAL_PALETTES["gold"]
     if _in_holiday_window(today, _PASSOVER_START, days=7):
         return SEASONAL_PALETTES["spring_green"]
     if _in_holiday_window(today, _SUKKOT_START, days=7):
@@ -480,7 +481,7 @@ def _sikh_calendar(today: datetime.date) -> "str | list[str] | None":
     if today.month == 4 and today.day == 13:  # Vaisakhi (fixed)
         return SEASONAL_PALETTES["spring_green"]
     if _in_holiday_window(today, _DIWALI, days=5):  # Bandi Chhor Divas
-        return SEASONAL_PALETTES["lny"]
+        return SEASONAL_PALETTES["gold"]
     return None
 
 
@@ -759,7 +760,8 @@ def render_colour_diagnostics() -> str:
     palette_rows = [
         ("January 🗓️ (purple)", "purple"),
         ("Valentine's / Hanami 🌸 (pink)", "pink"),
-        ("LNY / Rosh / Diwali 🧧 (lny)", "lny"),
+        ("Lunar New Year 🧧 (lny)", "lny"),
+        ("Rosh / Diwali / Bandi 🪔 (gold)", "gold"),
         ("Easter / Mid-Autumn 🎑 (yellow)", "yellow"),
         ("October / Sukkot 🌿 (orange)", "orange"),
         ("December 🎄 (red)", "red"),

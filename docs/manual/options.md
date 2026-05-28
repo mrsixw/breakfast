@@ -781,12 +781,12 @@ Choose which cultural holiday calendar drives the seasonal colour effects in the
 
 | Value | Description |
 | --- | --- |
-| `"western"` | Gregorian calendar: Christmas 🎄, Easter 🐣, Pride Month 🌈, Halloween 🎃, Valentine's Day 💕, Lunar New Year 🧧 (default) |
-| `"jewish"` | Hanukkah 🕎 (blue), Rosh Hashanah 🍎 (gold), Passover 🪬 (spring green), Sukkot 🌿 (orange) |
-| `"islamic"` | Eid al-Fitr 🌙 (green), Eid al-Adha 🐑 (green) |
-| `"hindu"` | Diwali 🪔 (gold), Holi 🌈 (rainbow) |
-| `"sikh"` | Vaisakhi 🌾 (spring green), Bandi Chhor Divas 🪔 (gold) |
 | `"east-asian"` | East/Southeast Asian: Lunar New Year 🧧 (gold), Mid-Autumn Festival 🎑 (yellow), Songkran 💦 (blue), Hanami 🌸 (pink) |
+| `"hindu"` | Diwali 🪔 (gold), Holi 🌈 (rainbow) |
+| `"islamic"` | Eid al-Fitr 🌙 (green), Eid al-Adha 🐑 (green) |
+| `"jewish"` | Hanukkah 🕎 (blue), Rosh Hashanah 🍎 (gold), Passover 🪬 (spring green), Sukkot 🌿 (orange) |
+| `"sikh"` | Vaisakhi 🌾 (spring green), Bandi Chhor Divas 🪔 (gold) |
+| `"western"` | Gregorian calendar: Christmas 🎄, Easter 🐣, Pride Month 🌈, Halloween 🎃, Valentine's Day 💕, Lunar New Year 🧧 (default) |
 | `"off"` | Disable seasonal colours entirely |
 
 ```toml

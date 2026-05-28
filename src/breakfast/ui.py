@@ -166,79 +166,54 @@ def _lny_date(year: int) -> tuple[int, int]:
 # Pre-computed holiday dates (year → (month, day)) for 2024–2045.
 # Dates are approximate; Islamic/Hindu dates vary by location and moon-sighting.
 
-_ROSH_HASHANAH: dict[int, tuple[int, int]] = {
-    2024: (10, 2),
-    2025: (9, 22),
-    2026: (9, 11),
-    2027: (10, 1),
-    2028: (9, 20),
-    2029: (9, 9),
-    2030: (9, 27),
-    2031: (9, 18),
-    2032: (9, 5),
-    2033: (9, 24),
-    2034: (9, 14),
-    2035: (10, 3),
-    2036: (9, 21),
-    2037: (9, 10),
-    2038: (9, 29),
-    2039: (9, 19),
-    2040: (9, 7),
-    2041: (9, 25),
-    2042: (9, 15),
-    2043: (10, 4),
-    2044: (9, 22),
-    2045: (9, 12),
+_DIWALI: dict[int, tuple[int, int]] = {
+    2024: (11, 1),
+    2025: (10, 20),
+    2026: (11, 8),
+    2027: (10, 29),
+    2028: (10, 17),
+    2029: (11, 5),
+    2030: (10, 26),
+    2031: (11, 14),
+    2032: (11, 2),
+    2033: (10, 22),
+    2034: (11, 11),
+    2035: (11, 1),
+    2036: (10, 19),
+    2037: (11, 7),
+    2038: (10, 28),
+    2039: (10, 18),
+    2040: (11, 4),
+    2041: (10, 24),
+    2042: (11, 13),
+    2043: (11, 3),
+    2044: (10, 21),
+    2045: (11, 9),
 }
 
-_HANUKKAH_START: dict[int, tuple[int, int]] = {
-    2024: (12, 25),
-    2025: (12, 14),
-    2026: (12, 4),
-    2027: (12, 24),
-    2028: (12, 12),
-    2029: (12, 1),
-    2030: (12, 20),
-    2031: (12, 9),
-    2032: (11, 27),
-    2033: (12, 16),
-    2034: (12, 5),
-    2035: (12, 25),
-    2036: (12, 13),
-    2037: (12, 2),
-    2038: (12, 22),
-    2039: (12, 11),
-    2040: (11, 29),
-    2041: (12, 18),
-    2042: (12, 8),
-    2043: (12, 27),
-    2044: (12, 15),
-    2045: (12, 5),
-}
-
-_PASSOVER_START: dict[int, tuple[int, int]] = {
-    2024: (4, 22),
-    2025: (4, 12),
-    2026: (4, 1),
-    2027: (4, 21),
-    2028: (4, 10),
-    2029: (3, 29),
-    2030: (4, 17),
-    2031: (4, 7),
-    2032: (3, 27),
-    2033: (4, 14),
-    2034: (4, 3),
-    2035: (4, 23),
-    2036: (4, 11),
-    2037: (4, 1),
-    2038: (4, 20),
-    2039: (4, 9),
-    2040: (3, 29),
-    2041: (4, 16),
-    2042: (4, 6),
-    2043: (4, 25),
-    2044: (4, 13),
-    2045: (4, 3),
+_EID_AL_ADHA: dict[int, tuple[int, int]] = {
+    2024: (6, 16),
+    2025: (6, 6),
+    2026: (5, 26),
+    2027: (5, 16),
+    2028: (5, 4),
+    2029: (4, 24),
+    2030: (4, 13),
+    2031: (4, 2),
+    2032: (3, 22),
+    2033: (3, 11),
+    2034: (3, 1),
+    2035: (2, 18),
+    2036: (2, 7),
+    2037: (1, 26),
+    2038: (1, 16),
+    2039: (12, 26),
+    2040: (12, 14),
+    2041: (12, 4),
+    2042: (11, 23),
+    2043: (11, 13),
+    2044: (11, 1),
+    2045: (10, 22),
 }
 
 _EID_AL_FITR: dict[int, tuple[int, int]] = {
@@ -266,29 +241,29 @@ _EID_AL_FITR: dict[int, tuple[int, int]] = {
     2045: (8, 12),
 }
 
-_DIWALI: dict[int, tuple[int, int]] = {
-    2024: (11, 1),
-    2025: (10, 20),
-    2026: (11, 8),
-    2027: (10, 29),
-    2028: (10, 17),
-    2029: (11, 5),
-    2030: (10, 26),
-    2031: (11, 14),
-    2032: (11, 2),
-    2033: (10, 22),
-    2034: (11, 11),
-    2035: (11, 1),
-    2036: (10, 19),
-    2037: (11, 7),
-    2038: (10, 28),
-    2039: (10, 18),
-    2040: (11, 4),
-    2041: (10, 24),
-    2042: (11, 13),
-    2043: (11, 3),
-    2044: (10, 21),
-    2045: (11, 9),
+_HANUKKAH_START: dict[int, tuple[int, int]] = {
+    2024: (12, 25),
+    2025: (12, 14),
+    2026: (12, 4),
+    2027: (12, 24),
+    2028: (12, 12),
+    2029: (12, 1),
+    2030: (12, 20),
+    2031: (12, 9),
+    2032: (11, 27),
+    2033: (12, 16),
+    2034: (12, 5),
+    2035: (12, 25),
+    2036: (12, 13),
+    2037: (12, 2),
+    2038: (12, 22),
+    2039: (12, 11),
+    2040: (11, 29),
+    2041: (12, 18),
+    2042: (12, 8),
+    2043: (12, 27),
+    2044: (12, 15),
+    2045: (12, 5),
 }
 
 _HOLI: dict[int, tuple[int, int]] = {
@@ -341,29 +316,54 @@ _MID_AUTUMN: dict[int, tuple[int, int]] = {
     2045: (9, 24),
 }
 
-_EID_AL_ADHA: dict[int, tuple[int, int]] = {
-    2024: (6, 16),
-    2025: (6, 6),
-    2026: (5, 26),
-    2027: (5, 16),
-    2028: (5, 4),
-    2029: (4, 24),
-    2030: (4, 13),
-    2031: (4, 2),
-    2032: (3, 22),
-    2033: (3, 11),
-    2034: (3, 1),
-    2035: (2, 18),
-    2036: (2, 7),
-    2037: (1, 26),
-    2038: (1, 16),
-    2039: (12, 26),
-    2040: (12, 14),
-    2041: (12, 4),
-    2042: (11, 23),
-    2043: (11, 13),
-    2044: (11, 1),
-    2045: (10, 22),
+_PASSOVER_START: dict[int, tuple[int, int]] = {
+    2024: (4, 22),
+    2025: (4, 12),
+    2026: (4, 1),
+    2027: (4, 21),
+    2028: (4, 10),
+    2029: (3, 29),
+    2030: (4, 17),
+    2031: (4, 7),
+    2032: (3, 27),
+    2033: (4, 14),
+    2034: (4, 3),
+    2035: (4, 23),
+    2036: (4, 11),
+    2037: (4, 1),
+    2038: (4, 20),
+    2039: (4, 9),
+    2040: (3, 29),
+    2041: (4, 16),
+    2042: (4, 6),
+    2043: (4, 25),
+    2044: (4, 13),
+    2045: (4, 3),
+}
+
+_ROSH_HASHANAH: dict[int, tuple[int, int]] = {
+    2024: (10, 2),
+    2025: (9, 22),
+    2026: (9, 11),
+    2027: (10, 1),
+    2028: (9, 20),
+    2029: (9, 9),
+    2030: (9, 27),
+    2031: (9, 18),
+    2032: (9, 5),
+    2033: (9, 24),
+    2034: (9, 14),
+    2035: (10, 3),
+    2036: (9, 21),
+    2037: (9, 10),
+    2038: (9, 29),
+    2039: (9, 19),
+    2040: (9, 7),
+    2041: (9, 25),
+    2042: (9, 15),
+    2043: (10, 4),
+    2044: (9, 22),
+    2045: (9, 12),
 }
 
 _SUKKOT_START: dict[int, tuple[int, int]] = {
@@ -418,6 +418,72 @@ def _in_holiday_window(
         return False
 
 
+def _east_asian_calendar(today: datetime.date) -> "str | list[str] | None":
+    """Return seasonal colour for East/Southeast Asian holiday calendar."""
+    # Songkran (Thai Water Festival / New Year): April 13-15 (fixed)
+    if today.month == 4 and 13 <= today.day <= 15:
+        return SEASONAL_PALETTES["blue"]
+
+    # Hanami (Cherry Blossom Festival): April 1-7 (fixed)
+    if today.month == 4 and 1 <= today.day <= 7:
+        return SEASONAL_PALETTES["pink"]
+
+    # Lunar New Year: 3-day window starting at LNY date
+    try:
+        lny_m, lny_d = _lny_date(today.year)
+        lny_start = _real_date(today.year, lny_m, lny_d)
+        if lny_start <= today < lny_start + _real_timedelta(days=3):
+            return SEASONAL_PALETTES["lny"]
+    except ValueError:
+        pass
+
+    # Mid-Autumn / Moon Festival (Chuseok / Tsukimi): 2-day window
+    if _in_holiday_window(today, _MID_AUTUMN, days=2):
+        return SEASONAL_PALETTES["yellow"]
+
+    return None
+
+
+def _hindu_calendar(today: datetime.date) -> "str | list[str] | None":
+    """Return seasonal colour for Hindu holiday calendar."""
+    if _in_holiday_window(today, _DIWALI, days=5):
+        return SEASONAL_PALETTES["lny"]
+    if _in_holiday_window(today, _HOLI, days=2):
+        return HOLI_RAINBOW
+    return None
+
+
+def _islamic_calendar(today: datetime.date) -> "str | list[str] | None":
+    """Return seasonal colour for Islamic holiday calendar."""
+    if _in_holiday_window(today, _EID_AL_FITR, days=3):
+        return SEASONAL_PALETTES["green"]
+    if _in_holiday_window(today, _EID_AL_ADHA, days=3):
+        return SEASONAL_PALETTES["green"]
+    return None
+
+
+def _jewish_calendar(today: datetime.date) -> "str | list[str] | None":
+    """Return seasonal colour for Jewish holiday calendar."""
+    if _in_holiday_window(today, _HANUKKAH_START, days=8):
+        return SEASONAL_PALETTES["blue"]
+    if _in_holiday_window(today, _ROSH_HASHANAH, days=2):
+        return SEASONAL_PALETTES["lny"]
+    if _in_holiday_window(today, _PASSOVER_START, days=7):
+        return SEASONAL_PALETTES["spring_green"]
+    if _in_holiday_window(today, _SUKKOT_START, days=7):
+        return SEASONAL_PALETTES["orange"]
+    return None
+
+
+def _sikh_calendar(today: datetime.date) -> "str | list[str] | None":
+    """Return seasonal colour for Sikh holiday calendar."""
+    if today.month == 4 and today.day == 13:  # Vaisakhi (fixed)
+        return SEASONAL_PALETTES["spring_green"]
+    if _in_holiday_window(today, _DIWALI, days=5):  # Bandi Chhor Divas
+        return SEASONAL_PALETTES["lny"]
+    return None
+
+
 def _western_calendar(today: datetime.date) -> "str | list[str] | None":
     """Return seasonal colour(s) for the western/Gregorian calendar.
 
@@ -450,79 +516,13 @@ def _western_calendar(today: datetime.date) -> "str | list[str] | None":
     return None
 
 
-def _jewish_calendar(today: datetime.date) -> "str | list[str] | None":
-    """Return seasonal colour for Jewish holiday calendar."""
-    if _in_holiday_window(today, _HANUKKAH_START, days=8):
-        return SEASONAL_PALETTES["blue"]
-    if _in_holiday_window(today, _ROSH_HASHANAH, days=2):
-        return SEASONAL_PALETTES["lny"]
-    if _in_holiday_window(today, _PASSOVER_START, days=7):
-        return SEASONAL_PALETTES["spring_green"]
-    if _in_holiday_window(today, _SUKKOT_START, days=7):
-        return SEASONAL_PALETTES["orange"]
-    return None
-
-
-def _islamic_calendar(today: datetime.date) -> "str | list[str] | None":
-    """Return seasonal colour for Islamic holiday calendar."""
-    if _in_holiday_window(today, _EID_AL_FITR, days=3):
-        return SEASONAL_PALETTES["green"]
-    if _in_holiday_window(today, _EID_AL_ADHA, days=3):
-        return SEASONAL_PALETTES["green"]
-    return None
-
-
-def _hindu_calendar(today: datetime.date) -> "str | list[str] | None":
-    """Return seasonal colour for Hindu holiday calendar."""
-    if _in_holiday_window(today, _DIWALI, days=5):
-        return SEASONAL_PALETTES["lny"]
-    if _in_holiday_window(today, _HOLI, days=2):
-        return HOLI_RAINBOW
-    return None
-
-
-def _sikh_calendar(today: datetime.date) -> "str | list[str] | None":
-    """Return seasonal colour for Sikh holiday calendar."""
-    if today.month == 4 and today.day == 13:  # Vaisakhi (fixed)
-        return SEASONAL_PALETTES["spring_green"]
-    if _in_holiday_window(today, _DIWALI, days=5):  # Bandi Chhor Divas
-        return SEASONAL_PALETTES["lny"]
-    return None
-
-
-def _east_asian_calendar(today: datetime.date) -> "str | list[str] | None":
-    """Return seasonal colour for East/Southeast Asian holiday calendar."""
-    # Songkran (Thai Water Festival / New Year): April 13-15 (fixed)
-    if today.month == 4 and 13 <= today.day <= 15:
-        return SEASONAL_PALETTES["blue"]
-
-    # Hanami (Cherry Blossom Festival): April 1-7 (fixed)
-    if today.month == 4 and 1 <= today.day <= 7:
-        return SEASONAL_PALETTES["pink"]
-
-    # Lunar New Year: 3-day window starting at LNY date
-    try:
-        lny_m, lny_d = _lny_date(today.year)
-        lny_start = _real_date(today.year, lny_m, lny_d)
-        if lny_start <= today < lny_start + _real_timedelta(days=3):
-            return SEASONAL_PALETTES["lny"]
-    except ValueError:
-        pass
-
-    # Mid-Autumn / Moon Festival (Chuseok / Tsukimi): 2-day window
-    if _in_holiday_window(today, _MID_AUTUMN, days=2):
-        return SEASONAL_PALETTES["yellow"]
-
-    return None
-
-
 CALENDARS: dict[str, object] = {
-    "western": _western_calendar,
-    "jewish": _jewish_calendar,
-    "islamic": _islamic_calendar,
-    "hindu": _hindu_calendar,
-    "sikh": _sikh_calendar,
     "east-asian": _east_asian_calendar,
+    "hindu": _hindu_calendar,
+    "islamic": _islamic_calendar,
+    "jewish": _jewish_calendar,
+    "sikh": _sikh_calendar,
+    "western": _western_calendar,
 }
 
 

@@ -142,12 +142,12 @@ _DEFAULT_CONFIG_CONTENT = """\
 # seasonal-colours = true
 
 # Which cultural holiday calendar drives seasonal colours.
-#   western    — Christmas 🎄, Easter 🐣, Pride Month 🌈, Halloween 🎃 (default)
-#   jewish     — Hanukkah 🕎, Passover 🪬, Rosh Hashanah 🍎, Sukkot 🌿
-#   islamic    — Eid al-Fitr 🌙, Eid al-Adha 🐑
-#   hindu      — Diwali 🪔, Holi 🌈
-#   sikh       — Vaisakhi 🌾, Bandi Chhor Divas 🪔
 #   east-asian — Lunar New Year 🧧, Mid-Autumn Festival 🎑, Songkran 💦, Hanami 🌸
+#   hindu      — Diwali 🪔, Holi 🌈
+#   islamic    — Eid al-Fitr 🌙, Eid al-Adha 🐑
+#   jewish     — Hanukkah 🕎, Passover 🪬, Rosh Hashanah 🍎, Sukkot 🌿
+#   sikh       — Vaisakhi 🌾, Bandi Chhor Divas 🪔
+#   western    — Christmas 🎄, Easter 🐣, Pride Month 🌈, Halloween 🎃 (default)
 #   off        — disable seasonal colours entirely
 # Note: seasonal-colours = false is equivalent to seasonal-calendar = "off"
 # seasonal-calendar = "western"

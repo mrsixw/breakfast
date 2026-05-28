@@ -25,22 +25,21 @@ CalendarFn = Callable[[datetime.date], str | list[str] | None]
 
 | Key | Holidays | Notes |
 | --- | --- | --- |
-| `"western"` | Christmas 🎄 (candy-cane), Easter 🐣, Pride Month 🌈, Halloween 🎃, Valentine's Day 💕, Lunar New Year 🧧 | Default. January is always purple — Steve's birthday month must never be overridden. |
-| `"jewish"` | Hanukkah 🕎 (8 nights, blue), Rosh Hashanah 🍎 (2 days, gold), Passover 🪬 (7 days, spring green), Sukkot 🌿 (7 days, orange) | Uses pre-computed tables for 2024–2045. |
-| `"islamic"` | Eid al-Fitr 🌙 (3 days, green), Eid al-Adha 🐑 (3 days, green) | Uses pre-computed tables for 2024–2045. Dates are approximate. |
-| `"hindu"` | Diwali 🪔 (5 days, gold), Holi 🌈 (2 days, rainbow) | Uses pre-computed tables for 2024–2045. |
-| `"sikh"` | Vaisakhi 🌾 (April 13, spring green), Bandi Chhor Divas 🪔 (5 days, gold) | Vaisakhi is fixed; Bandi Chhor Divas shares Diwali dates. |
 | `"east-asian"` | Lunar New Year 🧧 (3 days, gold), Mid-Autumn Festival 🎑 (2 days, yellow), Songkran 💦 (3 days, blue), Hanami 🌸 (7 days, pink) | Uses pre-computed LNY and Mid-Autumn tables for 2024–2045. |
+| `"hindu"` | Diwali 🪔 (5 days, gold), Holi 🌈 (2 days, rainbow) | Uses pre-computed tables for 2024–2045. |
+| `"islamic"` | Eid al-Fitr 🌙 (3 days, green), Eid al-Adha 🐑 (3 days, green) | Uses pre-computed tables for 2024–2045. Dates are approximate. |
+| `"jewish"` | Hanukkah 🕎 (8 nights, blue), Rosh Hashanah 🍎 (2 days, gold), Passover 🪬 (7 days, spring green), Sukkot 🌿 (7 days, orange) | Uses pre-computed tables for 2024–2045. |
+| `"sikh"` | Vaisakhi 🌾 (April 13, spring green), Bandi Chhor Divas 🪔 (5 days, gold) | Vaisakhi is fixed; Bandi Chhor Divas shares Diwali dates. |
+| `"western"` | Christmas 🎄 (candy-cane), Easter 🐣, Pride Month 🌈, Halloween 🎃, Valentine's Day 💕, Lunar New Year 🧧 | Default. January is always purple — Steve's birthday month must never be overridden. |
 | `"off"` | — | Disables all seasonal colours. |
 
 ## Implementation
 
 ### `src/breakfast/ui.py`
 
-- Pre-computed lookup tables (`_ROSH_HASHANAH`, `_HANUKKAH_START`, `_PASSOVER_START`, `_SUKKOT_START`, `_EID_AL_FITR`, `_EID_AL_ADHA`, `_DIWALI`, `_HOLI`, `_MID_AUTUMN`) covering 2024–2045.
+- Pre-computed lookup tables (`_DIWALI`, `_EID_AL_ADHA`, `_EID_AL_FITR`, `_HANUKKAH_START`, `_HOLI`, `_MID_AUTUMN`, `_PASSOVER_START`, `_ROSH_HASHANAH`, `_SUKKOT_START`) covering 2024–2045.
 - `_in_holiday_window(today, table, days)` helper.
-- `_western_calendar(today)` — refactored from the old `apply_seasonal_colour` logic. Returns `list` for cycling effects (December, June), `str` for fixed colours, `None` otherwise.
-- `_jewish_calendar`, `_islamic_calendar`, `_hindu_calendar`, `_sikh_calendar` — same signature.
+- `_east_asian_calendar`, `_hindu_calendar`, `_islamic_calendar`, `_jewish_calendar`, `_sikh_calendar`, `_western_calendar` — same signature. `_western_calendar` is refactored from the old `apply_seasonal_colour` logic. All return `list` for cycling effects, `str` for fixed colours, or `None` otherwise.
 - `CALENDARS` dict maps string keys to calendar functions.
 - `apply_seasonal_colour(text, pr_number, calendar="western")` — looks up the calendar function, dispatches, and handles list cycling via `pr_number % len(result)`.
 - `render_pr_summary` parameter renamed from `seasonal_colours: bool` to `calendar: str`.

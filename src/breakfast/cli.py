@@ -1130,6 +1130,9 @@ def breakfast(
     no_colour = no_colour or cfg.get("no-colour", False)
     colour = not no_colour
     seasonal_colours = cfg.get("seasonal-colours", True)
+    seasonal_calendar = cfg.get("seasonal-calendar", "western")
+    if not seasonal_colours:
+        seasonal_calendar = "off"
     summarise_user_prs = summarise_user_prs or cfg.get("summarise-user-prs", False)
     summarise_repo_prs = summarise_repo_prs or cfg.get("summarise-repo-prs", False)
     sort_by = sort_by if sort_by is not None else cfg.get("sort", "repo")
@@ -1650,7 +1653,7 @@ def breakfast(
             "render format=summary group_by=%s groups=%d", group_by, len(groups)
         )
         click.echo(
-            render_pr_summary(groups, title, label_header, colour, seasonal_colours),
+            render_pr_summary(groups, title, label_header, colour, seasonal_calendar),
             color=colour and _stdout_is_tty(),
         )
         if not no_update_check:
@@ -1981,15 +1984,15 @@ def breakfast(
         org_url = f"https://github.com/{org_name}"
 
         def _seasonal_colour(text: str) -> str:
-            """Apply seasonal colour to plain text when seasonal colouring is active."""
-            if seasonal_colours and colour:
-                return apply_seasonal_colour(text, pr_num)
+            if seasonal_calendar != "off" and colour:
+                return apply_seasonal_colour(text, pr_num, calendar=seasonal_calendar)
             return text
 
         def _seasonal_colour_link(url: str, text: str) -> str:
-            """Apply seasonal colour to a hyperlinked label when active."""
-            if seasonal_colours and colour:
-                return _styled_hyperlink(url, apply_seasonal_colour(text, pr_num))
+            if seasonal_calendar != "off" and colour:
+                return _styled_hyperlink(
+                    url, apply_seasonal_colour(text, pr_num, calendar=seasonal_calendar)
+                )
             return generate_terminal_url_anchor(url, text)
 
         row = {}

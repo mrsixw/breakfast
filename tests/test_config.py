@@ -377,6 +377,7 @@ def test_update_config_appends_missing_options(tmp_path, monkeypatch):
     # Missing options were appended
     assert "# workers = 64" in updated
     assert "# no-colour = false" in updated
+    assert "# update-summary = false" in updated
     # organization should NOT be duplicated
     assert updated.count("organization") == 1
 

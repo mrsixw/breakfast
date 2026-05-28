@@ -779,15 +779,15 @@ def render_colour_diagnostics() -> str:
 
     for label, key in palette_rows:
         swatch = _seasonal_swatch(SEASONAL_PALETTES[key])
-        lines.append(f"  {_vpad(label, 28)}  {swatch}")
+        lines.append(f"  {_vpad(label, 34)}  {swatch}")
 
     # Pride Month rainbow — one swatch per colour in the cycle.
     pride_swatches = "  ".join(f"{code}{BLOCK}\033[0m" for code in PRIDE_RAINBOW)
-    lines.append(f"  {_vpad('Pride Month 🌈 (June)', 28)}  {pride_swatches}")
+    lines.append(f"  {_vpad('Pride Month 🌈 (June)', 34)}  {pride_swatches}")
 
     # Holi rainbow — one swatch per colour in the cycle.
     holi_swatches = "  ".join(f"{code}{BLOCK}\033[0m" for code in HOLI_RAINBOW)
-    lines.append(f"  {_vpad('Holi 🌈 (spring)', 28)}  {holi_swatches}")
+    lines.append(f"  {_vpad('Holi 🌈 (spring)', 34)}  {holi_swatches}")
     lines.append("")
 
     # ------------------------------------------------------------------

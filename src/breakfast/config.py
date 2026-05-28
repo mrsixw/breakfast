@@ -143,7 +143,7 @@ _DEFAULT_CONFIG_CONTENT = """\
 
 # Which cultural holiday calendar drives seasonal colours.
 #   east-asian — Lunar New Year 🧧, Mid-Autumn Festival 🎑, Songkran 💦, Hanami 🌸
-#   hindu      — Diwali 🪔, Holi 🌈
+#   hindu      — Diwali 🪔, Holi 🎨
 #   islamic    — Eid al-Fitr 🌙, Eid al-Adha 🐑
 #   jewish     — Hanukkah 🕎, Passover 🪬, Rosh Hashanah 🍎, Sukkot 🌿
 #   sikh       — Vaisakhi 🌾, Bandi Chhor Divas 🪔

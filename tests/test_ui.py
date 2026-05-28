@@ -650,4 +650,4 @@ def test_render_colour_diagnostics_shows_all_new_palettes_and_holi():
     assert "Passover / Vaisakhi" in result
     assert "Lunar New Year" in result
     assert "Rosh / Diwali / Bandi" in result
-    assert "Holi 🌈" in result
+    assert "Holi 🎨" in result

@@ -392,7 +392,7 @@ _SUKKOT_START: dict[int, tuple[int, int]] = {
     2045: (9, 25),
 }
 
-# Holi rainbow: a burst of festival colours for the Festival of Colours 🌈
+# Holi rainbow: a burst of festival colours for the Festival of Colours 🎨
 HOLI_RAINBOW = [
     "\033[38;5;218m",  # pink
     "\033[38;5;226m",  # yellow
@@ -789,7 +789,7 @@ def render_colour_diagnostics() -> str:
 
     # Holi rainbow — one swatch per colour in the cycle.
     holi_swatches = "  ".join(f"{code}{BLOCK}\033[0m" for code in HOLI_RAINBOW)
-    lines.append(f"  {_vpad('Holi 🌈 (spring)', 34)}  {holi_swatches}")
+    lines.append(f"  {_vpad('Holi 🎨 (spring)', 34)}  {holi_swatches}")
     lines.append("")
 
     # ------------------------------------------------------------------

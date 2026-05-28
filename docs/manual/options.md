@@ -782,7 +782,7 @@ Choose which cultural holiday calendar drives the seasonal colour effects in the
 | Value | Description |
 | --- | --- |
 | `"east-asian"` | East/Southeast Asian: Lunar New Year 🧧 (red), Mid-Autumn Festival 🎑 (yellow), Songkran 💦 (blue), Hanami 🌸 (pink) |
-| `"hindu"` | Diwali 🪔 (gold), Holi 🌈 (rainbow) |
+| `"hindu"` | Diwali 🪔 (gold), Holi 🎨 (rainbow) |
 | `"islamic"` | Eid al-Fitr 🌙 (green), Eid al-Adha 🐑 (green) |
 | `"jewish"` | Hanukkah 🕎 (blue), Rosh Hashanah 🍎 (gold), Passover 🪬 (spring green), Sukkot 🌿 (orange) |
 | `"sikh"` | Vaisakhi 🌾 (spring green), Bandi Chhor Divas 🪔 (gold) |
@@ -790,7 +790,7 @@ Choose which cultural holiday calendar drives the seasonal colour effects in the
 | `"off"` | Disable seasonal colours entirely |
 
 ```toml
-seasonal-calendar = "jewish"
+seasonal-calendar = "east-asian"
 ```
 
 Note: `seasonal-colours = false` is a backward-compatible alias for `seasonal-calendar = "off"`.

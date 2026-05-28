@@ -1064,12 +1064,16 @@ def breakfast(
     no_drafts = no_drafts or cfg.get("no-drafts", False)
     drafts_only = drafts_only or cfg.get("drafts-only", False)
     age = age if age is not None else cfg.get("age", False)
+    cli_template = template_str
+    template_str = cli_template if cli_template is not None else cfg.get("template")
     if output_format is not None:
         fmt = output_format.lower()
     elif json_output is not None:
         fmt = "json" if json_output else "table"
     elif markdown_flag is not None:
         fmt = "markdown" if markdown_flag else "table"
+    elif cli_template is not None:
+        fmt = "template"
     else:
         cfg_format = cfg.get("format")
         if cfg_format is not None and cfg_format not in {
@@ -1089,9 +1093,14 @@ def breakfast(
                 err=True,
             )
             cfg_format = "table"
-        fmt = cfg_format or "table"
+
+        if cfg_format is not None:
+            fmt = cfg_format
+        elif template_str is not None:
+            fmt = "template"
+        else:
+            fmt = "table"
     json_output = fmt == "json"
-    template_str = template_str if template_str is not None else cfg.get("template")
     checks = checks if checks is not None else cfg.get("checks", False)
     approvals = approvals if approvals is not None else cfg.get("approvals", False)
     head_branch = (

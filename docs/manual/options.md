@@ -320,7 +320,10 @@ See [Output Formats](output-formats.md) for full details on each format.
 
 ### `--template`
 
-A Python format string used when `--format template` is active. One line is printed per PR with the template fields substituted.
+A Python format string used to print custom per-PR output. One line is printed per PR with the template fields substituted.
+
+> [!NOTE]
+> Specifying `--template <value>` automatically implies `--format template` unless an explicit overriding `--format` (or `--json`/`--markdown`) is also specified.
 
 Available fields:
 

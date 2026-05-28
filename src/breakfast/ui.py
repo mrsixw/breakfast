@@ -753,9 +753,9 @@ def render_colour_diagnostics() -> str:
     lines = [click.style("🎨 breakfast colour diagnostics", fg="cyan", bold=True), ""]
 
     # ------------------------------------------------------------------
-    # Seasonal colours (author / PR title)
+    # Seasonal colours (PR table rows & summary labels)
     # ------------------------------------------------------------------
-    lines.append(click.style("Seasonal colours  (author & PR title)", bold=True))
+    lines.append(click.style("Seasonal colours  (PR table rows & summary)", bold=True))
     palette_rows = [
         ("January 🗓️ (purple)", "purple"),
         ("Valentine's / Hanami 🌸 (pink)", "pink"),

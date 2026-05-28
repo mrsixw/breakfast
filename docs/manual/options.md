@@ -4,27 +4,88 @@
 
 ### `--organization`, `-o`
 
-The GitHub organization to query for pull requests.
+The GitHub organization to query for pull requests. Repeat the flag to query
+multiple organizations at once — their PRs are combined and deduplicated.
+
+You can optionally append a **scoped repo filter** to any org using a colon separator:
+
+| Flag form | Behaviour |
+| --- | --- |
+| `-o my-org` | Use the global `-r` filter (or all repos if no `-r`) |
+| `-o my-org:api` | Override: only repos matching `api` for this org |
+| `-o my-org:` | Override: all repos for this org, ignoring any global `-r` |
 
 ```bash
-breakfast -o my-org -r my-app
+breakfast -o my-org -r my-app                           # global filter
+breakfast -o my-org -o another-org                      # two orgs, no filter
+breakfast -o my-org -o another-org -r platform          # global filter for both orgs
+breakfast -o my-org:api -o another-org:platform         # per-org filters
+breakfast -o my-org:api -o another-org -r platform      # scoped for my-org, global for another-org
+breakfast -o my-org: -o another-org -r platform         # all repos for my-org; filtered for another-org
+```
+
+Config key supports both a single string and a list, with optional scoped filters:
+
+```toml
+# Single org
+organization = "my-org"
+
+# Multiple orgs
+organization = ["my-org", "another-org"]
+
+# Per-org scoped filters
+organization = ["my-org:api", "another-org:platform"]
+
+# Mixed: scoped for one, global -r for the other
+organization = ["my-org:api", "another-org"]
 ```
 
 ### `--repo-filter`, `-r`
 
-Filter repositories by name. Supports both substring matching and glob patterns.
+Filter repositories by name. Repeat the flag to include multiple repos — a PR is included
+if its repo matches **any** of the supplied filters (OR logic).
+
+Each filter supports both substring matching and glob patterns:
 
 - **Plain string** (no glob characters): substring match — `platform` matches `"platform-api"`, `"my-platform"`, `"happyplatform"`.
 - **Glob pattern** (contains `*`, `?`, or `[`): uses shell-style glob matching via `fnmatch`.
 
 ```bash
-breakfast -o my-org -r platform        # substring: matches "platform-api", "my-platform"
-breakfast -o my-org -r "platform-*"    # glob: matches "platform-api", "platform-web" but not "my-platform"
-breakfast -o my-org -r "service-?"     # glob: matches "service-a" but not "service-ab"
-breakfast -o my-org -r "app"           # substring: matches "app", "app-one", "happyapp"
+breakfast -o my-org -r platform              # substring: matches "platform-api", "my-platform"
+breakfast -o my-org -r "platform-*"          # glob: matches "platform-api", "platform-web"
+breakfast -o my-org -r api -r platform       # two filters: matches either
+breakfast -o my-org -r api -r "service-?"   # mix of substring and glob
 ```
 
-Glob matching is case-sensitive and uses Python's `fnmatch` semantics. To match all repos, omit `-r` entirely or pass an empty string.
+Config key supports both a single string and a list:
+
+```toml
+# Single filter
+repo-filter = "platform"
+
+# Multiple filters
+repo-filter = ["api", "platform", "service-*"]
+```
+
+Glob matching is case-sensitive and uses Python's `fnmatch` semantics. To match all repos, omit `-r` entirely.
+
+### `--exclude-repo`
+
+Exclude repositories matching a pattern from the results. Supports the same glob syntax as `--repo-filter`. Repeat the flag to exclude multiple patterns (OR logic).
+
+```bash
+breakfast -o my-org --exclude-repo "old-*"                      # exclude repos starting with "old-"
+breakfast -o my-org --exclude-repo "infra-*" --exclude-repo "archived-*"
+breakfast -o my-org -r "platform" --exclude-repo "platform-legacy"
+```
+
+Can also be set persistently in the config file:
+
+```toml
+exclude-repos = ["old-*", "infra-*"]
+```
+
+When used with `--repo-filter`, the include filter is applied first, then exclusions are removed from the resulting set.
 
 ## Filtering options
 
@@ -61,6 +122,25 @@ With `--ignore-author dependabot[bot]`, the bot PR is excluded:
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
 ```
 
+### `--fetch-state`
+
+Control which PR states are **fetched** from GitHub. By default only open PRs are
+retrieved. Use this flag to include closed or merged PRs in your results.
+
+Accepted values: `open` (default), `closed`, `merged`, `all`.
+
+```bash
+breakfast -o my-org -r platform --fetch-state closed    # closed PRs only
+breakfast -o my-org -r platform --fetch-state merged    # merged PRs only
+breakfast -o my-org -r platform --fetch-state all       # every state
+```
+
+> **Note:** Fetching closed or merged PRs can be significantly slower since
+> there are usually many more of them. Combine with `--limit` to keep output
+> manageable.
+
+Config key: `fetch-state = "open"`
+
 ### `--filter-state`
 
 Only show PRs with a specific state. Accepted values: `open`, `closed`, `draft`. Repeat the flag to match multiple states.
@@ -93,6 +173,51 @@ breakfast -o my-org -r my-app --filter-approval pending --filter-approval change
 ```
 
 > **Note:** Review and check statuses are cached alongside PR details, so repeated runs with these flags skip redundant API calls.
+
+### `--filter-reviewer`
+
+Only show PRs that have a specific user listed as a requested reviewer. Matching is **case-insensitive**. Repeat the flag to include any of the given reviewers (OR logic).
+
+```bash
+breakfast -o my-org --filter-reviewer alice              # PRs requesting review from alice
+breakfast -o my-org --filter-reviewer alice --filter-reviewer bob
+```
+
+### `--label`
+
+Only show PRs that have a specific label. Matching is **case-insensitive**. Repeat the flag to require any of the given labels (OR logic).
+
+```bash
+breakfast -o my-org --label bug                          # only PRs labelled "bug"
+breakfast -o my-org --label bug --label enhancement      # PRs with "bug" OR "enhancement"
+```
+
+### `--exclude-label`
+
+Exclude PRs that have a specific label. Matching is **case-insensitive**. Repeat to exclude any of the given labels.
+
+```bash
+breakfast -o my-org --exclude-label wip                  # hide WIP PRs
+breakfast -o my-org --exclude-label wip --exclude-label blocked
+```
+
+### `--filter-stale`
+
+Only show PRs that have been open for more than N days (based on creation date). Pairs naturally with `--age` to see the age column.
+
+```bash
+breakfast -o my-org --filter-stale 14         # PRs open for more than 14 days
+breakfast -o my-org --filter-stale 30 --age   # stale PRs with age column visible
+```
+
+### `--filter-inactive`
+
+Only show PRs that have not been updated in the last N days. Useful for surfacing PRs that need a nudge.
+
+```bash
+breakfast -o my-org --filter-inactive 7       # not updated in the last 7 days
+breakfast -o my-org --filter-stale 14 --filter-inactive 3
+```
 
 ### `--search`, `-s`
 
@@ -176,12 +301,13 @@ Processing platform PRs...🍩🧇...Done
 
 ### `--format`
 
-Choose the output format. Accepted values: `table` (default), `json`, `markdown`, `csv`.
+Choose the output format. Accepted values: `table` (default), `json`, `markdown`, `csv`, `template`.
 
 ```text
 breakfast -o my-org -r platform --format markdown
 breakfast -o my-org -r platform --format json
 breakfast -o my-org -r platform --format csv
+breakfast -o my-org -r platform --format template --template "{repo}: {title}"
 ```
 
 You can also set a persistent default in your config file:
@@ -191,6 +317,39 @@ format = "csv"
 ```
 
 See [Output Formats](output-formats.md) for full details on each format.
+
+### `--template`
+
+A Python format string used when `--format template` is active. One line is printed per PR with the template fields substituted.
+
+Available fields:
+
+| Field                    | Description                          |
+|--------------------------|--------------------------------------|
+| `{repo}`                 | Repository name                      |
+| `{title}`                | PR title                             |
+| `{author}`               | Author GitHub login                  |
+| `{url}`                  | PR URL                               |
+| `{state}`                | PR state (`open`, `closed`)          |
+| `{number}`               | PR number                            |
+| `{created_at}`           | ISO 8601 creation timestamp          |
+| `{updated_at}`           | ISO 8601 last-updated timestamp      |
+| `{additions}`            | Lines added                          |
+| `{deletions}`            | Lines deleted                        |
+| `{changed_files}`        | Files changed                        |
+| `{commits}`              | Commit count                         |
+| `{review_comments}`      | Review comment count                 |
+| `{labels}`               | Pipe-separated label names           |
+| `{requested_reviewers}`  | Pipe-separated reviewer logins       |
+
+```bash
+breakfast -o my-org --format template --template "{repo}: {title} by {author} — {url}"
+breakfast -o my-org --format template --template "{number}\t{title}\t{url}"
+```
+
+If an unknown field is used, breakfast exits with an error message.
+
+Config keys: `format = "template"` and `template = "{repo}: {title} ({url})"`
 
 ### `--markdown`
 
@@ -731,6 +890,40 @@ Config key: `summarise-repo-prs = true`
 > **Note:** `--summarise-user-prs` and `--summarise-repo-prs` are mutually
 > exclusive. All standard filter flags (`--author`, `--repo-filter`,
 > `--filter-state`, etc.) apply before the summary is computed.
+
+## Sorting
+
+### `--sort`
+
+Sort the PR list by a named field. By default PRs are grouped by repository
+(`repo`). Available choices:
+
+| Value      | Sorts by                                      |
+|------------|-----------------------------------------------|
+| `repo`     | Repository name (default)                     |
+| `age`      | Days since the PR was opened (oldest first)   |
+| `updated`  | Last-updated timestamp (most-recently first)  |
+| `author`   | PR author login (alphabetical)                |
+| `comments` | Total comment count (issue + review comments) |
+| `reviews`  | Review comment count only                     |
+
+```bash
+breakfast -o my-org --sort age          # oldest PRs first
+breakfast -o my-org --sort comments     # most commented first
+```
+
+Config key: `sort = "repo"`
+
+### `--reverse`
+
+Reverse the sort order imposed by `--sort`.
+
+```bash
+breakfast -o my-org --sort age --reverse    # newest PRs first
+breakfast -o my-org --sort author --reverse # Z→A author order
+```
+
+Config key: `sort-reverse = false`
 
 ## Other options
 

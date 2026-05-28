@@ -196,6 +196,172 @@ def test_filter_pr_details_combined_filters():
     assert {r["id"] for r in result} == {1, 2}
 
 
+def test_filter_pr_details_filter_reviewer_single():
+    pr_details = [
+        {
+            **_make_pr(pr_id=1),
+            "requested_reviewers": [{"login": "alice"}, {"login": "bob"}],
+        },
+        {**_make_pr(pr_id=2), "requested_reviewers": [{"login": "carol"}]},
+        {**_make_pr(pr_id=3), "requested_reviewers": []},
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_reviewer=("alice",))
+    assert [r["id"] for r in result] == [1]
+
+
+def test_filter_pr_details_filter_reviewer_multiple_or():
+    pr_details = [
+        {**_make_pr(pr_id=1), "requested_reviewers": [{"login": "alice"}]},
+        {**_make_pr(pr_id=2), "requested_reviewers": [{"login": "bob"}]},
+        {**_make_pr(pr_id=3), "requested_reviewers": [{"login": "carol"}]},
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_reviewer=("alice", "bob"))
+    assert {r["id"] for r in result} == {1, 2}
+
+
+def test_filter_pr_details_filter_reviewer_case_insensitive():
+    pr_details = [
+        {**_make_pr(pr_id=1), "requested_reviewers": [{"login": "Alice"}]},
+        {**_make_pr(pr_id=2), "requested_reviewers": [{"login": "bob"}]},
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_reviewer=("alice",))
+    assert [r["id"] for r in result] == [1]
+
+
+def test_filter_pr_details_filter_reviewer_no_reviewers():
+    pr_details = [
+        {**_make_pr(pr_id=1), "requested_reviewers": []},
+        {**_make_pr(pr_id=2)},  # field absent
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_reviewer=("alice",))
+    assert result == []
+
+
+def test_filter_pr_details_filter_label_single():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "bug"}, {"name": "urgent"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "enhancement"}]},
+        {**_make_pr(pr_id=3), "labels": []},
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_label=("bug",))
+    assert [r["id"] for r in result] == [1]
+
+
+def test_filter_pr_details_filter_label_multiple_or():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "bug"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "enhancement"}]},
+        {**_make_pr(pr_id=3), "labels": [{"name": "docs"}]},
+    ]
+
+    result = config.filter_pr_details(
+        pr_details, [], filter_label=("bug", "enhancement")
+    )
+    assert {r["id"] for r in result} == {1, 2}
+
+
+def test_filter_pr_details_filter_label_case_insensitive():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "Bug"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "docs"}]},
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_label=("bug",))
+    assert [r["id"] for r in result] == [1]
+
+
+def test_filter_pr_details_filter_label_no_labels_on_pr():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": []},
+        {**_make_pr(pr_id=2)},  # labels key absent
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_label=("bug",))
+    assert result == []
+
+
+def test_filter_pr_details_exclude_label():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "wip"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "ready"}]},
+        {**_make_pr(pr_id=3), "labels": []},
+    ]
+
+    result = config.filter_pr_details(pr_details, [], exclude_label=("wip",))
+    assert {r["id"] for r in result} == {2, 3}
+
+
+def test_filter_pr_details_exclude_label_case_insensitive():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "WIP"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "ready"}]},
+    ]
+
+    result = config.filter_pr_details(pr_details, [], exclude_label=("wip",))
+    assert [r["id"] for r in result] == [2]
+
+
+def _make_pr_dated(pr_id, created_at, updated_at):
+    return {
+        "id": pr_id,
+        "user": {"login": "alice"},
+        "state": "open",
+        "created_at": created_at,
+        "updated_at": updated_at,
+        "base": {"repo": {"name": "repo"}},
+        "number": pr_id,
+    }
+
+
+def test_filter_pr_details_filter_stale():
+    pr_details = [
+        _make_pr_dated(1, "2020-01-01T00:00:00Z", "2020-01-02T00:00:00Z"),
+        _make_pr_dated(2, "2099-12-31T00:00:00Z", "2099-12-31T00:00:00Z"),
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_stale=7)
+    assert [r["id"] for r in result] == [1]
+
+
+def test_filter_pr_details_filter_stale_boundary():
+    pr_details = [
+        _make_pr_dated(1, "2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z"),
+    ]
+    result_old = config.filter_pr_details(pr_details, [], filter_stale=1)
+    assert len(result_old) == 1
+
+    result_not_old_enough = config.filter_pr_details(
+        pr_details, [], filter_stale=999999
+    )
+    assert len(result_not_old_enough) == 0
+
+
+def test_filter_pr_details_filter_inactive():
+    pr_details = [
+        _make_pr_dated(1, "2020-01-01T00:00:00Z", "2020-01-02T00:00:00Z"),
+        _make_pr_dated(2, "2020-01-01T00:00:00Z", "2099-12-31T00:00:00Z"),
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_inactive=7)
+    assert [r["id"] for r in result] == [1]
+
+
+def test_filter_pr_details_stale_and_inactive_combined():
+    pr_details = [
+        _make_pr_dated(1, "2020-01-01T00:00:00Z", "2020-01-02T00:00:00Z"),
+        _make_pr_dated(2, "2020-01-01T00:00:00Z", "2099-12-31T00:00:00Z"),
+        _make_pr_dated(3, "2099-12-31T00:00:00Z", "2020-01-01T00:00:00Z"),
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_stale=7, filter_inactive=7)
+    assert [r["id"] for r in result] == [1]
+
+
 def test_get_config_dir_xdg(tmp_path, monkeypatch):
     custom_path = tmp_path / "custom-xdg"
     monkeypatch.setenv("XDG_CONFIG_HOME", str(custom_path))

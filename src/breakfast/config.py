@@ -5,6 +5,7 @@ from pathlib import Path
 
 import click
 
+from .api import get_pr_age_days, get_pr_inactive_days
 from .logger import logger
 from .xdg import get_config_dir, get_config_paths
 
@@ -29,14 +30,18 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Which organisation and repos to query by default.
 # -----------------------------------------------------------------------------
 
-# GitHub organisation to query for open pull requests.
-# Equivalent to: breakfast -o <value>
+# GitHub organisation(s) to query for open pull requests.
+# Equivalent to: breakfast -o <value> (repeat -o for multiple orgs).
 # Required (must be set here or passed with -o on every run).
+# For multiple orgs, use a list: organization = ["my-org", "another-org"]
 # organization = "my-org"
 
-# Filter repositories by name substring. Only repos whose name contains
-# this string are included. An empty string matches all repos.
-# Equivalent to: breakfast -r <value>
+# Filter repositories by name. Only repos whose name matches are included.
+# Supports substring matching and glob patterns (* ? [). Use a list to match
+# any of several filters (OR logic). Omit to match all repos.
+# Equivalent to: breakfast -r <value> (repeat -r for multiple filters).
+# Single filter:   repo-filter = "my-app"
+# Multiple:        repo-filter = ["api", "platform", "service-*"]
 # repo-filter = "my-app"
 
 
@@ -44,6 +49,16 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Filtering
 # Control which PRs appear in the output.
 # -----------------------------------------------------------------------------
+
+# Which PR states to fetch from GitHub. Default: open.
+# Choices: open, closed, merged, all.
+# Equivalent to: --fetch-state <value>
+# fetch-state = "open"
+
+# Repositories to exclude from results. Supports glob patterns (same syntax as
+# --repo-filter). Useful for hiding archived repos, forks, or internal tooling.
+# Equivalent to: --exclude-repo "old-*" --exclude-repo "infra-*"
+# exclude-repos = ["old-*", "infra-*"]
 
 # Authors to exclude from the output (case-insensitive). Useful for hiding
 # bot PRs. List format — add as many entries as you like.
@@ -105,8 +120,17 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Output format. "table" renders a coloured terminal table (default).
 # "json" outputs machine-readable JSON — useful for scripting or piping.
 # "markdown" renders a GitHub-flavoured Markdown table — great for pasting into docs.
-# Equivalent to: --format table|json|markdown
+# "csv" outputs comma-separated values for spreadsheet import.
+# "template" renders each PR using a custom format string (see template below).
+# Equivalent to: --format table|json|markdown|csv|template
 # format = "table"
+
+# Custom format string for --format template.
+# Available fields: {repo}, {title}, {author}, {url}, {state}, {number},
+#   {created_at}, {updated_at}, {additions}, {deletions}, {changed_files},
+#   {commits}, {review_comments}, {labels}, {requested_reviewers}
+# Equivalent to: --template <value>
+# template = "{repo}: {title} ({url})"
 
 # How status columns (Checks, Approved, Mergeable?) are rendered.
 #   emoji  — colourful emoji labels, e.g. ✅ pass, ❌ fail  (default)
@@ -206,6 +230,20 @@ _DEFAULT_CONFIG_CONTENT = """\
 # oldest PR age, and total comments per repo.
 # Equivalent to: --summarise-repo-prs
 # summarise-repo-prs = false
+
+
+# -----------------------------------------------------------------------------
+# Sorting
+# Control how the PR list is ordered.
+# -----------------------------------------------------------------------------
+
+# Sort PRs by field. Choices: repo (default), age, updated, author, comments, reviews.
+# Equivalent to: --sort <field>
+# sort = "repo"
+
+# Reverse the sort order.
+# Equivalent to: --reverse
+# sort-reverse = false
 """
 
 
@@ -248,7 +286,7 @@ def _key_present_in_file(key: str, content: str) -> bool:
     return bool(re.search(pattern, content, re.MULTILINE))
 
 
-_LIST_KEYS = {"ignore-author"}
+_LIST_KEYS = {"ignore-author", "exclude-repos"}
 
 
 def load_config(config_path=None):
@@ -406,6 +444,11 @@ def filter_pr_details(
     check_statuses=None,
     approval_statuses=None,
     search_title=None,
+    filter_reviewer=None,
+    filter_label=None,
+    exclude_label=None,
+    filter_stale=None,
+    filter_inactive=None,
 ):
     ignore_set = normalize_ignore_authors(ignore_authors)
     current_user_login_normalized = (
@@ -451,6 +494,25 @@ def filter_pr_details(
         if search_title is not None:
             title = pr_detail.get("title", "")
             if not re.search(search_title, title, re.IGNORECASE):
+                continue
+        if filter_reviewer:
+            reviewers = {
+                r["login"].lower() for r in pr_detail.get("requested_reviewers", [])
+            }
+            if not any(rv.lower() in reviewers for rv in filter_reviewer):
+                continue
+        if filter_label:
+            pr_labels = {lb["name"].lower() for lb in pr_detail.get("labels", [])}
+            if not any(lbl.lower() in pr_labels for lbl in filter_label):
+                continue
+        if exclude_label:
+            pr_labels = {lb["name"].lower() for lb in pr_detail.get("labels", [])}
+            if any(lbl.lower() in pr_labels for lbl in exclude_label):
+                continue
+        if filter_stale is not None and get_pr_age_days(pr_detail) < filter_stale:
+            continue
+        if filter_inactive is not None:
+            if get_pr_inactive_days(pr_detail) < filter_inactive:
                 continue
 
         filtered.append(pr_detail)

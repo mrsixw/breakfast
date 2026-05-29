@@ -179,3 +179,7 @@ cython_debug/
 # Generated build artifacts
 /completions/
 /man1/
+
+# Claude Code worktrees and Antigravity CLI state
+.claude/worktrees/
+.antigravitycli/

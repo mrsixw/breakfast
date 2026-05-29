@@ -22,7 +22,8 @@ When updating project rules, update **all four files** to keep them consistent.
 4. **PR Titles:** Include the issue number: `#N: Description` (e.g., `#42: Add Avocado Toast output`).
 5. **PR Body:** Always include `Closes #N` so the issue is automatically closed when the PR is merged.
 6. **CI Checks:** After pushing to a branch with an open PR, wait for all CI checks to complete (`gh pr checks`). If any check fails, investigate and fix the root cause — do not ignore failures or proceed without understanding them.
-7. **Conventional Git Commits:** Use standard prefixes for git commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, `ci:`.
+7. **Release notes format:** Releases are created by CI via `gh release create --generate-notes`. If editing release notes manually (e.g. via the GitHub UI), use bullet points (`- item`) for each change. The `update-summary` feature extracts the first three bullets, strips Markdown headers and URLs, and caps at 200 characters — prose paragraphs at the top of the body produce poor summaries.
+8. **Conventional Git Commits:** Use standard prefixes for git commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, `ci:`.
 
 ## Tooling & Environment
 - **Python:** >= 3.11

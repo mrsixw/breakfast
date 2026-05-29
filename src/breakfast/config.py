@@ -234,6 +234,17 @@ _DEFAULT_CONFIG_CONTENT = """\
 
 
 # -----------------------------------------------------------------------------
+# Update notifications
+# Control how version update alerts appear.
+# -----------------------------------------------------------------------------
+
+# When a newer version of breakfast is available, include a short summary of
+# what's new (pulled from the GitHub release notes) below the update banner.
+# Equivalent to: --update-summary
+# update-summary = false
+
+
+# -----------------------------------------------------------------------------
 # Sorting
 # Control how the PR list is ordered.
 # -----------------------------------------------------------------------------

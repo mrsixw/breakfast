@@ -76,6 +76,8 @@ When updating project rules, update **all four files** to keep them consistent.
 - On merges to `main`, create a release and tag; ensure the version is bumped before release.
 - Add a sanity check: if a tag already exists for the current version, run `git mkver patch` to bump it before releasing.
 - Prefer using Makefile targets for CI steps (add targets as needed to keep local/CI workflows consistent).
+- Releases are created by CI via `gh release create --generate-notes`, which auto-formats merged PR titles as `* title by @author in <URL>` bullets.
+- **Release notes format:** The `update-summary` feature reads the release body and extracts the first three bullet points (`- ` or `* `), strips Markdown headers and URLs, and caps output at 200 characters. If editing release notes manually (e.g. via the GitHub UI), use clean bullet points so `update-summary` renders useful output — avoid prose paragraphs at the top of the body.
 
 ## Code Quality
 - Use `ruff` (lint + import sorting) and `black` (formatting).

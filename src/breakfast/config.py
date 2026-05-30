@@ -1,6 +1,8 @@
 import re
 import tomllib
 from datetime import datetime
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 
 import click
@@ -418,7 +420,15 @@ def update_config():
     new_content = existing_content
     if not new_content.endswith("\n"):
         new_content += "\n"
-    new_content += "\n# --- Added by --update-config ---\n"
+    try:
+        _version = pkg_version("breakfast")
+    except PackageNotFoundError:
+        _version = "unknown"
+    readable_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    separator = (
+        f"# --- Added by --update-config (breakfast v{_version}) on {readable_ts} ---"
+    )
+    new_content += f"\n{separator}\n"
     for _key, block in missing:
         new_content += f"\n{block}\n"
 

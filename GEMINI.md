@@ -25,6 +25,11 @@ When updating project rules, update **all four files** to keep them consistent.
 7. **Release notes format:** Releases are created by CI via `gh release create --generate-notes`. If editing release notes manually (e.g. via the GitHub UI), use bullet points (`- item`) for each change. The `update-summary` feature extracts the first three bullets, strips Markdown headers and URLs, and caps at 200 characters — prose paragraphs at the top of the body produce poor summaries.
 8. **Conventional Git Commits:** Use standard prefixes for git commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, `ci:`.
 
+## Automated Workflows
+This repository provides standardized automated workflows for managing issues. All agents must refer to and execute these exact steps:
+- **Start work on an issue:** Follow the steps defined in [.agents/skills/start-issue/SKILL.md](.agents/skills/start-issue/SKILL.md).
+- **Finish work on an issue:** Follow the steps defined in [.agents/skills/finish-issue/SKILL.md](.agents/skills/finish-issue/SKILL.md).
+
 ## Tooling & Environment
 - **Python:** >= 3.11
 - **Package Manager:** **uv** (always use `uv sync`, `uv run`, etc.; never `pip`).

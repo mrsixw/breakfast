@@ -1,1 +1,0 @@
-../../.agents/commands/finish-issue.md

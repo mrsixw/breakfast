@@ -1,3 +1,5 @@
+import re
+
 from breakfast import config
 
 
@@ -546,6 +548,12 @@ def test_update_config_appends_missing_options(tmp_path, monkeypatch):
     assert "# update-summary = false" in updated
     # organization should NOT be duplicated
     assert updated.count("organization") == 1
+    # Separator includes version and timestamp
+    pattern = (
+        r"# --- Added by --update-config \(breakfast v.+\)"
+        r" on \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} ---"
+    )
+    assert re.search(pattern, updated)
 
     # A backup was created
     backups = list(config_dir.glob("config.toml.bak.*"))

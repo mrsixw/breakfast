@@ -27,8 +27,8 @@ When updating project rules, update **all four files** to keep them consistent.
 
 ## Automated Workflows
 This repository provides standardized automated workflows for managing issues. All agents must refer to and execute these exact steps:
-- **Start work on an issue:** Follow the steps defined in [.agents/commands/start-issue.md](.agents/commands/start-issue.md).
-- **Finish work on an issue:** Follow the steps defined in [.agents/commands/finish-issue.md](.agents/commands/finish-issue.md).
+- **Start work on an issue:** Follow the steps defined in [.agents/skills/start-issue/SKILL.md](.agents/skills/start-issue/SKILL.md).
+- **Finish work on an issue:** Follow the steps defined in [.agents/skills/finish-issue/SKILL.md](.agents/skills/finish-issue/SKILL.md).
 
 ## Tooling & Environment
 - **Python:** >= 3.11

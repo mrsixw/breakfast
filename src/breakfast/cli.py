@@ -1963,7 +1963,8 @@ def breakfast(
             )
         return
 
-    for pr_detail in pr_details:
+    colored_indices = []
+    for idx, pr_detail in enumerate(pr_details):
         adds = click.style(
             "+" + str(pr_detail.get("additions", 0)), fg="green", bold=True
         )
@@ -2047,6 +2048,7 @@ def breakfast(
         row["Link"] = _seasonal_colour_link(
             pr_detail["html_url"], f"PR-{pr_detail['number']}"
         )
+        colored_indices.append(_seasonal_colour(str(idx)))
         pr_data.append(row)
 
     # Apply explicit title truncation, then auto-fit to terminal if interactive
@@ -2066,7 +2068,7 @@ def breakfast(
         tabulate(
             pr_data,
             headers="keys",
-            showindex="always",
+            showindex=colored_indices,
             tablefmt="outline",
             disable_numparse=True,
         ),

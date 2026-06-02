@@ -54,8 +54,8 @@ When updating project rules, update **all four files** to keep them consistent.
 ## Work Items
 - This project uses GitHub issues (not Jira). Reference the GitHub issue number in branch names and PR titles.
 - Branch names should include the issue number and a short description (e.g., `issue-26_filter_pr_authors`).
-- **A GitHub issue MUST exist before any work begins.** If the user requests a change and no issue exists yet, create one (or ask the user to create one) before starting implementation. Every branch, commit, and PR must reference an issue number.
-- **One issue = one branch = one PR.** Never combine fixes for multiple issues into a single PR. If changes are related and depend on each other, open them as a stack of PRs (one per issue) rather than bundling.
+- **A GitHub issue MUST exist before any work begins.** If the user requests a change and no issue exists yet, create one (or ask the user to create one) before starting implementation. Every branch, commit, and PR must reference an issue number. *Exception*: Refinements, feedback iterations, or trivial tweaks on in-flight/undelivered feature branches do not require raising new issues; make changes directly on the active branch.
+- **One issue = one branch = one PR.** Never combine fixes for multiple unrelated issues into a single PR. If changes are related and depend on each other, open them as a stack of PRs (one per issue) rather than bundling. *Exception*: Trivial tweaks or closely related follow-up iterations can be added directly to the active branch rather than stack-PRing every detail.
 
 ## Automated Workflows
 This repository provides standardized automated workflows for managing issues. All agents must refer to and execute these exact steps:

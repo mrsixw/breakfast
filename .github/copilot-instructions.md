@@ -21,8 +21,8 @@ This project maintains per-agent instruction files that all convey the same rule
 When updating project rules, update **all four files** to keep them consistent.
 
 ## Mandatory Workflow
-1. **GitHub Issues First:** An issue MUST exist before work begins. If none exists, create one via `gh issue create`. (Do not use conventional commit prefixes for issue titles).
-2. **One Issue = One PR:** Never combine fixes for multiple issues into a single PR. Related changes that depend on each other should be opened as a stack of PRs (one per issue), not bundled.
+1. **GitHub Issues First:** An issue MUST exist before work begins. If none exists, create one via `gh issue create`. (Do not use conventional commit prefixes for issue titles). *Exception*: Refinements, feedback iterations, or trivial tweaks on in-flight/undelivered feature branches do not require raising new issues; make changes directly on the active branch.
+2. **One Issue = One PR:** Never combine fixes for multiple unrelated issues into a single PR. Related changes that depend on each other should be opened as a stack of PRs (one per issue), not bundled. *Exception*: Trivial tweaks or closely related follow-up iterations can be added directly to the active branch rather than stack-PRing every detail.
 3. **Branch Naming:** Format: `issue-N_short_description` (e.g., `issue-42_add_avocado_toast`).
 4. **PR Titles:** Include the issue number: `#N: Description` (e.g., `#42: Add Avocado Toast output`).
 5. **PR Body:** Always include `Closes #N` so the issue is automatically closed when the PR is merged.

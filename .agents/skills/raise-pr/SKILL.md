@@ -46,7 +46,7 @@ Standardized procedure to generate and submit a highly detailed, high-depth pull
 
    Closes #<issue-number>
 
-   🤖 Prepared by [Antigravity](https://github.com/google-deepmind)
+   [Agent signature: e.g., 🤖 Prepared by [Antigravity](https://github.com/google-deepmind), 🤖 Generated with [Claude Code](https://claude.com/claude-code), 🥐 Prepared by [Gemini](https://deepmind.google/technologies/gemini/), etc., matching your own identity]
    ```
 
 3. **Verify the PR Title format:**

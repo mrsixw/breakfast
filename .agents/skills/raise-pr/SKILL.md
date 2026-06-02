@@ -1,18 +1,18 @@
 ---
 name: raise-pr
-description: Generate a detailed, high-depth pull request body and create a PR on GitHub. Analyzes changes and creates a highly informative PR description.
+description: Generate a detailed, high-depth pull request body and create/update a PR on GitHub. Gathers workspace changes, updates the PR body dynamically, and posts update comments to capture a historical paper trail.
 ---
 
 # Raise PR Skill
 
-Standardized procedure to generate and submit a highly detailed, high-depth pull request on GitHub for this project.
+Standardized procedure to generate, submit, and dynamically update a highly detailed, high-depth pull request on GitHub for this project.
 
 ## When to use this skill
-- Use this skill when you have completed work on an issue branch, run all verification checks, and are ready to create a GitHub Pull Request for the active branch.
+- Use this skill when you have completed work or made additional updates on an issue branch, run all verification checks, and are ready to create or update a GitHub Pull Request for the active branch.
 
 ## How to use it
 
-### Steps
+### Steps for Creating a Pull Request
 
 1. **Analyze workspace changes:**
    Review your local git changes, commit history, and test outcomes to collect all context:
@@ -62,3 +62,30 @@ Standardized procedure to generate and submit a highly detailed, high-depth pull
    *(If the GitHub CLI is not authenticated or available, output the formatted title and body so the user can easily copy and paste them into the GitHub web interface).*
 
 5. **Confirm to the user:** Report the generated PR URL and a summary of the details submitted.
+
+---
+
+### Steps for Updating a Pull Request
+
+If a Pull Request has already been opened for the current branch, follow this procedure when pushing new updates:
+
+1. **Regenerate the PR body:**
+   - Gather all changes made across the entire branch (from the base `main` branch to your latest commit).
+   - Re-run Step 2 of "Steps for Creating a Pull Request" to generate a complete, up-to-date PR body description representing the full set of changes, test plans, and acceptance criteria.
+   - Update the existing Pull Request body on GitHub using the GitHub CLI:
+     ```bash
+     gh pr edit --body "<regenerated-body-content>"
+     ```
+
+2. **Add an update comment (for the historical paper trail):**
+   - Identify the specific changes introduced in this *latest* update/commit.
+   - Write a concise summary of the new additions, bug fixes, or test enhancements.
+   - Post this update summary as a comment on the Pull Request using the GitHub CLI:
+     ```bash
+     gh pr comment --body "### Update Comment: [Brief Description]
+
+     - **What's New**: [Detail the latest additions/fixes].
+     - **Verification**: [Mention unit tests run or added in this update]."
+     ```
+     This ensures a clear historical paper trail of how the PR evolved over time.
+

@@ -1133,6 +1133,7 @@ def breakfast(
     seasonal_calendar = cfg.get("seasonal-calendar", "western")
     if not seasonal_colours:
         seasonal_calendar = "off"
+    colour_index = cfg.get("colour-index", False)
     summarise_user_prs = summarise_user_prs or cfg.get("summarise-user-prs", False)
     summarise_repo_prs = summarise_repo_prs or cfg.get("summarise-repo-prs", False)
     show_update_summary = cfg.get("update-summary", False)
@@ -1963,7 +1964,8 @@ def breakfast(
             )
         return
 
-    for pr_detail in pr_details:
+    colored_indices = []
+    for idx, pr_detail in enumerate(pr_details):
         adds = click.style(
             "+" + str(pr_detail.get("additions", 0)), fg="green", bold=True
         )
@@ -2047,6 +2049,7 @@ def breakfast(
         row["Link"] = _seasonal_colour_link(
             pr_detail["html_url"], f"PR-{pr_detail['number']}"
         )
+        colored_indices.append(_seasonal_colour(str(idx)) if colour_index else str(idx))
         pr_data.append(row)
 
     # Apply explicit title truncation, then auto-fit to terminal if interactive
@@ -2066,7 +2069,7 @@ def breakfast(
         tabulate(
             pr_data,
             headers="keys",
-            showindex="always",
+            showindex=colored_indices,
             tablefmt="outline",
             disable_numparse=True,
         ),

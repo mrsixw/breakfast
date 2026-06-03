@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from unittest.mock import patch
@@ -3988,3 +3989,55 @@ def test_table_width_auto_fit_emoji_regression():
 
     # They should match exactly, preventing line wrap double spacing
     assert estimated_width == actual_width
+
+
+_COLOUR_INDEX_PR = {
+    "base": {"repo": {"name": "repo", "owner": {"login": "org"}}},
+    "mergeable": True,
+    "mergeable_state": "clean",
+    "additions": 5,
+    "deletions": 2,
+    "title": "Test PR",
+    "user": {"login": "alice"},
+    "number": 1,
+    "html_url": "https://github.com/org/repo/pull/1",
+    "state": "open",
+    "id": 123,
+    "review_comments": 0,
+    "commits": 1,
+    "changed_files": 1,
+    "created_at": "2026-06-01T12:00:00Z",
+    "updated_at": "2026-06-01T12:00:00Z",
+}
+
+
+def _setup_colour_index_mocks(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda _org, _repo_filter, _s="open": ["https://github.com/org/repo/pull/1"],
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _path: _COLOUR_INDEX_PR)
+    monkeypatch.setattr(cli, "_stdout_is_tty", lambda: True)
+
+
+def test_index_column_plain_by_default(monkeypatch):
+    _setup_colour_index_mocks(monkeypatch)
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+    assert result.exit_code == 0
+    assert re.search(r"\| 0 +\|", result.stdout)
+
+
+def test_index_column_coloured_when_enabled_by_config(monkeypatch, tmp_path):
+    _setup_colour_index_mocks(monkeypatch)
+    cfg_file = tmp_path / "test.toml"
+    cfg_file.write_text("colour-index = true\n")
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--config", str(cfg_file)]
+    )
+    assert result.exit_code == 0
+    # ANSI escape codes should wrap the index digit
+    assert not re.search(r"\| 0 +\|", result.stdout)

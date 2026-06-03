@@ -1133,7 +1133,7 @@ def breakfast(
     seasonal_calendar = cfg.get("seasonal-calendar", "western")
     if not seasonal_colours:
         seasonal_calendar = "off"
-    colour_index = cfg.get("colour-index", True)
+    colour_index = cfg.get("colour-index", False)
     summarise_user_prs = summarise_user_prs or cfg.get("summarise-user-prs", False)
     summarise_repo_prs = summarise_repo_prs or cfg.get("summarise-repo-prs", False)
     show_update_summary = cfg.get("update-summary", False)

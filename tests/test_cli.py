@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from unittest.mock import patch
@@ -4032,3 +4033,49 @@ def test_index_column_is_seasonally_colored(monkeypatch):
     # The output should contain the ANSI escape codes around the row index "0"
     # and the colored "0" index should be present in the output
     assert "\x1b[" in result.stdout
+
+
+def test_index_column_colour_disabled_by_config(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda _org, _repo_filter, _s="open": ["https://github.com/org/repo/pull/1"],
+    )
+    monkeypatch.setattr(
+        api,
+        "make_github_api_request",
+        lambda _path: {
+            "base": {"repo": {"name": "repo", "owner": {"login": "org"}}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": "Test PR",
+            "user": {"login": "alice"},
+            "number": 1,
+            "html_url": "https://github.com/org/repo/pull/1",
+            "state": "open",
+            "id": 123,
+            "review_comments": 0,
+            "commits": 1,
+            "changed_files": 1,
+            "created_at": "2026-06-01T12:00:00Z",
+            "updated_at": "2026-06-01T12:00:00Z",
+        },
+    )
+    monkeypatch.setattr(cli, "_stdout_is_tty", lambda: True)
+
+    cfg_file = tmp_path / "test.toml"
+    cfg_file.write_text("colour-index = false\n")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--config", str(cfg_file)]
+    )
+
+    assert result.exit_code == 0
+    # Index "0" should be plain text — no ANSI escape codes wrapping it
+    assert re.search(r"\| 0 +\|", result.stdout)

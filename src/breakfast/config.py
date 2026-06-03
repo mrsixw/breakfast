@@ -154,6 +154,9 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Note: seasonal-colours = false is equivalent to seasonal-calendar = "off"
 # seasonal-calendar = "western"
 
+# Colour the row-index column with the seasonal palette.
+# colour-index = true
+
 
 # -----------------------------------------------------------------------------
 # Legendary PRs ⚔️

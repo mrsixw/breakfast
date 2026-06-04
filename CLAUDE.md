@@ -18,6 +18,7 @@
   - `xdg.py` — XDG base directory support
 - `tests/` — module-specific pytest suite
 - `pyproject.toml` — project metadata, dependencies, tool config
+- `VERSION` — static file containing the current version string
 - `Makefile` — build, test, lint, and format targets
 - `utils/` — helper scripts for release management
 - `mkver.conf` — version bump configuration

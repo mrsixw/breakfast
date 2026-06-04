@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "breakfast"
-version = "0.75.0"
+dynamic = ["version"]
 description = "A tool to help you start your day"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -45,6 +45,9 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
 
 [tool.black]
 line-length = 88

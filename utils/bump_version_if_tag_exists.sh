@@ -16,7 +16,8 @@ if git rev-parse -q --verify "refs/tags/v${version}" >/dev/null; then
   git config user.email "github-actions[bot]@users.noreply.github.com"
   git mkver patch >/dev/null
   version=$(python utils/read_version.py)
-  git add pyproject.toml
+  uv lock
+  git add VERSION uv.lock
   git commit -m "chore: bump version to ${version}" >/dev/null
   if ! git push origin "HEAD:${branch_name}"; then
     echo "git push failed; version bump commit not pushed" >&2

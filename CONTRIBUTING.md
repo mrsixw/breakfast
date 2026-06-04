@@ -35,6 +35,7 @@ Thanks for your interest in contributing to **breakfast**! This guide covers set
   - `updater.py` — Version checking and caching
 - `tests/` — module-specific pytest suite
 - `pyproject.toml` — project metadata, dependencies, tool config
+- `VERSION` — static file containing the current version string
 - `Makefile` — build, test, lint, and format targets
 - `utils/` — shell and python scripts for release management
 - `mkver.conf` — version bump configuration

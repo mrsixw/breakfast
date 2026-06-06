@@ -663,6 +663,43 @@ Can also be set in the config file to apply to all runs:
 max-title-length = 72
 ```
 
+### `columns` (config only)
+
+Control which columns appear in the table, their order, custom headers, and per-column alignment. Specified as a list of inline TOML tables in your config file.
+
+Each entry requires a `name` key (the internal column identifier) and accepts two optional keys:
+
+| Key | Description |
+| --- | --- |
+| `name` | Internal column name (required). See the full list below. |
+| `header` | Override the column header text (optional). |
+| `align` | Column alignment: `left`, `center`, or `right` (optional). |
+
+**Available column names:** `org`, `repo`, `title`, `author`, `state`, `files`, `commits`, `diff`, `comments`, `age`, `checks`, `approvals`, `head-branch`, `base-branch`, `mergeable`, `link`
+
+When `columns` is set, **optional columns** (`age`, `checks`, `approvals`, `head-branch`, `base-branch`) are automatically enabled if listed — you do not need to also set their individual flags.
+
+```toml
+# Minimal — just control order
+columns = [
+  {name = "repo"},
+  {name = "title"},
+  {name = "author"},
+  {name = "link"},
+]
+
+# With custom headers and alignment
+columns = [
+  {name = "repo"},
+  {name = "title", header = "Pull Request"},
+  {name = "age",   align = "right"},
+  {name = "checks"},
+  {name = "link"},
+]
+```
+
+> **Note:** The `org` column is only shown when multiple organisations are queried (`-o org1 -o org2`). Listing it in `columns` while querying a single org is a no-op.
+
 ### `--workers`
 
 Number of parallel workers used to fetch PR details, check statuses, and approval statuses. Defaults to `64`. Lower values reduce API concurrency (useful if you're hitting rate limits); higher values may speed things up on very large organisations.

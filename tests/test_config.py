@@ -678,3 +678,63 @@ def test_load_config_list_ignore_author_not_wrapped(tmp_path, monkeypatch):
     assert result["ignore-author"] == ["alice", "bob"]
     warning_calls = [c for c in echo_calls if "ignore-author" in str(c[0])]
     assert len(warning_calls) == 0
+
+
+def test_parse_columns_config_none():
+    assert config.parse_columns_config(None) is None
+
+
+def test_parse_columns_config_empty():
+    assert config.parse_columns_config([]) is None
+
+
+def test_parse_columns_config_plain_strings():
+    result = config.parse_columns_config(["repo", "title", "link"])
+    assert result == [
+        {"name": "repo", "header": None, "align": None},
+        {"name": "title", "header": None, "align": None},
+        {"name": "link", "header": None, "align": None},
+    ]
+
+
+def test_parse_columns_config_inline_tables():
+    raw = [
+        {"name": "repo"},
+        {"name": "title", "header": "PR"},
+        {"name": "age", "align": "right"},
+    ]
+    result = config.parse_columns_config(raw)
+    assert result == [
+        {"name": "repo", "header": None, "align": None},
+        {"name": "title", "header": "PR", "align": None},
+        {"name": "age", "header": None, "align": "right"},
+    ]
+
+
+def test_parse_columns_config_unknown_name_skipped(monkeypatch):
+    echo_calls = []
+    monkeypatch.setattr(
+        config.click, "echo", lambda msg, **kw: echo_calls.append((msg, kw))
+    )
+    result = config.parse_columns_config(["repo", "bogus", "link"])
+    assert result == [
+        {"name": "repo", "header": None, "align": None},
+        {"name": "link", "header": None, "align": None},
+    ]
+    assert any("bogus" in str(c[0]) for c in echo_calls)
+
+
+def test_parse_columns_config_invalid_align_ignored(monkeypatch):
+    echo_calls = []
+    monkeypatch.setattr(
+        config.click, "echo", lambda msg, **kw: echo_calls.append((msg, kw))
+    )
+    result = config.parse_columns_config([{"name": "age", "align": "diagonal"}])
+    assert result == [{"name": "age", "header": None, "align": None}]
+    assert any("diagonal" in str(c[0]) for c in echo_calls)
+
+
+def test_parse_columns_config_all_invalid_returns_none(monkeypatch):
+    monkeypatch.setattr(config.click, "echo", lambda *a, **kw: None)
+    result = config.parse_columns_config(["not-a-column"])
+    assert result is None

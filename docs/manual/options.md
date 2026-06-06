@@ -547,6 +547,62 @@ Both flags can be combined to show the full branch path at a glance:
 breakfast -o my-org -r platform --head-branch --base-branch
 ```
 
+### `columns` (config only)
+
+Control which columns appear in the table and their order. Set in config using a TOML array of internal column names. Only the listed columns are shown. Optional columns (`age`, `checks`, `approvals`, `head-branch`, `base-branch`) are **automatically enabled** when included here — no need to set their individual flags as well.
+
+Available column names:
+
+| Name | Default header | Notes |
+| --- | --- | --- |
+| `org` | Org | Only shown when querying multiple organisations |
+| `repo` | Repo | |
+| `title` | PR Title | |
+| `author` | Author | |
+| `state` | State | |
+| `files` | Files | |
+| `commits` | Commits | |
+| `diff` | +/- | |
+| `comments` | Comments | |
+| `age` | Age | Optional — off by default |
+| `checks` | Checks | Optional — off by default; requires extra API call |
+| `approvals` | Approved | Optional — off by default; requires extra API call |
+| `head-branch` | Head Branch | Optional — off by default |
+| `base-branch` | Base Branch | Optional — off by default |
+| `mergeable` | Mergeable? | |
+| `link` | Link | |
+
+```toml
+columns = ["repo", "title", "author", "age", "approvals", "mergeable", "link"]
+```
+
+Unknown column names produce a warning and are ignored.
+
+### `column-headers` (config only)
+
+Override the display header for individual columns. Use a `[column-headers]` TOML table section with internal column names as keys:
+
+```toml
+[column-headers]
+title = "Pull Request"
+approvals = "Reviews"
+diff = "+/−"
+```
+
+Header renames are applied after auto-fit, so auto-fit still uses the original header names for its compression logic.
+
+### `column-alignments` (config only)
+
+Override the text alignment for individual columns. Use a `[column-alignments]` TOML table section. Valid values: `left`, `center`, `right`.
+
+```toml
+[column-alignments]
+diff = "right"
+age = "right"
+files = "right"
+commits = "right"
+```
+
 ### `--status-style`
 
 Choose how the `Checks`, `Approved`, and `Mergeable?` columns are rendered in table output.

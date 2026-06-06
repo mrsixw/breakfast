@@ -72,6 +72,86 @@ _DROPPABLE_COLUMNS = [
     "Base Branch",
 ]
 
+# Internal config key → canonical display header
+_COLUMN_KEY_TO_HEADER = {
+    "org": "Org",
+    "repo": "Repo",
+    "title": "PR Title",
+    "author": "Author",
+    "state": "State",
+    "files": "Files",
+    "commits": "Commits",
+    "diff": "+/-",
+    "comments": "Comments",
+    "age": "Age",
+    "checks": "Checks",
+    "approvals": "Approved",
+    "head-branch": "Head Branch",
+    "base-branch": "Base Branch",
+    "mergeable": "Mergeable?",
+    "link": "Link",
+}
+
+# Headers that auto-fit may shorten; needed so post-auto-fit renames still find them
+_AUTO_FIT_HEADER_MAP = {
+    "Approved": "Apr",
+    "Comments": "Cmt",
+    "Mergeable?": "Mrg",
+}
+
+
+def _apply_column_order(data, cfg_columns):
+    """Reorder and filter columns in each row dict per the configured column list."""
+    if not data or not cfg_columns:
+        return data
+    ordered_headers = [
+        _COLUMN_KEY_TO_HEADER[k]
+        for k in cfg_columns
+        if _COLUMN_KEY_TO_HEADER.get(k) in data[0]
+    ]
+    return [{h: row[h] for h in ordered_headers if h in row} for row in data]
+
+
+def _apply_header_renames(data, column_headers_cfg):
+    """Rename column headers post-auto-fit, accounting for auto-fit abbreviations."""
+    if not data or not column_headers_cfg:
+        return data
+    rename_map = {}
+    for col_key, new_name in column_headers_cfg.items():
+        orig = _COLUMN_KEY_TO_HEADER.get(col_key)
+        if not orig:
+            continue
+        if orig in data[0]:
+            rename_map[orig] = new_name
+        else:
+            auto_short = _AUTO_FIT_HEADER_MAP.get(orig)
+            if auto_short and auto_short in data[0]:
+                rename_map[auto_short] = new_name
+    if not rename_map:
+        return data
+    return [{rename_map.get(k, k): v for k, v in row.items()} for row in data]
+
+
+def _build_colalign(data, column_alignments_cfg):
+    """Return a colalign tuple for tabulate, or None if no alignments configured."""
+    if not data or not column_alignments_cfg:
+        return None
+    valid = {"left", "center", "right", "decimal"}
+    align_map = {}
+    for col_key, align in column_alignments_cfg.items():
+        if align not in valid:
+            continue
+        orig = _COLUMN_KEY_TO_HEADER.get(col_key)
+        if not orig:
+            continue
+        current = orig if orig in data[0] else _AUTO_FIT_HEADER_MAP.get(orig, orig)
+        if current in data[0]:
+            align_map[current] = align
+    if not align_map:
+        return None
+    return tuple(align_map.get(h) for h in data[0])
+
+
 _ANSI_RE = re.compile(r"\x1b(?:\[[0-9;]*[a-zA-Z]|\]8;;.*?\x1b\\|\]8;;.*?\x07)")
 _ANSI_LEADING_RE = re.compile(r"^(?:\x1b\[[0-9;]*[a-zA-Z])*")
 _OSC8_FULL_RE = re.compile(
@@ -1063,6 +1143,35 @@ def breakfast(
     mine_only = mine_only if mine_only is not None else cfg.get("mine-only", False)
     no_drafts = no_drafts or cfg.get("no-drafts", False)
     drafts_only = drafts_only or cfg.get("drafts-only", False)
+
+    # Column layout config — read before per-column flags so optional columns can be
+    # implicitly enabled when they appear in the columns list.
+    cfg_columns = cfg.get("columns")
+    if cfg_columns is not None:
+        _known_cols = set(_COLUMN_KEY_TO_HEADER)
+        _unknown_cols = [c for c in cfg_columns if c not in _known_cols]
+        for _uc in _unknown_cols:
+            click.echo(
+                click.style(
+                    f"Warning: unknown column '{_uc}' in config 'columns' — ignoring.",
+                    fg="yellow",
+                ),
+                err=True,
+            )
+        cfg_columns = [c for c in cfg_columns if c in _known_cols]
+        if "age" in cfg_columns and age is None:
+            age = True
+        if "checks" in cfg_columns and checks is None:
+            checks = True
+        if "approvals" in cfg_columns and approvals is None:
+            approvals = True
+        if "head-branch" in cfg_columns and head_branch is None:
+            head_branch = True
+        if "base-branch" in cfg_columns and base_branch is None:
+            base_branch = True
+    column_headers_cfg = cfg.get("column-headers", {})
+    column_alignments_cfg = cfg.get("column-alignments", {})
+
     age = age if age is not None else cfg.get("age", False)
     cli_template = template_str
     template_str = cli_template if cli_template is not None else cfg.get("template")
@@ -1798,12 +1907,15 @@ def breakfast(
             )
             row["Link"] = f"[PR-{pr_detail['number']}]({pr_detail['html_url']})"
             md_data.append(row)
+        md_data = _apply_column_order(md_data, cfg_columns)
+        md_data = _apply_header_renames(md_data, column_headers_cfg)
         click.echo(
             tabulate(
                 md_data,
                 headers="keys",
                 tablefmt="github",
                 disable_numparse=True,
+                colalign=_build_colalign(md_data, column_alignments_cfg),
             )
         )
         logger.info(
@@ -2052,6 +2164,8 @@ def breakfast(
         colored_indices.append(_seasonal_colour(str(idx)) if colour_index else str(idx))
         pr_data.append(row)
 
+    pr_data = _apply_column_order(pr_data, cfg_columns)
+
     # Apply explicit title truncation, then auto-fit to terminal if interactive
     if max_title_length:
         pr_data = [
@@ -2065,6 +2179,8 @@ def breakfast(
         terminal_width = shutil.get_terminal_size().columns
         pr_data = _auto_fit(pr_data, terminal_width, max_title_length)
 
+    pr_data = _apply_header_renames(pr_data, column_headers_cfg)
+
     click.echo(
         tabulate(
             pr_data,
@@ -2072,6 +2188,7 @@ def breakfast(
             showindex=colored_indices,
             tablefmt="outline",
             disable_numparse=True,
+            colalign=_build_colalign(pr_data, column_alignments_cfg),
         ),
         color=_stdout_is_tty() and colour,
     )

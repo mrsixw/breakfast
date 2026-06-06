@@ -113,6 +113,27 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Equivalent to: --max-title-length <n>
 # max-title-length = 72
 
+# Control which columns appear and their order. Only the listed columns are shown.
+# Optional columns (age, checks, approvals, head-branch, base-branch) are
+# automatically enabled when included here — no need to set their individual flags.
+# Available names: org, repo, title, author, state, files, commits, diff,
+#   comments, age, checks, approvals, head-branch, base-branch, mergeable, link
+# columns = ["repo", "title", "author", "age", "checks", "approvals",
+#   "mergeable", "link"]
+
+# Rename individual column headers. Use a [column-headers] table section with
+# internal column names as keys and your desired header string as the value.
+# Example:
+#   [column-headers]
+#   title = "PR"
+#   approvals = "Reviews"
+#
+# Customise per-column text alignment. Values: left, center, right.
+# Example:
+#   [column-alignments]
+#   diff = "right"
+#   age = "right"
+
 
 # -----------------------------------------------------------------------------
 # Display

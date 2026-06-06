@@ -4041,3 +4041,119 @@ def test_index_column_coloured_when_enabled_by_config(monkeypatch, tmp_path):
     assert result.exit_code == 0
     # ANSI escape codes should wrap the index digit
     assert not re.search(r"\| 0 +\|", result.stdout)
+
+
+# ---------------------------------------------------------------------------
+# Column layout: ordering, filtering, header renames, alignment
+# ---------------------------------------------------------------------------
+
+
+def _setup_column_layout_mocks(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda _org, _repo_filter, _s="open": ["https://github.com/org/repo/pull/1"],
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_fixture())
+
+
+def test_columns_config_controls_which_columns_are_shown(monkeypatch):
+    _setup_column_layout_mocks(monkeypatch)
+    monkeypatch.setattr(
+        cli, "load_config", lambda _: {"columns": ["repo", "title", "link"]}
+    )
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+    assert result.exit_code == 0
+    assert "Repo" in result.stdout
+    assert "PR Title" in result.stdout
+    assert "Link" in result.stdout
+    # Columns not in the list should be absent
+    assert "Author" not in result.stdout
+    assert "State" not in result.stdout
+    assert "Mergeable?" not in result.stdout
+
+
+def test_columns_config_preserves_specified_order(monkeypatch):
+    _setup_column_layout_mocks(monkeypatch)
+    monkeypatch.setattr(
+        cli, "load_config", lambda _: {"columns": ["link", "title", "repo"]}
+    )
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+    assert result.exit_code == 0
+    # "Link" header must appear before "PR Title" which must appear before "Repo"
+    link_pos = result.stdout.index("Link")
+    title_pos = result.stdout.index("PR Title")
+    repo_pos = result.stdout.index("Repo")
+    assert link_pos < title_pos < repo_pos
+
+
+def test_columns_config_implicitly_enables_optional_age_column(monkeypatch):
+    _setup_column_layout_mocks(monkeypatch)
+    monkeypatch.setattr(cli, "get_pr_age_days", lambda _pr: 5)
+    monkeypatch.setattr(
+        cli, "load_config", lambda _: {"columns": ["repo", "title", "age", "link"]}
+    )
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+    assert result.exit_code == 0
+    assert "Age" in result.stdout
+    assert "5" in result.stdout
+
+
+def test_columns_config_unknown_column_warns_and_ignores(monkeypatch):
+    _setup_column_layout_mocks(monkeypatch)
+    monkeypatch.setattr(
+        cli,
+        "load_config",
+        lambda _: {"columns": ["repo", "title", "nonexistent", "link"]},
+    )
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+    assert result.exit_code == 0
+    assert "nonexistent" in result.stderr
+    assert "Warning" in result.stderr
+    assert "Repo" in result.stdout
+
+
+def test_column_headers_config_renames_header(monkeypatch):
+    _setup_column_layout_mocks(monkeypatch)
+    monkeypatch.setattr(
+        cli,
+        "load_config",
+        lambda _: {"column-headers": {"title": "Pull Request", "repo": "Project"}},
+    )
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+    assert result.exit_code == 0
+    assert "Pull Request" in result.stdout
+    assert "Project" in result.stdout
+    assert "PR Title" not in result.stdout
+    assert "Repo" not in result.stdout
+
+
+def test_column_alignments_config_accepted_without_error(monkeypatch):
+    _setup_column_layout_mocks(monkeypatch)
+    monkeypatch.setattr(
+        cli,
+        "load_config",
+        lambda _: {"column-alignments": {"files": "right", "commits": "right"}},
+    )
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+    assert result.exit_code == 0
+    assert "Files" in result.stdout
+    assert "Commits" in result.stdout
+
+
+def test_columns_config_applies_to_markdown_format(monkeypatch):
+    _setup_column_layout_mocks(monkeypatch)
+    monkeypatch.setattr(
+        cli, "load_config", lambda _: {"columns": ["repo", "title", "link"]}
+    )
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--format", "markdown"]
+    )
+    assert result.exit_code == 0
+    assert "| Repo" in result.stdout
+    assert "PR Title" in result.stdout
+    assert "Link" in result.stdout
+    assert "Author" not in result.stdout

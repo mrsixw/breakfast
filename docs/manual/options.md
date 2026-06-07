@@ -665,38 +665,130 @@ max-title-length = 72
 
 ### `columns` (config only)
 
-Control which columns appear in the table, their order, custom headers, and per-column alignment. Specified as a list of inline TOML tables in your config file.
+Control which columns appear in the table, their order, custom headers, and per-column alignment. Set this in your config file (`~/.config/breakfast/config.toml` or `.breakfast.toml` in the current directory).
 
-Each entry requires a `name` key (the internal column identifier) and accepts two optional keys:
+When `columns` is **not set**, breakfast uses its built-in default layout:
 
-| Key | Description |
-| --- | --- |
-| `name` | Internal column name (required). See the full list below. |
-| `header` | Override the column header text (optional). |
-| `align` | Column alignment: `left`, `center`, or `right` (optional). |
+```text
+Repo | PR Title | Author | State | Files | Commits | +/- | Comments | Mergeable? | Link
+```
 
-**Available column names:** `org`, `repo`, `title`, `author`, `state`, `files`, `commits`, `diff`, `comments`, `age`, `checks`, `approvals`, `head-branch`, `base-branch`, `mergeable`, `link`
+plus any optional columns you've enabled via their individual flags (`--age`, `--checks`, etc.).
 
-When `columns` is set, **optional columns** (`age`, `checks`, `approvals`, `head-branch`, `base-branch`) are automatically enabled if listed — you do not need to also set their individual flags.
+When `columns` **is set**, only the columns you list are shown, in the order you list them. You are in full control.
+
+#### Entry format
+
+Each entry in the list is an inline TOML table with a required `name` key and two optional keys:
+
+| Key | Type | Description |
+| --- | --- | --- |
+| `name` | string (required) | Internal column identifier. See the reference table below. |
+| `header` | string (optional) | Override the column header text shown in the table. |
+| `align` | string (optional) | Cell alignment: `left`, `center`, or `right`. Defaults to `left`. |
+
+#### Column reference
+
+| Name | Default header | Always shown | Description |
+| --- | --- | --- | --- |
+| `org` | `Org` | Only with multiple `-o` flags | GitHub organisation name, hyperlinked. |
+| `repo` | `Repo` | Yes | Repository name, hyperlinked to the repo on GitHub. |
+| `title` | `PR Title` | Yes | PR title, hyperlinked. Seasonal colours apply. |
+| `author` | `Author` | Yes | PR author login, hyperlinked to their GitHub profile. |
+| `state` | `State` | Yes | `open`, `draft`, or `closed`. Colour-coded green/grey/red. |
+| `files` | `Files` | Yes | Number of changed files. Colour-graded by magnitude. |
+| `commits` | `Commits` | Yes | Number of commits. Colour-graded by magnitude. |
+| `diff` | `+/-` | Yes | Additions and deletions, e.g. `+42/-10`. |
+| `comments` | `Comments` | Yes | Number of review comments. Colour-graded by magnitude. |
+| `age` | `Age` | **Optional** (off by default) | Days since the PR was opened. Colour-graded: green < 10d, yellow < 20d, orange < 50d, red 50d+. |
+| `checks` | `Checks` | **Optional** (off by default) | CI check result: ✅ pass, ❌ fail, ⚠️ pending, ➖ none. Requires an extra API call per PR. |
+| `approvals` | `Approved` | **Optional** (off by default) | Review approval status: ✅ approved, ❌ changes, ⏳ pending. Requires an extra API call per PR. |
+| `head-branch` | `Head Branch` | **Optional** (off by default) | Source branch the PR was raised from, hyperlinked. |
+| `base-branch` | `Base Branch` | **Optional** (off by default) | Target branch the PR merges into, hyperlinked. |
+| `mergeable` | `Mergeable?` | Yes | GitHub's mergeability status: ✅ (clean), ❌ (dirty), ⚠️ (behind), ⏳ computing. |
+| `link` | `Link` | Yes | Clickable `PR-N` hyperlink to the PR on GitHub. |
+
+#### Auto-enabling optional columns
+
+Optional columns (`age`, `checks`, `approvals`, `head-branch`, `base-branch`) are **automatically enabled** when they appear in your `columns` list. You do not need to also set `age = true` or pass `--age` on every run.
+
+#### Worked examples
+
+**Minimal morning view** — just what you need at a glance:
 
 ```toml
-# Minimal — just control order
 columns = [
   {name = "repo"},
   {name = "title"},
   {name = "author"},
-  {name = "link"},
-]
-
-# With custom headers and alignment
-columns = [
-  {name = "repo"},
-  {name = "title", header = "Pull Request"},
   {name = "age",   align = "right"},
-  {name = "checks"},
   {name = "link"},
 ]
 ```
+
+**Review-focused view** — hide noise, surface approval and CI state:
+
+```toml
+columns = [
+  {name = "repo"},
+  {name = "title",     header = "Pull Request"},
+  {name = "author"},
+  {name = "checks"},
+  {name = "approvals", header = "Reviews"},
+  {name = "link"},
+]
+```
+
+**Compact view** — useful on narrower terminals:
+
+```toml
+columns = [
+  {name = "repo"},
+  {name = "title", header = "PR"},
+  {name = "link"},
+]
+```
+
+**Stacked-PR view** — see where each PR targets:
+
+```toml
+columns = [
+  {name = "repo"},
+  {name = "title"},
+  {name = "head-branch", header = "From"},
+  {name = "base-branch", header = "Into"},
+  {name = "mergeable"},
+  {name = "link"},
+]
+```
+
+**Full custom view** — everything with numeric columns right-aligned:
+
+```toml
+columns = [
+  {name = "repo"},
+  {name = "title",       header = "Pull Request"},
+  {name = "author"},
+  {name = "state"},
+  {name = "age",         align = "right"},
+  {name = "checks",      header = "CI"},
+  {name = "approvals",   header = "Reviews"},
+  {name = "diff",        align = "right"},
+  {name = "comments",    align = "right"},
+  {name = "mergeable",   header = "Merge?"},
+  {name = "link"},
+]
+```
+
+#### Interaction with CLI flags
+
+When `columns` is set in config, it controls the table layout for all runs. CLI flags still override individual behaviours:
+
+- `--no-age` will suppress age data even if `age` is in `columns` (the column will be absent).
+- `--age` has no effect if `age` is not in `columns` (the column still won't appear).
+- All other flags (`--checks`, `--approvals`, etc.) follow the same logic.
+
+For a one-off column layout without changing your config, use the individual flags directly rather than `columns`.
 
 > **Note:** The `org` column is only shown when multiple organisations are queried (`-o org1 -o org2`). Listing it in `columns` while querying a single org is a no-op.
 

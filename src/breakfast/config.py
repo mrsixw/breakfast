@@ -113,6 +113,21 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Equivalent to: --max-title-length <n>
 # max-title-length = 72
 
+# Control which columns appear, their order, headers, and alignment.
+# Each entry is {name = "..."} with optional header = "..." and align = "...".
+# Optional columns (age, checks, approvals, head-branch, base-branch) are
+# automatically enabled when included — no need to set their individual flags.
+# Available names: org, repo, title, author, state, files, commits, diff,
+#   comments, age, checks, approvals, head-branch, base-branch, mergeable, link
+# Expand to multi-line in your config for readability:
+#   columns = [
+#     {name = "repo"},
+#     {name = "title", header = "PR"},
+#     {name = "age", align = "right"},
+#     {name = "link"},
+#   ]
+# columns = [{name = "repo"}, {name = "title"}, {name = "author"}, {name = "link"}]
+
 
 # -----------------------------------------------------------------------------
 # Display
@@ -304,6 +319,98 @@ def _key_present_in_file(key: str, content: str) -> bool:
 
 
 _LIST_KEYS = {"ignore-author", "exclude-repos"}
+
+_VALID_COLUMN_NAMES = frozenset(
+    {
+        "org",
+        "repo",
+        "title",
+        "author",
+        "state",
+        "files",
+        "commits",
+        "diff",
+        "comments",
+        "age",
+        "checks",
+        "approvals",
+        "head-branch",
+        "base-branch",
+        "mergeable",
+        "link",
+    }
+)
+
+_VALID_ALIGNMENTS = frozenset({"left", "center", "right"})
+
+
+def parse_columns_config(columns_raw):
+    """Parse the ``columns`` config value into a list of column spec dicts.
+
+    Accepts either a plain list of column-name strings or a list of inline TOML
+    tables with ``name``, optional ``header``, and optional ``align`` keys.
+
+    Returns ``None`` when *columns_raw* is falsy (no custom column config).
+    Returns a list of ``{"name": str, "header": str|None, "align": str|None}``
+    dicts preserving the user's requested order.
+    """
+    if not columns_raw:
+        return None
+
+    specs = []
+    for item in columns_raw:
+        if isinstance(item, str):
+            name = item.lower()
+            if name not in _VALID_COLUMN_NAMES:
+                click.echo(
+                    click.style(
+                        f"Warning: unknown column name '{name}' in config — skipping.",
+                        fg="yellow",
+                    ),
+                    err=True,
+                )
+                continue
+            specs.append({"name": name, "header": None, "align": None})
+        elif isinstance(item, dict):
+            name = str(item.get("name", "")).lower()
+            if not name or name not in _VALID_COLUMN_NAMES:
+                click.echo(
+                    click.style(
+                        f"Warning: unknown or missing column name '{name}'"
+                        " in config — skipping.",
+                        fg="yellow",
+                    ),
+                    err=True,
+                )
+                continue
+            header = item.get("header") or None
+            raw_align = item.get("align")
+            if raw_align is not None:
+                align = str(raw_align).lower()
+                if align not in _VALID_ALIGNMENTS:
+                    click.echo(
+                        click.style(
+                            f"Warning: invalid align '{raw_align}' for column"
+                            f" '{name}' — must be left, center, or right."
+                            " Ignoring.",
+                            fg="yellow",
+                        ),
+                        err=True,
+                    )
+                    align = None
+            else:
+                align = None
+            specs.append({"name": name, "header": header, "align": align})
+        else:
+            click.echo(
+                click.style(
+                    f"Warning: invalid columns entry {item!r} in config — skipping.",
+                    fg="yellow",
+                ),
+                err=True,
+            )
+
+    return specs or None
 
 
 def load_config(config_path=None):

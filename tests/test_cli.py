@@ -4041,3 +4041,106 @@ def test_index_column_coloured_when_enabled_by_config(monkeypatch, tmp_path):
     assert result.exit_code == 0
     # ANSI escape codes should wrap the index digit
     assert not re.search(r"\| 0 +\|", result.stdout)
+
+
+# ---------------------------------------------------------------------------
+# Column config (Option A inline table format)
+# ---------------------------------------------------------------------------
+
+_COLUMN_CONFIG_PR = {
+    "base": {
+        "repo": {
+            "name": "my-repo",
+            "html_url": "https://github.com/org/my-repo",
+            "owner": {"login": "org"},
+        }
+    },
+    "mergeable": True,
+    "mergeable_state": "clean",
+    "additions": 5,
+    "deletions": 2,
+    "title": "Fix the thing",
+    "user": {"login": "alice", "html_url": "https://github.com/alice"},
+    "state": "open",
+    "draft": False,
+    "changed_files": 1,
+    "commits": 1,
+    "review_comments": 0,
+    "labels": [],
+    "requested_reviewers": [],
+    "created_at": "2026-01-10T00:00:00Z",
+    "html_url": "https://github.com/org/my-repo/pull/42",
+    "number": 42,
+    "id": 42,
+}
+
+
+def _setup_column_config_mocks(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda _org, _rf, _s="open": ["https://github.com/org/my-repo/pull/42"],
+    )
+    monkeypatch.setattr(api, "make_github_api_request", lambda _p: _COLUMN_CONFIG_PR)
+
+
+def test_columns_config_reorders_columns(monkeypatch, tmp_path):
+    _setup_column_config_mocks(monkeypatch)
+    cfg_file = tmp_path / "test.toml"
+    cfg_file.write_text(
+        'columns = [{name = "title"}, {name = "repo"}, {name = "link"}]\n'
+    )
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "--config", str(cfg_file)])
+    assert result.exit_code == 0
+    # Title column should appear before Repo
+    title_pos = result.stdout.find("PR Title")
+    repo_pos = result.stdout.find("Repo")
+    assert title_pos < repo_pos
+    # Columns not in spec should be absent
+    assert "Author" not in result.stdout
+    assert "State" not in result.stdout
+
+
+def test_columns_config_custom_header(monkeypatch, tmp_path):
+    _setup_column_config_mocks(monkeypatch)
+    cfg_file = tmp_path / "test.toml"
+    cfg_file.write_text(
+        "columns = ["
+        '{name = "repo"}, '
+        '{name = "title", header = "Pull Request"}, '
+        '{name = "link"}]\n'
+    )
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "--config", str(cfg_file)])
+    assert result.exit_code == 0
+    assert "Pull Request" in result.stdout
+    assert "PR Title" not in result.stdout
+
+
+def test_columns_config_autoenables_age(monkeypatch, tmp_path):
+    _setup_column_config_mocks(monkeypatch)
+    cfg_file = tmp_path / "test.toml"
+    cfg_file.write_text(
+        "columns = ["
+        '{name = "repo"}, '
+        '{name = "title"}, '
+        '{name = "age"}, '
+        '{name = "link"}]\n'
+    )
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "--config", str(cfg_file)])
+    assert result.exit_code == 0
+    assert "Age" in result.stdout
+
+
+def test_columns_config_plain_string_list(monkeypatch, tmp_path):
+    _setup_column_config_mocks(monkeypatch)
+    cfg_file = tmp_path / "test.toml"
+    cfg_file.write_text('columns = ["repo", "title", "link"]\n')
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "--config", str(cfg_file)])
+    assert result.exit_code == 0
+    assert "Repo" in result.stdout
+    assert "PR Title" in result.stdout
+    assert "Link" in result.stdout
+    assert "Author" not in result.stdout

@@ -96,6 +96,25 @@ Combine with `--head-branch` for the full picture:
 breakfast -o my-org -r platform --head-branch --base-branch
 ```
 
+### Customise your table layout
+
+The `columns` config key lets you choose which columns appear, in what order, with custom headers and alignment. Add it to your config file (`~/.config/breakfast/config.toml`):
+
+```toml
+columns = [
+  {name = "repo"},
+  {name = "title",     header = "Pull Request"},
+  {name = "author"},
+  {name = "age",       align = "right"},
+  {name = "approvals", header = "Reviews"},
+  {name = "link"},
+]
+```
+
+Optional columns (`age`, `checks`, `approvals`, `head-branch`, `base-branch`) are auto-enabled when listed — no extra flags needed.
+
+See the [`columns` option reference](options.md#columns-config-only) for the full column list, alignment options, and more examples.
+
 ### Get machine-readable output
 
 Progress messages go to stderr, so JSON can be piped cleanly:

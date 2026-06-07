@@ -40,6 +40,7 @@ from .config import (
     filter_pr_details,
     generate_default_config,
     load_config,
+    parse_columns_config,
     update_config,
 )
 from .logger import configure as configure_logging
@@ -57,6 +58,25 @@ from .ui import (
     render_pr_summary,
 )
 from .updater import check_for_update
+
+_COLUMN_DISPLAY_NAMES: dict[str, str] = {
+    "org": "Org",
+    "repo": "Repo",
+    "title": "PR Title",
+    "author": "Author",
+    "state": "State",
+    "files": "Files",
+    "commits": "Commits",
+    "diff": "+/-",
+    "comments": "Comments",
+    "age": "Age",
+    "checks": "Checks",
+    "approvals": "Approved",
+    "head-branch": "Head Branch",
+    "base-branch": "Base Branch",
+    "mergeable": "Mergeable?",
+    "link": "Link",
+}
 
 # Columns dropped as last resort (least important first)
 _DROPPABLE_COLUMNS = [
@@ -317,6 +337,50 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
             pr_data = [{k: v for k, v in row.items() if k != col} for row in pr_data]
 
     return pr_data
+
+
+def _apply_column_specs(
+    pr_data: list[dict],
+    column_specs: list[dict],
+    multi_org: bool,
+) -> tuple[list[dict], tuple | None]:
+    """Reorder, filter, and rename columns per user column specs.
+
+    Returns ``(new_pr_data, colalign)`` where *colalign* is either a tuple of
+    alignment strings (one per column) for tabulate, or ``None`` when no custom
+    alignments are set.
+    """
+    if not pr_data:
+        return pr_data, None
+
+    first = pr_data[0]
+    ordered: list[tuple[str, str, str | None]] = []
+    for spec in column_specs:
+        display_key = _COLUMN_DISPLAY_NAMES.get(spec["name"])
+        if not display_key:
+            continue
+        if spec["name"] == "org" and not multi_org:
+            continue
+        if display_key not in first:
+            continue
+        header = spec["header"] if spec["header"] else display_key
+        ordered.append((display_key, header, spec["align"]))
+
+    if not ordered:
+        return pr_data, None
+
+    new_pr_data = [
+        {header: row[display_key] for display_key, header, _ in ordered}
+        for row in pr_data
+    ]
+
+    has_custom_align = any(align is not None for _, _, align in ordered)
+    colalign = (
+        tuple(align if align else "left" for _, _, align in ordered)
+        if has_custom_align
+        else None
+    )
+    return new_pr_data, colalign
 
 
 def _stdout_is_tty():
@@ -1021,6 +1085,20 @@ def breakfast(
         sys.exit(0)
 
     cfg = load_config(config)
+
+    column_specs = parse_columns_config(cfg.get("columns"))
+    if column_specs:
+        _spec_names = {s["name"] for s in column_specs}
+        if "age" in _spec_names and age is None:
+            age = True
+        if "checks" in _spec_names and checks is None:
+            checks = True
+        if "approvals" in _spec_names and approvals is None:
+            approvals = True
+        if "head-branch" in _spec_names and head_branch is None:
+            head_branch = True
+        if "base-branch" in _spec_names and base_branch is None:
+            base_branch = True
 
     # organization is a tuple from multiple=True; merge with config
     if organization:
@@ -2053,7 +2131,7 @@ def breakfast(
         pr_data.append(row)
 
     # Apply explicit title truncation, then auto-fit to terminal if interactive
-    if max_title_length:
+    if max_title_length and pr_data and "PR Title" in pr_data[0]:
         pr_data = [
             {
                 **row,
@@ -2065,6 +2143,12 @@ def breakfast(
         terminal_width = shutil.get_terminal_size().columns
         pr_data = _auto_fit(pr_data, terminal_width, max_title_length)
 
+    colalign = None
+    if column_specs:
+        pr_data, colalign = _apply_column_specs(
+            pr_data, column_specs, len(organizations) > 1
+        )
+
     click.echo(
         tabulate(
             pr_data,
@@ -2072,6 +2156,7 @@ def breakfast(
             showindex=colored_indices,
             tablefmt="outline",
             disable_numparse=True,
+            **({"colalign": colalign} if colalign else {}),
         ),
         color=_stdout_is_tty() and colour,
     )

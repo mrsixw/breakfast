@@ -55,6 +55,11 @@ When updating project rules, update **all four files** to keep them consistent.
 ## Work Items
 - This project uses GitHub issues (not Jira). Reference the GitHub issue number in branch names and PR titles.
 - Branch names should include the issue number and a short description (e.g., `issue-26_filter_pr_authors`).
+- **Before creating a new branch, always sync `main` first:**
+  ```bash
+  git fetch origin main && git checkout main && git pull origin main
+  ```
+  Branch off the updated `main`. Never start a feature branch from a stale local copy.
 - **A GitHub issue MUST exist before any work begins.** If the user requests a change and no issue exists yet, create one (or ask the user to create one) before starting implementation. Every branch, commit, and PR must reference an issue number. *Exception*: Refinements, feedback iterations, or trivial tweaks on in-flight/undelivered feature branches do not require raising new issues; make changes directly on the active branch. If you are unsure whether to raise a new GitHub issue or continue on a current active branch, always pause and ask the user directly first.
 - **One issue = one branch = one PR.** Never combine fixes for multiple unrelated issues into a single PR. If changes are related and depend on each other, open them as a stack of PRs (one per issue) rather than bundling. *Exception*: Trivial tweaks or closely related follow-up iterations can be added directly to the active branch rather than stack-PRing every detail.
 

@@ -84,13 +84,14 @@ def test_normalize_ignore_authors_multiple():
 def test_load_config_expand_user(tmp_path, monkeypatch):
     # Mock HOME to tmp_path
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(config.click, "echo", lambda *a, **kw: None)
 
     cfg_file = tmp_path / "myconfig.toml"
-    cfg_file.write_text('organization = "home-org"')
+    cfg_file.write_text('owner = "home-org"')
 
     # Test path with ~
     result = config.load_config(str(cfg_file).replace(str(tmp_path), "~"))
-    assert result["organization"] == "home-org"
+    assert result["owner"] == "home-org"
 
 
 def test_generate_default_config(tmp_path, monkeypatch):
@@ -103,8 +104,9 @@ def test_generate_default_config(tmp_path, monkeypatch):
     assert result is True
     config_file = tmp_path / ".config" / "breakfast" / "config.toml"
     assert config_file.exists()
-    assert 'organization = "my-org"' in config_file.read_text()
-    assert 'status-style = "emoji"' in config_file.read_text()
+    content = config_file.read_text()
+    assert '# owner = "my-org"' in content
+    assert 'status-style = "emoji"' in content
 
     # Second run: should not overwrite
     result2 = config.generate_default_config()
@@ -435,7 +437,7 @@ def test_extract_option_blocks_finds_all_keys():
     keys = [k for k, _ in blocks]
     # Spot-check a representative sample from every section
     for expected in [
-        "organization",
+        "owner",
         "repo-filter",
         "ignore-author",
         "mine-only",
@@ -460,9 +462,11 @@ def test_extract_option_blocks_finds_all_keys():
 
 def test_extract_option_blocks_block_includes_description():
     blocks = dict(config._extract_option_blocks(config._DEFAULT_CONFIG_CONTENT))
-    # The organization block should include its description comment
-    assert "GitHub organisation" in blocks["organization"]
-    assert "# organization" in blocks["organization"]
+    # The owner block should include its description comment
+    assert "GitHub owner" in blocks["owner"]
+    assert "# owner" in blocks["owner"]
+    # 'organization' is not a standalone template key; deprecated via load_config only
+    assert "organization" not in blocks
 
 
 def test_extract_option_blocks_no_duplicate_keys():
@@ -534,20 +538,20 @@ def test_update_config_appends_missing_options(tmp_path, monkeypatch):
     config_dir.mkdir(parents=True)
     config_file = config_dir / "config.toml"
     # Write a minimal config that is missing most options
-    config_file.write_text('organization = "my-org"\n')
+    config_file.write_text('owner = "my-org"\n')
 
     result = config.update_config()
     assert result is True
 
     updated = config_file.read_text()
     # The original content is preserved
-    assert 'organization = "my-org"' in updated
+    assert 'owner = "my-org"' in updated
     # Missing options were appended
     assert "# workers = 64" in updated
     assert "# no-colour = false" in updated
     assert "# update-summary = false" in updated
-    # organization should NOT be duplicated
-    assert updated.count("organization") == 1
+    # owner should NOT be duplicated
+    assert updated.count('owner = "my-org"') == 1
     # Separator includes version and timestamp
     pattern = (
         r"# --- Added by --update-config \(breakfast v.+\)"
@@ -558,7 +562,7 @@ def test_update_config_appends_missing_options(tmp_path, monkeypatch):
     # A backup was created
     backups = list(config_dir.glob("config.toml.bak.*"))
     assert len(backups) == 1
-    assert backups[0].read_text() == 'organization = "my-org"\n'
+    assert backups[0].read_text() == 'owner = "my-org"\n'
 
 
 def test_update_config_does_not_duplicate_commented_key(tmp_path, monkeypatch):
@@ -616,7 +620,7 @@ def test_load_config_continues_after_invalid_toml(tmp_path, monkeypatch):
     bad_file = tmp_path / "bad.toml"
     bad_file.write_text("not valid [[[ toml")
     good_file = tmp_path / "good.toml"
-    good_file.write_text('organization = "test-org"')
+    good_file.write_text('owner = "test-org"')
 
     monkeypatch.setattr(
         config,
@@ -626,7 +630,7 @@ def test_load_config_continues_after_invalid_toml(tmp_path, monkeypatch):
     monkeypatch.setattr(config.click, "echo", lambda *a, **kw: None)
 
     result = config.load_config()
-    assert result.get("organization") == "test-org"
+    assert result.get("owner") == "test-org"
 
 
 def test_load_config_wraps_scalar_ignore_author_to_list(tmp_path, monkeypatch):
@@ -738,3 +742,35 @@ def test_parse_columns_config_all_invalid_returns_none(monkeypatch):
     monkeypatch.setattr(config.click, "echo", lambda *a, **kw: None)
     result = config.parse_columns_config(["not-a-column"])
     assert result is None
+
+
+def test_load_config_organization_key_deprecated_and_normalized(monkeypatch, tmp_path):
+    """Config key 'organization' is normalized to 'owner' with a deprecation warning."""
+    warnings = []
+    monkeypatch.setattr(
+        config.click, "echo", lambda msg, **kw: warnings.append(str(msg))
+    )
+
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('organization = "my-org"\n')
+    monkeypatch.setattr(config, "get_config_paths", lambda: [cfg_file])
+
+    result = config.load_config()
+
+    assert result.get("owner") == "my-org"
+    assert "organization" not in result
+    assert any("deprecated" in w for w in warnings)
+    assert any("'owner'" in w for w in warnings)
+
+
+def test_load_config_owner_takes_precedence_over_organization(monkeypatch, tmp_path):
+    """When both 'owner' and 'organization' are present, 'owner' wins."""
+    monkeypatch.setattr(config.click, "echo", lambda *a, **kw: None)
+
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('owner = "new-owner"\norganization = "old-org"\n')
+    monkeypatch.setattr(config, "get_config_paths", lambda: [cfg_file])
+
+    result = config.load_config()
+
+    assert result.get("owner") == "new-owner"

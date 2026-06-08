@@ -29,14 +29,15 @@ _DEFAULT_CONFIG_CONTENT = """\
 
 # -----------------------------------------------------------------------------
 # Target
-# Which organisation and repos to query by default.
+# Which owner and repos to query by default.
 # -----------------------------------------------------------------------------
 
-# GitHub organisation(s) to query for open pull requests.
-# Equivalent to: breakfast -o <value> (repeat -o for multiple orgs).
+# GitHub owner (organization or personal account) to query for open pull requests.
+# Equivalent to: breakfast -o <value> (repeat -o for multiple owners).
 # Required (must be set here or passed with -o on every run).
-# For multiple orgs, use a list: organization = ["my-org", "another-org"]
-# organization = "my-org"
+# For multiple owners, use a list: owner = ["my-org", "another-org"]
+# Note: the old 'organization' key still works but is deprecated — use 'owner'.
+# owner = "my-org"
 
 # Filter repositories by name. Only repos whose name matches are included.
 # Supports substring matching and glob patterns (* ? [). Use a list to match
@@ -191,7 +192,7 @@ _DEFAULT_CONFIG_CONTENT = """\
 # -----------------------------------------------------------------------------
 # Caching
 # Cache results on disk so repeated runs are near-instant.
-# The cache is keyed by (organization, repo-filter) — each pair gets its own
+# The cache is keyed by (owner, repo-filter) — each pair gets its own
 # file stored in ~/.cache/breakfast/ (or $XDG_CACHE_HOME/breakfast/).
 # -----------------------------------------------------------------------------
 
@@ -433,6 +434,17 @@ def load_config(config_path=None):
             # seasonal-colours = false → seasonal-calendar = "off" (backward compat)
             if not data.get("seasonal-colours", True):
                 data.setdefault("seasonal-calendar", "off")
+            # organization → owner (deprecated key, backward compat)
+            if "organization" in data:
+                click.echo(
+                    click.style(
+                        "⚠️  Config key 'organization' is deprecated and will be"
+                        " removed in a future release. Rename it to 'owner'.",
+                        fg="yellow",
+                    ),
+                    err=True,
+                )
+                data.setdefault("owner", data.pop("organization"))
             for key in _LIST_KEYS:
                 if key in data and not isinstance(data[key], list):
                     logger.warning(

@@ -2,7 +2,7 @@
 
 ## Basic usage
 
-Fetch and display open PRs for an organization, filtered by repo name:
+Fetch and display open PRs for an owner (organization or personal account), filtered by repo name:
 
 ```bash
 breakfast -o my-org -r my-app
@@ -207,8 +207,8 @@ breakfast -o my-org -r platform --cache-ttl 10m   # cache for 10 minutes
 
 ## How it works
 
-1. **Check cache** - Looks for a recent on-disk cache for the `(organization, repo-filter)` pair; if found and within the TTL, skips steps 2–3 entirely
-2. **Fetch repositories** - Uses the GitHub GraphQL API to paginate through all repositories in the organization
+1. **Check cache** - Looks for a recent on-disk cache for the `(owner, repo-filter)` pair; if found and within the TTL, skips steps 2–3 entirely
+2. **Fetch repositories** - Uses the GitHub GraphQL API to paginate through all repositories for the owner (organization or personal account)
 3. **Filter repos** - Keeps only repos whose name contains the `--repo-filter` substring
 4. **Fetch PR details** - Uses the GitHub REST API to fetch full details for each open PR (parallelized for speed); writes results to disk cache
 5. **Filter PRs** - Applies author filters (`--ignore-author`, `--mine-only`), title search (`--search`), and other filters

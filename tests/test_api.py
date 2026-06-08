@@ -131,7 +131,7 @@ def test_get_github_prs_filters_and_paginates(monkeypatch):
     responses = [
         {
             "data": {
-                "organization": {
+                "repositoryOwner": {
                     "repositories": {
                         "nodes": [
                             {
@@ -162,7 +162,7 @@ def test_get_github_prs_filters_and_paginates(monkeypatch):
         },
         {
             "data": {
-                "organization": {
+                "repositoryOwner": {
                     "repositories": {
                         "nodes": [
                             {
@@ -201,7 +201,7 @@ def test_get_github_prs_filters_and_paginates(monkeypatch):
 def _single_page_response(repos):
     return {
         "data": {
-            "organization": {
+            "repositoryOwner": {
                 "repositories": {
                     "nodes": repos,
                     "pageInfo": {"endCursor": None, "hasNextPage": False},
@@ -215,7 +215,7 @@ def _single_page_graphql(pr_urls):
     """Return a one-page GraphQL response with a single repo containing pr_urls."""
     return {
         "data": {
-            "organization": {
+            "repositoryOwner": {
                 "repositories": {
                     "nodes": [
                         {
@@ -233,7 +233,7 @@ def _single_page_graphql(pr_urls):
 def test_get_github_prs_skips_null_repo_nodes(monkeypatch):
     response = {
         "data": {
-            "organization": {
+            "repositoryOwner": {
                 "repositories": {
                     "nodes": [
                         None,
@@ -255,6 +255,17 @@ def test_get_github_prs_skips_null_repo_nodes(monkeypatch):
     prs = api.get_github_prs("org", None)
 
     assert prs == ["https://example.com/valid-repo/1"]
+
+
+def test_get_github_prs_raises_owner_not_found_when_null(monkeypatch):
+    response = {"data": {"repositoryOwner": None}}
+    monkeypatch.setattr(api, "make_github_graphql_request", lambda _q, _v: response)
+    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+
+    with pytest.raises(api.OwnerNotFoundError) as exc_info:
+        api.get_github_prs("ghost-login", None)
+
+    assert "ghost-login" in str(exc_info.value)
 
 
 def test_match_exclude_repos_exact():

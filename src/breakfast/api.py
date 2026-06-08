@@ -35,6 +35,17 @@ class GitHubRateLimitError(Exception):
             super().__init__("GitHub API rate limit exceeded.")
 
 
+class OwnerNotFoundError(Exception):
+    """Raised when a GitHub owner (org or user) cannot be resolved."""
+
+    def __init__(self, login):
+        self.login = login
+        super().__init__(
+            f"Could not resolve a GitHub organization or user with the login '{login}'."
+            " Check that the owner name is correct and your token has access."
+        )
+
+
 _MAX_RETRIES = 3
 _RETRY_STATUSES = {502, 503, 504}
 
@@ -274,12 +285,12 @@ _FETCH_STATE_MAP = {
 }
 
 
-def get_github_prs(organization, repo_filters, fetch_state="open"):
+def get_github_prs(owner, repo_filters, fetch_state="open"):
     states_list = _FETCH_STATE_MAP.get(fetch_state.lower(), ["OPEN"])
     states_gql = ", ".join(states_list)
     base_query = f"""
-    query($organization: String!, $cursor: String){{
-      organization(login: $organization){{
+    query($owner: String!, $cursor: String){{
+      repositoryOwner(login: $owner){{
         repositories(after: $cursor, first:100){{
           nodes{{
             name
@@ -297,15 +308,17 @@ def get_github_prs(organization, repo_filters, fetch_state="open"):
       }}
     }}
         """
-    variables = {"organization": organization}
+    variables = {"owner": owner}
 
     gql_responses = []
 
-    click.echo(f"Fetching {organization} PRs...", nl=False, err=True)
+    click.echo(f"Fetching {owner} PRs...", nl=False, err=True)
     while True:
         response = make_github_graphql_request(base_query, variables)
+        if response["data"]["repositoryOwner"] is None:
+            raise OwnerNotFoundError(owner)
         gql_responses.append(response)
-        page_info = response["data"]["organization"]["repositories"]["pageInfo"]
+        page_info = response["data"]["repositoryOwner"]["repositories"]["pageInfo"]
         if not page_info["hasNextPage"]:
             break
         variables["cursor"] = page_info["endCursor"]
@@ -314,7 +327,7 @@ def get_github_prs(organization, repo_filters, fetch_state="open"):
 
     prs = []
     for response in gql_responses:
-        for repo in response["data"]["organization"]["repositories"]["nodes"]:
+        for repo in response["data"]["repositoryOwner"]["repositories"]["nodes"]:
             if repo is None:
                 continue
             if _match_repo_filter(repo["name"], repo_filters):

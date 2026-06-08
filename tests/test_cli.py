@@ -584,7 +584,7 @@ def test_cli_checks_not_shown_by_default(monkeypatch):
 def test_cli_show_config_includes_status_style_from_config(tmp_path):
     cfg_path = tmp_path / "breakfast.toml"
     cfg_path.write_text(
-        'organization = "org"\n'
+        'owner = "org"\n'
         'repo-filter = "repo"\n'
         "checks = true\n"
         'status-style = "ascii"\n'
@@ -956,9 +956,7 @@ def test_cli_json_excludes_approval_by_default(monkeypatch):
 
 def test_cli_approvals_config_file(tmp_path):
     cfg_path = tmp_path / "breakfast.toml"
-    cfg_path.write_text(
-        'organization = "org"\nrepo-filter = "repo"\napprovals = true\n'
-    )
+    cfg_path.write_text('owner = "org"\nrepo-filter = "repo"\napprovals = true\n')
 
     runner = CliRunner()
     result = runner.invoke(cli.breakfast, ["--config", str(cfg_path), "--show-config"])
@@ -2984,7 +2982,7 @@ def test_error_messages_go_to_stderr(monkeypatch):
 
 def test_config_format_json_enables_json_output(monkeypatch, tmp_path):
     cfg_file = tmp_path / "config.toml"
-    cfg_file.write_text('format = "json"\norganization = "org"\n')
+    cfg_file.write_text('format = "json"\nowner = "org"\n')
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
@@ -3002,7 +3000,7 @@ def test_config_format_json_enables_json_output(monkeypatch, tmp_path):
 
 def test_config_format_table_produces_table_output(monkeypatch, tmp_path):
     cfg_file = tmp_path / "config.toml"
-    cfg_file.write_text('format = "table"\norganization = "org"\n')
+    cfg_file.write_text('format = "table"\nowner = "org"\n')
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
@@ -3019,7 +3017,7 @@ def test_config_format_table_produces_table_output(monkeypatch, tmp_path):
 
 def test_config_format_invalid_warns_and_falls_back_to_table(monkeypatch, tmp_path):
     cfg_file = tmp_path / "config.toml"
-    cfg_file.write_text('format = "tofu"\norganization = "org"\n')
+    cfg_file.write_text('format = "tofu"\nowner = "org"\n')
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
@@ -3039,7 +3037,7 @@ def test_config_format_invalid_warns_and_falls_back_to_table(monkeypatch, tmp_pa
 def test_cli_no_json_flag_overrides_config_format_json(monkeypatch, tmp_path):
     """--no-json on CLI overrides format = "json" in config."""
     cfg_file = tmp_path / "config.toml"
-    cfg_file.write_text('format = "json"\norganization = "org"\n')
+    cfg_file.write_text('format = "json"\nowner = "org"\n')
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
@@ -3120,7 +3118,7 @@ def test_format_markdown_output_goes_to_stdout(monkeypatch):
 
 def test_config_format_markdown_produces_markdown_output(monkeypatch, tmp_path):
     cfg_file = tmp_path / "config.toml"
-    cfg_file.write_text('format = "markdown"\norganization = "org"\n')
+    cfg_file.write_text('format = "markdown"\nowner = "org"\n')
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
@@ -3300,7 +3298,7 @@ def test_format_csv_includes_optional_age_column(monkeypatch):
 
 def test_config_format_csv_produces_csv_output(monkeypatch, tmp_path):
     cfg_file = tmp_path / "config.toml"
-    cfg_file.write_text('format = "csv"\norganization = "org"\n')
+    cfg_file.write_text('format = "csv"\nowner = "org"\n')
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
@@ -3618,7 +3616,69 @@ def test_missing_organization_exits_with_error(monkeypatch):
     result = runner.invoke(cli.breakfast, [])
 
     assert result.exit_code == 1
-    assert "Organization must be provided" in result.stderr
+    assert "Owner must be provided" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Owner flag / deprecation (#295, #325, #327)
+# ---------------------------------------------------------------------------
+
+
+def test_deprecated_org_flag_warns_and_works(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "get_github_prs", lambda *_: [])
+
+    result = CliRunner().invoke(cli.breakfast, ["--org", "my-org"])
+
+    assert "deprecated" in result.stderr
+    assert "--owner" in result.stderr
+
+
+def test_deprecated_organization_flag_warns_and_works(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "get_github_prs", lambda *_: [])
+
+    result = CliRunner().invoke(cli.breakfast, ["--organization", "my-org"])
+
+    assert "deprecated" in result.stderr
+    assert "--owner" in result.stderr
+
+
+def test_deprecated_organization_config_key_warns(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "get_github_prs", lambda *_: [])
+
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('organization = "my-org"\n')
+
+    result = CliRunner().invoke(cli.breakfast, ["--config", str(cfg_file)])
+
+    assert "deprecated" in result.stderr
+    assert "'organization'" in result.stderr
+    assert "'owner'" in result.stderr
+
+
+def test_owner_not_found_exits_cleanly(monkeypatch, tmp_path):
+    from breakfast.api import OwnerNotFoundError
+
+    def _raise(*_):
+        raise OwnerNotFoundError("ghost")
+
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "get_github_prs", _raise)
+
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('owner = "ghost"\n')
+
+    result = CliRunner().invoke(cli.breakfast, ["--config", str(cfg_file)])
+
+    assert result.exit_code == 1
+    assert "ghost" in result.stderr
+    assert "Traceback" not in result.output
 
 
 # ---------------------------------------------------------------------------
@@ -3670,7 +3730,7 @@ def test_multiple_repo_filters_config_list(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
 
     config_file = tmp_path / "breakfast.toml"
-    config_file.write_text('organization = "org"\nrepo-filter = ["api", "platform"]\n')
+    config_file.write_text('owner = "org"\nrepo-filter = ["api", "platform"]\n')
 
     captured = []
 
@@ -3778,7 +3838,7 @@ def test_scoped_filter_from_config(monkeypatch, tmp_path):
 
     config_file = tmp_path / "breakfast.toml"
     config_file.write_text(
-        'organization = ["my-org:api", "other-org"]\nrepo-filter = "platform"\n'
+        'owner = ["my-org:api", "other-org"]\nrepo-filter = "platform"\n'
     )
 
     captured = {}
@@ -3941,7 +4001,7 @@ def test_template_config_implies_format(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
 
     config_content = """
-organization = "org"
+owner = "org"
 template = "{repo} -> {title}"
 """
     config_file = tmp_path / "config.toml"

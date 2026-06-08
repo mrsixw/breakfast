@@ -12,7 +12,7 @@ The token needs `repo` scope to access pull request data. Generate one at [githu
 
 ## No PRs displayed
 
-- Verify the organization name is correct (`-o`)
+- Verify the owner name is correct (`-o` / `--owner`)
 - Check that the repo filter (`-r`) matches at least one repository name (it's a substring match)
 - If using `--mine-only`, ensure the token belongs to the user whose PRs you want to see
 - If using `--ignore-author`, check you haven't accidentally filtered out the authors you want
@@ -31,7 +31,7 @@ PR details are fetched in parallel (up to 8 concurrent requests), and results ar
 
 - Use `--repo-filter` to narrow down the repos queried
 - Use `--ignore-author` to reduce the number of PRs processed
-- Large organizations with many repos will take longer on the initial GraphQL query
+- Owners with many repos will take longer on the initial GraphQL query
 
 Subsequent runs within the TTL window will be near-instant (served from the local cache). To force a fresh fetch, use `--no-cache`. To tune the cache window, use `--cache-ttl` (e.g. `--cache-ttl 10m`).
 
@@ -88,10 +88,21 @@ Example output:
 2026-03-23 08:00:05 INFO    render format=table row_count=38
 ```
 
-## "GraphQL request failed" errors
+## "Owner not found" errors
 
-This typically means the organization name is incorrect or your token doesn't have access to the organization. Verify:
+breakfast uses the `repositoryOwner` GitHub GraphQL field, which resolves both
+organizations and personal accounts. If you see an owner-not-found error:
+
+- Double-check the owner login (organization name or personal username) passed with `-o`
+- Verify your token has access to the account's repositories
+- For organizations, you can verify with:
 
 ```bash
 curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/orgs/YOUR_ORG
+```
+
+- For personal accounts:
+
+```bash
+curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/users/YOUR_USER
 ```

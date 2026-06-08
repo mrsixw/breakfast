@@ -2,24 +2,24 @@
 
 ## Required options
 
-### `--organization`, `-o`
+### `--owner`, `-o`
 
-The GitHub organization to query for pull requests. Repeat the flag to query
-multiple organizations at once — their PRs are combined and deduplicated.
+The GitHub owner (organization or personal account) to query for pull requests.
+Repeat the flag to query multiple owners at once — their PRs are combined and deduplicated.
 
-You can optionally append a **scoped repo filter** to any org using a colon separator:
+You can optionally append a **scoped repo filter** to any owner using a colon separator:
 
 | Flag form | Behaviour |
 | --- | --- |
 | `-o my-org` | Use the global `-r` filter (or all repos if no `-r`) |
-| `-o my-org:api` | Override: only repos matching `api` for this org |
-| `-o my-org:` | Override: all repos for this org, ignoring any global `-r` |
+| `-o my-org:api` | Override: only repos matching `api` for this owner |
+| `-o my-org:` | Override: all repos for this owner, ignoring any global `-r` |
 
 ```bash
 breakfast -o my-org -r my-app                           # global filter
-breakfast -o my-org -o another-org                      # two orgs, no filter
-breakfast -o my-org -o another-org -r platform          # global filter for both orgs
-breakfast -o my-org:api -o another-org:platform         # per-org filters
+breakfast -o my-org -o another-org                      # two owners, no filter
+breakfast -o my-org -o another-org -r platform          # global filter for both owners
+breakfast -o my-org:api -o another-org:platform         # per-owner filters
 breakfast -o my-org:api -o another-org -r platform      # scoped for my-org, global for another-org
 breakfast -o my-org: -o another-org -r platform         # all repos for my-org; filtered for another-org
 ```
@@ -27,18 +27,22 @@ breakfast -o my-org: -o another-org -r platform         # all repos for my-org; 
 Config key supports both a single string and a list, with optional scoped filters:
 
 ```toml
-# Single org
-organization = "my-org"
+# Single owner
+owner = "my-org"
 
-# Multiple orgs
-organization = ["my-org", "another-org"]
+# Multiple owners
+owner = ["my-org", "another-org"]
 
-# Per-org scoped filters
-organization = ["my-org:api", "another-org:platform"]
+# Per-owner scoped filters
+owner = ["my-org:api", "another-org:platform"]
 
 # Mixed: scoped for one, global -r for the other
-organization = ["my-org:api", "another-org"]
+owner = ["my-org:api", "another-org"]
 ```
+
+> **Deprecated aliases:** `--org` and `--organization` still work but print a deprecation
+> warning to stderr. The config key `organization` is also accepted but deprecated —
+> rename it to `owner`. Both deprecated forms will be removed in a future release.
 
 ### `--repo-filter`, `-r`
 
@@ -1094,7 +1098,7 @@ Options:
   --config TEXT                   Path to config file.
   --show-config                   Print the resolved config and exit.
   --init-config                   Generate a default config file and exit.
-  -o, --organization TEXT         One or multiple organizations to report on
+  -o, --owner TEXT                One or multiple owners (org or user) to report on
   -r, --repo-filter TEXT          Filter for specific repo(s)
   --ignore-author TEXT            Ignore PRs raised by one or more authors
                                   (case-insensitive). Repeat for multiple

@@ -17,6 +17,7 @@ from tabulate import tabulate
 from .api import (
     SECRET_GITHUB_TOKEN,
     GitHubRateLimitError,
+    OwnerNotFoundError,
     _fetch_pr_detail,
     _match_exclude_repos,
     get_api_stats,
@@ -647,16 +648,31 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     ),
 )
 @click.option(
-    "--organization",
+    "--owner",
     "-o",
+    "owner",
     multiple=True,
     help=(
-        "GitHub organization to query for PRs. Repeat for multiple"
-        " organizations, e.g. -o my-org -o another-org."
+        "GitHub owner (organization or personal account) to query for PRs."
+        " Repeat for multiple owners, e.g. -o my-org -o my-user."
         " Optionally append a scoped repo filter with a colon:"
-        " -o my-org:api (only 'api' repos for that org),"
-        " -o my-org: (all repos for that org, ignoring global -r)."
+        " -o my-org:api (only 'api' repos for that owner),"
+        " -o my-org: (all repos for that owner, ignoring global -r)."
     ),
+)
+@click.option(
+    "--org",
+    "org_deprecated",
+    multiple=True,
+    hidden=True,
+    help="Deprecated. Use --owner instead.",
+)
+@click.option(
+    "--organization",
+    "organization_deprecated",
+    multiple=True,
+    hidden=True,
+    help="Deprecated. Use --owner instead.",
 )
 @click.option(
     "--repo-filter",
@@ -1008,7 +1024,9 @@ def breakfast(
     show_config,
     init_config,
     update_config_cmd,
-    organization,
+    owner,
+    org_deprecated,
+    organization_deprecated,
     repo_filter,
     exclude_repo,
     ignore_author,
@@ -1100,11 +1118,32 @@ def breakfast(
         if "base-branch" in _spec_names and base_branch is None:
             base_branch = True
 
-    # organization is a tuple from multiple=True; merge with config
-    if organization:
-        organizations = list(organization)
+    # --owner / deprecated --org / --organization flags; merge and warn on deprecated
+    if org_deprecated:
+        click.echo(
+            click.style(
+                "⚠️  --org is deprecated and will be removed in a future release."
+                " Use --owner instead.",
+                fg="yellow",
+            ),
+            err=True,
+        )
+    if organization_deprecated:
+        click.echo(
+            click.style(
+                "⚠️  --organization is deprecated and will be removed in a future"
+                " release. Use --owner instead.",
+                fg="yellow",
+            ),
+            err=True,
+        )
+    effective_owner = (
+        tuple(owner) + tuple(org_deprecated) + tuple(organization_deprecated)
+    )
+    if effective_owner:
+        organizations = list(effective_owner)
     else:
-        cfg_org = cfg.get("organization")
+        cfg_org = cfg.get("owner")
         if isinstance(cfg_org, list):
             organizations = cfg_org
         elif cfg_org:
@@ -1272,7 +1311,7 @@ def breakfast(
     if show_config:
         click.echo("Resolved config:")
         resolved = {
-            "organization": [
+            "owner": [
                 org if scoped is None else (org + ":" + (scoped[0] if scoped else ""))
                 for org, scoped in org_specs
             ],
@@ -1349,8 +1388,7 @@ def breakfast(
 
     if not organizations:
         message = (
-            "Organization must be provided via CLI (-o) "
-            "or config file (organization)."
+            "Owner must be provided via CLI (-o / --owner) " "or config file (owner)."
         )
         click.echo(click.style(message, fg="red", bold=True), err=True, color=colour)
         sys.exit(1)
@@ -1414,6 +1452,24 @@ def breakfast(
                 )
                 try:
                     prs.extend(get_github_prs(org, effective_filters, fetch_state))
+                except OwnerNotFoundError as exc:
+                    logger.warning(
+                        "graphql_owner_not_found owner=%s error=%r",
+                        org,
+                        str(exc),
+                    )
+                    click.echo(
+                        click.style(
+                            f"🍳 Owner not found: '{org}' could not be resolved as a"
+                            " GitHub organization or user account."
+                            " Check the name and your token's access.",
+                            fg="red",
+                            bold=True,
+                        ),
+                        err=True,
+                        color=colour,
+                    )
+                    sys.exit(1)
                 except (
                     requests.exceptions.ConnectionError,
                     requests.exceptions.Timeout,

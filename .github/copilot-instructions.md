@@ -23,10 +23,15 @@ When updating project rules, update **all four files** to keep them consistent.
 ## Mandatory Workflow
 1. **GitHub Issues First:** An issue MUST exist before work begins. If none exists, create one via `gh issue create`. (Do not use conventional commit prefixes for issue titles). *Exception*: Refinements, feedback iterations, or trivial tweaks on in-flight/undelivered feature branches do not require raising new issues; make changes directly on the active branch. If you are unsure whether to raise a new GitHub issue or continue on a current active branch, always pause and ask the user directly first.
 2. **One Issue = One PR:** Never combine fixes for multiple unrelated issues into a single PR. Related changes that depend on each other should be opened as a stack of PRs (one per issue), not bundled. *Exception*: Trivial tweaks or closely related follow-up iterations can be added directly to the active branch rather than stack-PRing every detail.
-3. **Sync Main First:** Before creating a new branch, always sync `main` first:
+3. **Sync Main and Check CI First:** Before creating a new branch, always sync `main` first:
    ```bash
    git fetch origin main && git checkout main && git pull origin main
    ```
+   Then check the CI status of the latest completed run on `main`:
+   ```bash
+   gh run list --branch main --status completed --limit 1 --json conclusion --jq '.[0].conclusion'
+   ```
+   If the output is not `success`, stop immediately, report the failure to the user, and do not create a branch from a broken `main` until resolved.
    Branch off the updated `main`. Never start a feature branch from a stale local copy.
 4. **Branch Naming:** Format: `issue-N_short_description` (e.g., `issue-42_add_avocado_toast`).
 5. **PR Titles:** Include the issue number: `#N: Description` (e.g., `#42: Add Avocado Toast output`).

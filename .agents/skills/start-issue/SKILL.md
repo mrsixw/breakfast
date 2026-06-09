@@ -14,10 +14,16 @@ Standardized procedure to initialize work on a new issue branch.
 
 ### Steps
 
-1. **Sync main first:**
+1. **Sync main and check its CI status:**
+   Sync the local `main` branch first:
    ```bash
    git fetch origin main && git checkout main && git pull origin main
    ```
+   Then check the CI status of the latest completed run on `main`:
+   ```bash
+   gh run list --branch main --status completed --limit 1 --json conclusion --jq '.[0].conclusion'
+   ```
+   If the output is not `success`, stop immediately, report the failure to the user, and ask for instructions before creating a branch from a broken `main`.
 
 2. **Look up the issue title dynamically using the GitHub CLI (`gh`):**
    ```bash

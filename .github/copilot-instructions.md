@@ -23,12 +23,22 @@ When updating project rules, update **all four files** to keep them consistent.
 ## Mandatory Workflow
 1. **GitHub Issues First:** An issue MUST exist before work begins. If none exists, create one via `gh issue create`. (Do not use conventional commit prefixes for issue titles). *Exception*: Refinements, feedback iterations, or trivial tweaks on in-flight/undelivered feature branches do not require raising new issues; make changes directly on the active branch. If you are unsure whether to raise a new GitHub issue or continue on a current active branch, always pause and ask the user directly first.
 2. **One Issue = One PR:** Never combine fixes for multiple unrelated issues into a single PR. Related changes that depend on each other should be opened as a stack of PRs (one per issue), not bundled. *Exception*: Trivial tweaks or closely related follow-up iterations can be added directly to the active branch rather than stack-PRing every detail.
-3. **Branch Naming:** Format: `issue-N_short_description` (e.g., `issue-42_add_avocado_toast`).
-4. **PR Titles:** Include the issue number: `#N: Description` (e.g., `#42: Add Avocado Toast output`).
-5. **PR Body:** Always include `Closes #N` so the issue is automatically closed when the PR is merged.
-6. **CI Checks:** After pushing to a branch with an open PR, wait for all CI checks to complete (`gh pr checks`). If any check fails, investigate and fix the root cause — do not ignore failures or proceed without understanding them.
-7. **Release notes format:** Releases are created by CI via `gh release create --generate-notes`. If editing release notes manually (e.g. via the GitHub UI), use bullet points (`- item`) for each change. The `update-summary` feature extracts the first three bullets, strips Markdown headers and URLs, and caps at 200 characters — prose paragraphs at the top of the body produce poor summaries.
-8. **Conventional Git Commits:** Use standard prefixes for git commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, `ci:`.
+3. **Sync Main and Check CI First:** Before creating a new branch, always sync `main` first:
+   ```bash
+   git fetch origin main && git checkout main && git pull origin main
+   ```
+   Then check the CI status of the latest completed run on `main`:
+   ```bash
+   gh run list --branch main --status completed --limit 1 --json conclusion --jq '.[0].conclusion'
+   ```
+   If the output is not `success`, stop immediately, report the failure to the user, and do not create a branch from a broken `main` until resolved.
+   Branch off the updated `main`. Never start a feature branch from a stale local copy.
+4. **Branch Naming:** Format: `issue-N_short_description` (e.g., `issue-42_add_avocado_toast`).
+5. **PR Titles:** Include the issue number: `#N: Description` (e.g., `#42: Add Avocado Toast output`).
+6. **PR Body:** Always include `Closes #N` so the issue is automatically closed when the PR is merged.
+7. **CI Checks:** After pushing to a branch with an open PR, wait for all CI checks to complete (`gh pr checks`). If any check fails, investigate and fix the root cause — do not ignore failures or proceed without understanding them.
+8. **Release notes format:** Releases are created by CI via `gh release create --generate-notes`. If editing release notes manually (e.g. via the GitHub UI), use bullet points (`- item`) for each change. The `update-summary` feature extracts the first three bullets, strips Markdown headers and URLs, and caps at 200 characters — prose paragraphs at the top of the body produce poor summaries.
+9. **Conventional Git Commits:** Use standard prefixes for git commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, `ci:`.
 
 ## Automated Workflows
 This repository provides standardized automated workflows for managing issues. All agents must refer to and execute these exact steps:

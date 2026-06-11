@@ -1465,8 +1465,10 @@ def breakfast(
             offline_mode = True
             no_update_check = True
             fetched_at = datetime.fromisoformat(cache_result["fetched_at"])
-            age = (datetime.now(timezone.utc) - fetched_at).total_seconds()
-            formatted_age = format_cache_age(age)
+            cache_age_seconds = (
+                datetime.now(timezone.utc) - fetched_at
+            ).total_seconds()
+            formatted_age = format_cache_age(cache_age_seconds)
             click.echo(
                 click.style(
                     f"🔌 Offline Mode: Displaying cached data from {formatted_age}.",
@@ -1710,8 +1712,10 @@ def breakfast(
                 offline_mode = True
                 no_update_check = True
                 fetched_at = datetime.fromisoformat(cache_result["fetched_at"])
-                age = (datetime.now(timezone.utc) - fetched_at).total_seconds()
-                formatted_age = format_cache_age(age)
+                cache_age_seconds = (
+                    datetime.now(timezone.utc) - fetched_at
+                ).total_seconds()
+                formatted_age = format_cache_age(cache_age_seconds)
                 # Ensure we end the progress line if we started it
                 click.echo("", err=True)
                 click.echo(

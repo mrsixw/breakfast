@@ -4353,9 +4353,64 @@ def test_cli_offline_mode_mine_only_warning(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert "PR number 1" in result.stdout
-    # Should warn about mine-only when user login is not retrieved
     expected_msg = (
         "🔌 Offline Mode: Displaying all cached PRs because "
         "current user login could not be retrieved."
     )
     assert expected_msg in result.stderr
+
+
+def test_cli_offline_respects_no_age_flag(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+
+    pr_details = [_make_pr_detail(1)]
+    cache.write_pr_cache("org", "repo", pr_details)
+
+    path = cache.cache_path("org", "repo")
+    data = json.loads(path.read_text())
+    old_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    data["fetched_at"] = old_time
+    path.write_text(json.dumps(data))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--offline"],
+    )
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    assert "Age" not in result.stdout
+
+
+def test_cli_offline_respects_age_flag(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+
+    pr_details = [_make_pr_detail(1)]
+    cache.write_pr_cache("org", "repo", pr_details)
+
+    path = cache.cache_path("org", "repo")
+    data = json.loads(path.read_text())
+    old_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    data["fetched_at"] = old_time
+    path.write_text(json.dumps(data))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--offline", "--age"],
+    )
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    assert "Age" in result.stdout

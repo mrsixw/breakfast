@@ -9,6 +9,7 @@
 ## Project Structure
 - `src/breakfast/` — package source code
   - `cli.py` — Click command definition and entry point
+  - `renderers.py` — Output formatters and table fitting
   - `api.py` — GitHub API interaction logic
   - `config.py` — TOML configuration and filtering
   - `ui.py` — Terminal formatting and progress emojis

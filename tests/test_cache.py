@@ -430,3 +430,24 @@ def test_repo_pr_cache_key_differs_from_whole_blob_key(tmp_path, monkeypatch):
     assert p1 != p2
     assert p1.name.startswith("pr_repo_")
     assert p2.name.startswith("prs_")
+
+
+def test_read_pr_cache_expired_but_ignored(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    pr_details = [{"number": 1}]
+    cache.write_pr_cache("org", "filter", pr_details)
+
+    # Manually backdate the fetched_at timestamp
+    path = cache.cache_path("org", "filter")
+    data = json.loads(path.read_text())
+    old_time = (datetime.now(timezone.utc) - timedelta(seconds=600)).isoformat()
+    data["fetched_at"] = old_time
+    path.write_text(json.dumps(data))
+
+    # Should miss normally
+    assert cache.read_pr_cache("org", "filter", 300) is None
+    # Should hit with ignore_ttl=True
+    result = cache.read_pr_cache("org", "filter", 300, ignore_ttl=True)
+    assert result is not None
+    assert result["prs"] == pr_details
+    assert result["fetched_at"] == old_time

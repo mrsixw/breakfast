@@ -3,7 +3,7 @@ import io
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -4204,3 +4204,213 @@ def test_columns_config_plain_string_list(monkeypatch, tmp_path):
     assert "PR Title" in result.stdout
     assert "Link" in result.stdout
     assert "Author" not in result.stdout
+
+
+def test_cli_offline_flag_loads_from_cache(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+
+    # Pre-populate expired cache
+    pr_details = [_make_pr_detail(1)]
+    cache.write_pr_cache("org", "repo", pr_details)
+
+    # Manually backdate cache fetched_at to 3 hours ago
+    path = cache.cache_path("org", "repo")
+    data = json.loads(path.read_text())
+    old_time = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()
+    data["fetched_at"] = old_time
+    path.write_text(json.dumps(data))
+
+    api_called = []
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: api_called.append(1) or [])
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--offline"])
+
+    assert result.exit_code == 0
+    assert len(api_called) == 0, "No network calls should be made in offline mode"
+    assert "PR number 1" in result.stdout
+    assert "🔌 Offline Mode: Displaying cached data from 3 hours ago." in result.stderr
+
+
+def test_cli_offline_flag_no_cache_fails(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--offline"])
+
+    assert result.exit_code == 1
+    assert "Error: Offline mode enabled, but no cached data was found." in result.stderr
+
+
+def test_cli_network_failure_falls_back_to_cache(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+
+    # Pre-populate expired cache
+    pr_details = [_make_pr_detail(1)]
+    cache.write_pr_cache("org", "repo", pr_details)
+
+    # Manually backdate cache fetched_at to 2 hours ago
+    path = cache.cache_path("org", "repo")
+    data = json.loads(path.read_text())
+    old_time = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    data["fetched_at"] = old_time
+    path.write_text(json.dumps(data))
+
+    # Mock get_github_prs to simulate network connection error
+    def mock_get_prs(*args, **kwargs):
+        raise requests.exceptions.ConnectionError("Could not resolve host")
+
+    monkeypatch.setattr(cli, "get_github_prs", mock_get_prs)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    assert "🔌 Offline Mode: Displaying cached data from 2 hours ago." in result.stderr
+
+
+def test_cli_offline_mode_does_not_write_cache(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+
+    # Pre-populate cache
+    pr_details = [_make_pr_detail(1)]
+    cache.write_pr_cache("org", "repo", pr_details)
+    path = cache.cache_path("org", "repo")
+
+    # Change file contents and get timestamp
+    data = json.loads(path.read_text())
+    old_time = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
+    data["fetched_at"] = old_time
+    path.write_text(json.dumps(data))
+
+    # Track writes
+    write_called = []
+    original_write = cache.write_pr_cache
+
+    def tracked_write(*args, **kwargs):
+        write_called.append(1)
+        return original_write(*args, **kwargs)
+
+    monkeypatch.setattr(cache, "write_pr_cache", tracked_write)
+    monkeypatch.setattr(cli, "write_pr_cache", tracked_write)
+
+    # Run CLI in offline mode
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--offline"])
+
+    assert result.exit_code == 0
+    assert len(write_called) == 0, "Should not write to cache in offline mode"
+
+    # Confirm cache file hasn't been updated/overwritten
+    data_after = json.loads(path.read_text())
+    assert data_after["fetched_at"] == old_time
+
+
+def test_cli_offline_mode_mine_only_warning(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+
+    # Pre-populate expired cache
+    pr_details = [_make_pr_detail(1)]
+    cache.write_pr_cache("org", "repo", pr_details)
+
+    # Manually backdate cache fetched_at
+    path = cache.cache_path("org", "repo")
+    data = json.loads(path.read_text())
+    old_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    data["fetched_at"] = old_time
+    path.write_text(json.dumps(data))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--offline", "--mine-only"],
+    )
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    expected_msg = (
+        "🔌 Offline Mode: Displaying all cached PRs because "
+        "current user login could not be retrieved."
+    )
+    assert expected_msg in result.stderr
+
+
+def test_cli_offline_respects_no_age_flag(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+
+    pr_details = [_make_pr_detail(1)]
+    cache.write_pr_cache("org", "repo", pr_details)
+
+    path = cache.cache_path("org", "repo")
+    data = json.loads(path.read_text())
+    old_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    data["fetched_at"] = old_time
+    path.write_text(json.dumps(data))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--offline"],
+    )
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    assert "Age" not in result.stdout
+
+
+def test_cli_offline_respects_age_flag(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+
+    pr_details = [_make_pr_detail(1)]
+    cache.write_pr_cache("org", "repo", pr_details)
+
+    path = cache.cache_path("org", "repo")
+    data = json.loads(path.read_text())
+    old_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    data["fetched_at"] = old_time
+    path.write_text(json.dumps(data))
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--offline", "--age"],
+    )
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    assert "Age" in result.stdout

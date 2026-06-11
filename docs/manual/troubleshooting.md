@@ -17,13 +17,17 @@ The token needs `repo` scope to access pull request data. Generate one at [githu
 - If using `--mine-only`, ensure the token belongs to the user whose PRs you want to see
 - If using `--ignore-author`, check you haven't accidentally filtered out the authors you want
 
-## API errors (502, 503, 504) and timeouts
+## API errors (502, 503, 504), timeouts, and network loss
 
 breakfast automatically retries REST and GraphQL API requests on transient server errors and network timeouts with exponential backoff (up to 3 retries).
 
 To prevent the CLI from hanging indefinitely on stalled or flaky connections (e.g. captive portals or misconfigured VPNs), an explicit timeout is set on all API requests: a connection timeout of 5 seconds and a read timeout of 30 seconds.
 
-If errors or timeouts persist:
+If you lose internet connectivity, a request times out, or GitHub is experiencing outages, breakfast will automatically fall back to the most recent cached results on disk, even if expired, and print an offline mode banner.
+
+If you know you are offline or have weak connectivity, you can force breakfast to use the local cache immediately without making any network requests by passing `--offline`.
+
+If errors persist and no cached data exists:
 
 - Check [GitHub Status](https://www.githubstatus.com/) for ongoing incidents
 - Verify your token hasn't been revoked

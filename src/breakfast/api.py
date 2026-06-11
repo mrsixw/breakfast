@@ -48,6 +48,7 @@ class OwnerNotFoundError(Exception):
 
 _MAX_RETRIES = 3
 _RETRY_STATUSES = {502, 503, 504}
+_REQUEST_TIMEOUT = (5, 30)
 
 _api_stats_lock = threading.Lock()
 _api_stats = {
@@ -94,7 +95,7 @@ def make_github_api_request(query_string):
             time.sleep(2 ** (attempt - 1) + random.uniform(0, 0.5))
         try:
             t0 = time.monotonic()
-            req = requests.get(url, headers=headers)
+            req = requests.get(url, headers=headers, timeout=_REQUEST_TIMEOUT)
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             if req.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES:
                 logger.debug(
@@ -200,7 +201,12 @@ def make_github_graphql_request(query, variables=None):
             time.sleep(2 ** (attempt - 1) + random.uniform(0, 0.5))
         try:
             t0 = time.monotonic()
-            response = requests.post(GITHUB_GRAPHQL_URL, json=payload, headers=headers)
+            response = requests.post(
+                GITHUB_GRAPHQL_URL,
+                json=payload,
+                headers=headers,
+                timeout=_REQUEST_TIMEOUT,
+            )
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             if response.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES:
                 logger.debug(

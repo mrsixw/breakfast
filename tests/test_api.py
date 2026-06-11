@@ -1188,3 +1188,72 @@ def test_get_check_status_all_completed_with_none_filtered(monkeypatch):
 
     monkeypatch.setattr(api, "make_github_api_request", fake_api)
     assert api.get_check_status("org", "repo", "abc123") == "pass"
+
+
+def test_make_github_api_request_asserts_timeout(monkeypatch):
+    """Verifies that make_github_api_request passes the correct timeout kwarg."""
+    timeout_passed = []
+
+    class DummyResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"ok": True}
+
+    def fake_get(url, headers, timeout=None):
+        timeout_passed.append(timeout)
+        return DummyResponse()
+
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.requests, "get", fake_get)
+
+    result = api.make_github_api_request("/repos/org/repo")
+    assert result == {"ok": True}
+    assert timeout_passed == [(5, 30)]
+
+
+def test_make_github_graphql_request_asserts_timeout(monkeypatch):
+    """Verifies that make_github_graphql_request passes the correct timeout kwarg."""
+    timeout_passed = []
+
+    class DummyResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"data": {"ok": True}}
+
+    def fake_post(url, json, headers, timeout=None):
+        timeout_passed.append(timeout)
+        return DummyResponse()
+
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.requests, "post", fake_post)
+
+    result = api.make_github_graphql_request("{ viewer { login } }")
+    assert result == {"data": {"ok": True}}
+    assert timeout_passed == [(5, 30)]
+
+
+def test_make_github_api_request_retries_on_timeout_and_propagates(monkeypatch):
+    """Verifies that a Timeout is retried _MAX_RETRIES times and then raises."""
+    attempts = []
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+
+    def fake_get(url, headers, timeout=None):
+        attempts.append(1)
+        raise requests.exceptions.Timeout("timed out")
+
+    monkeypatch.setattr(api.requests, "get", fake_get)
+
+    with pytest.raises(requests.exceptions.Timeout):
+        api.make_github_api_request("/repos/org/repo")
+
+    # 1 initial attempt + 3 retries = 4 attempts total
+    assert len(attempts) == 4

@@ -139,11 +139,16 @@ def write_graphql_cache(org: str, repo_filter: str, urls: list) -> None:
         )
 
 
-def read_pr_cache(org: str, repo_filter: str, ttl: int) -> dict | None:
+def read_pr_cache(
+    org: str, repo_filter: str, ttl: int, ignore_ttl: bool = False
+) -> dict | None:
     """Return cached data if present and within TTL, else None.
+
+    If ignore_ttl is True, expired cache data will still be returned on a hit.
 
     On a hit, returns a dict with keys:
       "prs"              – list of PR detail dicts
+      "fetched_at"       - ISO string of when cache was fetched
       "check_statuses"   – dict[int, str] or None (absent from older caches)
       "approval_statuses"– dict[int, str] or None (absent from older caches)
       "approval_details" – dict[int, dict] or None (absent from older caches)
@@ -158,7 +163,7 @@ def read_pr_cache(org: str, repo_filter: str, ttl: int) -> dict | None:
         data = json.loads(path.read_text())
         fetched_at = datetime.fromisoformat(data["fetched_at"])
         age = (datetime.now(timezone.utc) - fetched_at).total_seconds()
-        if age > ttl:
+        if not ignore_ttl and age > ttl:
             logger.debug(
                 "cache_miss layer=pr_detail path=%s reason=expired age=%.0fs ttl=%ss",
                 path,
@@ -179,6 +184,7 @@ def read_pr_cache(org: str, repo_filter: str, ttl: int) -> dict | None:
         )
         return {
             "prs": data["prs"],
+            "fetched_at": data["fetched_at"],
             "check_statuses": (
                 {int(k): v for k, v in raw_checks.items()}
                 if raw_checks is not None

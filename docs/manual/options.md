@@ -860,6 +860,31 @@ Re-fetch PR details (comments, CI status, merge state) using the cached repo lis
 breakfast -o my-org -r my-app --cache --refresh-prs
 ```
 
+### `--offline`
+
+Force offline mode using the most recent cached data (even if it has expired beyond the configured TTL).
+
+If internet connectivity is absent or weak, breakfast will also automatically fall back to the most recent disk cache (even if older than the TTL) and display a clear offline banner.
+
+When offline mode is active (either forced via `--offline` or via automatic fallback):
+
+- It reads from the cache regardless of the TTL expiration.
+- It bypasses all update checks, check status fetches, and approval fetches.
+- It does not write any refreshed data back to the cache, preventing corrupted timestamps.
+- If `--mine-only` is used but the current user login cannot be fetched, a warning is printed to `stderr` indicating that all cached PRs are shown.
+
+If `--offline` is enabled but no cached data is found on disk, the application exits with an error.
+
+```bash
+breakfast -o my-org -r my-app --offline
+```
+
+Can also be set in the config file:
+
+```toml
+offline = true
+```
+
 | Flag | Cache active? | GraphQL cache | PR detail cache |
 | --- | --- | --- | --- |
 | *(none)* | no | skip | skip |
@@ -867,6 +892,7 @@ breakfast -o my-org -r my-app --cache --refresh-prs
 | `--cache --refresh-prs` | yes | read | skip, write fresh |
 | `--cache --refresh` | yes | skip, write fresh | skip, write fresh |
 | `--no-cache` | no (override) | skip | skip |
+| `--offline` | yes | read (ignore TTL) | read (ignore TTL, no write) |
 
 ## Update notifications
 
@@ -1129,6 +1155,8 @@ Options:
   --max-title-length INTEGER      Truncate PR titles to this many characters.
                                   Unset means no truncation.
   --no-update-check               Disable the automatic update check.
+  --offline                       Force offline mode using the most recent
+                                  cached data (even if expired).
   --cache / --no-cache            Enable disk cache for PR results. Off by
                                   default; use --cache or set cache = true in
                                   config.

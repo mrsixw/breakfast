@@ -328,3 +328,68 @@ def test_table_width_auto_fit_emoji_regression():
 
     # They should match exactly, preventing line wrap double spacing
     assert estimated_width == actual_width
+
+
+def test_render_table_stdout_is_tty(capsys):
+    """Test that render_table uses stdout_is_tty parameter to skip auto-fitting."""
+    pr_details = [
+        {
+            "number": 1,
+            "html_url": "https://github.com/org/repo/pull/1",
+            "title": "A very long title that would normally be truncated or fitted",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "additions": 5,
+            "deletions": 2,
+            "base": {
+                "ref": "main",
+                "repo": {"name": "repo", "owner": {"login": "org"}},
+            },
+        }
+    ]
+
+    renderers.render_table(
+        pr_details=pr_details,
+        organizations=["org"],
+        legendary=False,
+        age=False,
+        checks=False,
+        approvals=False,
+        check_statuses={},
+        approval_statuses={},
+        approval_details={},
+        head_branch=False,
+        base_branch=False,
+        status_style="emoji",
+        seasonal_calendar="western",
+        colour=False,
+        colour_index=False,
+        max_title_length=None,
+        column_specs=None,
+        stdout_is_tty=False,
+    )
+    captured = capsys.readouterr()
+    assert "A very long title" in captured.out
+
+
+def test_droppable_columns_approved():
+    """Verify that the Approved column (renamed to Apr) is droppable under auto-fit."""
+    rows = [
+        {
+            "Repo": "short",
+            "PR Title": "title",
+            "Author": "alice",
+            "Approved": "⏳ pending",
+        }
+    ]
+    # We call _auto_fit directly with a narrow terminal width to force column dropping
+    fitted = renderers._auto_fit(
+        rows, terminal_width=20, explicit_max_title_length=None
+    )
+    # The column "Apr" should be dropped since we fixed the name in _DROPPABLE_COLUMNS
+    for row in fitted:
+        assert "Approved" not in row
+        assert "Apr" not in row

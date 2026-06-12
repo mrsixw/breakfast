@@ -10,6 +10,7 @@ import click
 import wcwidth
 from tabulate import tabulate
 
+from .api import get_pr_age_days
 from .ui import (
     apply_seasonal_colour,
     click_colour_grade_number,
@@ -53,7 +54,7 @@ _DROPPABLE_COLUMNS = [
     "Cmt",
     "Age",
     "Checks",
-    "Approved",
+    "Apr",
     "Head Branch",
     "Base Branch",
     "Mrg",
@@ -75,17 +76,7 @@ _ANSI_RESET = "\x1b[0m"
 
 
 def _get_pr_age_days(pr_detail, now=None):
-    import inspect
-
-    from . import cli
-
-    try:
-        sig = inspect.signature(cli.get_pr_age_days)
-        if "now" in sig.parameters:
-            return cli.get_pr_age_days(pr_detail, now=now)
-    except (TypeError, ValueError):
-        pass
-    return cli.get_pr_age_days(pr_detail)
+    return get_pr_age_days(pr_detail, now=now)
 
 
 def is_legendary(pr_detail, now=None):
@@ -376,10 +367,7 @@ def _apply_column_specs(
     return new_pr_data, colalign
 
 
-def _stdout_is_tty():
-    from . import cli
-
-    return cli._stdout_is_tty()
+# _stdout_is_tty removed to avoid circular imports
 
 
 def render_json(
@@ -676,8 +664,12 @@ def render_table(
     colour_index,
     max_title_length,
     column_specs,
+    stdout_is_tty=None,
 ):
     from .logger import logger
+
+    if stdout_is_tty is None:
+        stdout_is_tty = sys.stdout.isatty()
 
     logger.info("render format=table row_count=%d", len(pr_details))
     t_render = time.monotonic()
@@ -779,7 +771,7 @@ def render_table(
             }
             for row in pr_data
         ]
-    if _stdout_is_tty() and pr_data:
+    if stdout_is_tty and pr_data:
         terminal_width = shutil.get_terminal_size().columns
         pr_data = _auto_fit(pr_data, terminal_width, max_title_length)
 
@@ -798,7 +790,7 @@ def render_table(
             disable_numparse=True,
             **({"colalign": colalign} if colalign else {}),
         ),
-        color=_stdout_is_tty() and colour,
+        color=stdout_is_tty and colour,
     )
 
     logger.info(

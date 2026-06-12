@@ -130,6 +130,7 @@ def test_cli_outputs_age_column_when_enabled(monkeypatch):
     monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
     monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
     monkeypatch.setattr(cli, "get_pr_age_days", lambda _pr_detail: 7)
+    monkeypatch.setattr(renderers, "get_pr_age_days", lambda _pr_detail, **_kw: 7)
 
     runner = CliRunner()
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--age"])

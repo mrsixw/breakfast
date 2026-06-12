@@ -1682,6 +1682,7 @@ def breakfast(
             colour_index=colour_index,
             max_title_length=max_title_length,
             column_specs=column_specs,
+            stdout_is_tty=_stdout_is_tty(),
         )
 
     _finish_run(

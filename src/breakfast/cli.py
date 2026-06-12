@@ -42,16 +42,6 @@ from .config import (
 from .logger import configure as configure_logging
 from .logger import logger
 from .renderers import (
-    _apply_column_specs,  # noqa: F401
-    _auto_fit,  # noqa: F401
-    _compress_styled,  # noqa: F401
-    _osc8_to_markdown,  # noqa: F401
-    _strip_ansi,  # noqa: F401
-    _styled_hyperlink,  # noqa: F401
-    _table_width,  # noqa: F401
-    _truncate_col,  # noqa: F401
-    _truncate_formatted_text,  # noqa: F401
-    _visible_width,  # noqa: F401
     is_legendary,
     render_csv,
     render_json,

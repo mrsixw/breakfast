@@ -86,6 +86,8 @@ This repository provides standardized automated workflows for managing issues. A
 - Always include `Closes #N` in the PR body so the issue is automatically closed when the PR is merged.
 - **Before merging a PR, tick off all acceptance criteria checkboxes in the linked GitHub issue** that were satisfied by the PR's changes. Use `gh issue edit <N> --body "..."` to update the body. If a criterion was not met, leave it unchecked and add a comment explaining why.
 - **After pushing to a branch with an open PR, wait for all CI checks to complete.** Use `gh pr checks` to monitor status. If any check fails, investigate and fix the root cause before proceeding — do not ignore failures or re-push without understanding them.
+- **No PR Merges by Agents:** CRITICAL: Agents must NEVER, under any circumstances, merge pull requests. Merging PRs is strictly reserved for the human user. Any automated merge commands or attempts to merge are strictly forbidden.
+- **No Force Pushing:** Agents must NOT use force pushing (`git push --force` or similar). If force pushing is absolutely necessary, the agent must first explain the reason to the user, list all other alternatives that were exhausted, and obtain explicit user confirmation before proceeding.
 
 ## mkver Usage
 - `git mkver patch` mutates the version file; avoid running it as part of routine local builds on feature branches.

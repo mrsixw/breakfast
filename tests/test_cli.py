@@ -10,7 +10,7 @@ import pytest
 import requests
 from click.testing import CliRunner
 
-from breakfast import api, cache, cli
+from breakfast import api, cache, cli, renderers
 
 
 @pytest.fixture(autouse=True)
@@ -1261,7 +1261,7 @@ def test_cli_status_columns_use_ascii_to_keep_rows_aligned(monkeypatch):
     assert "➖" not in result.stdout
 
     table_lines = [
-        cli._strip_ansi(line)
+        renderers._strip_ansi(line)
         for line in result.stdout.splitlines()
         if line.startswith(("+", "|"))
     ]
@@ -1342,7 +1342,7 @@ def test_auto_fit_truncates_repo_and_author_before_dropping(monkeypatch):
         result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
 
     assert result.exit_code == 0
-    visible_output = cli._strip_ansi(result.stdout)
+    visible_output = renderers._strip_ansi(result.stdout)
     # Full long names should have been truncated
     assert "a-very-long-repository-name" not in visible_output
     assert "a-very-long-author-name" not in visible_output

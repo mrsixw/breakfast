@@ -36,6 +36,7 @@ When updating project rules, update **all four files** to keep them consistent.
 9. **Release notes format:** Releases are created by CI via `gh release create --generate-notes`. If editing release notes manually (e.g. via the GitHub UI), use bullet points (`- item`) for each change. The `update-summary` feature extracts the first three bullets, strips Markdown headers and URLs, and caps at 200 characters — prose paragraphs at the top of the body produce poor summaries.
 10. **Conventional Git Commits:** Use standard prefixes for git commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`, `ci:`.
 11. **No PR Merges by Agents:** CRITICAL: Agents must NEVER, under any circumstances, merge pull requests. Merging PRs is strictly reserved for the human user. Any automated merge commands or attempts to merge are strictly forbidden.
+12. **No Force Pushing:** Agents must NOT use force pushing (`git push --force` or similar). If force pushing is absolutely necessary, the agent must first explain the reason to the user, list all other alternatives that were exhausted, and obtain explicit user confirmation before proceeding.
 
 ## Automated Workflows
 This repository provides standardized automated workflows for managing issues. All agents must refer to and execute these exact steps:

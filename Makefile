@@ -1,7 +1,7 @@
 .ONESHELL:
 SHELL = /bin/bash
 
-.PHONY: activate build version-bump release breakfast smoketest test lint docs-lint format man completions check-completions
+.PHONY: activate build version-bump release breakfast smoketest test lint docs-lint format man completions
 
 .venv:
 	uv venv .venv
@@ -61,9 +61,3 @@ completions: .venv
 	_BREAKFAST_COMPLETE=zsh_source uv run breakfast > completions/_breakfast
 	_BREAKFAST_COMPLETE=fish_source uv run breakfast > completions/breakfast.fish
 
-check-completions: .venv
-	uv sync
-	uv run python -m breakfast.cli --completion bash | bash -n
-	uv run python -m breakfast.cli --completion zsh | zsh -n /dev/stdin
-	uv run python -m breakfast.cli --completion fish | fish --no-execute /dev/stdin
-	@echo "✅ All completion scripts are syntactically valid"

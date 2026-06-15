@@ -143,10 +143,33 @@ jobs:
           zsh -i -c "autoload -Uz compinit && compinit -u && source completions/_breakfast && echo 'zsh ok'"
           fish -c "source completions/breakfast.fish && echo 'fish ok'"
 
+  check-completions:
+    runs-on: ubuntu-latest
+    needs: [test, lint]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
+      - name: Install zsh and fish
+        run: sudo apt-get install -y zsh fish
+
+      - name: Check completion scripts are syntactically valid
+        run: make check-completions
+
   release:
     if: "github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore: bump version')"
     runs-on: ubuntu-latest
-    needs: [build, man, completions]
+    needs: [build, man, completions, check-completions]
     permissions:
       contents: write
     steps:

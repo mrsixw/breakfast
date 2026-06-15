@@ -58,6 +58,42 @@ uv run breakfast --version
 
 ## Shell completions
 
+breakfast ships built-in tab completion for bash, zsh, and fish via the `--completion` flag.
+
+### Quick setup
+
+**Zsh** — add to `~/.zshrc`:
+
+```zsh
+eval "$(breakfast --completion zsh)"
+```
+
+**Bash** — add to `~/.bashrc` (requires bash ≥ 4.4):
+
+```bash
+eval "$(breakfast --completion bash)"
+```
+
+**Fish** — write once to the completions directory:
+
+```fish
+breakfast --completion fish > ~/.config/fish/completions/breakfast.fish
+```
+
+### How it works
+
+`breakfast --completion SHELL` prints the eval-able completion script for the named shell to stdout and exits. This means no token or `--owner` is needed — it works before any GitHub configuration.
+
+For advanced users, the underlying Click completion mechanism is also available directly via the `_BREAKFAST_COMPLETE` environment variable:
+
+```bash
+_BREAKFAST_COMPLETE=zsh_source breakfast   # zsh
+_BREAKFAST_COMPLETE=bash_source breakfast  # bash
+_BREAKFAST_COMPLETE=fish_source breakfast  # fish
+```
+
+### Installer-managed completions
+
 The installer (`install.sh`) automatically installs tab-completion scripts for bash, zsh, and fish. After installation, you may need to activate them for your shell:
 
 **Bash** — source the script in your `~/.bashrc`:

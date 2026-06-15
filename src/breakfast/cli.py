@@ -331,6 +331,15 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
 
 
 @click.command()
+@click.option(
+    "--completion",
+    "completion_shell",
+    type=click.Choice(["bash", "zsh", "fish"]),
+    default=None,
+    is_eager=True,
+    expose_value=True,
+    help="Print shell completion script for SHELL and exit. Eval in your shell config.",
+)
 @click.option("--config", help="Path to config file.")
 @click.option("--show-config", is_flag=True, help="Print the resolved config and exit.")
 @click.option(
@@ -724,6 +733,7 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
 )
 @click.version_option(package_name="breakfast")
 def breakfast(
+    completion_shell,
     config,
     show_config,
     init_config,
@@ -779,6 +789,19 @@ def breakfast(
 ):
     t0_total = time.monotonic()
     configure_logging()
+
+    if completion_shell:
+        from click.shell_completion import get_completion_class
+
+        comp_cls = get_completion_class(completion_shell)
+        comp = comp_cls(
+            cli=breakfast,
+            ctx_args={},
+            prog_name="breakfast",
+            complete_var="_BREAKFAST_COMPLETE",
+        )
+        click.echo(comp.source(), nl=False)
+        sys.exit(0)
 
     if colour_diagnostics:
         click.echo(render_colour_diagnostics(), color=True)

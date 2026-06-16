@@ -1026,6 +1026,18 @@ Can also be enabled persistently via config:
 api-stats = true
 ```
 
+### `--completion SHELL`
+
+Print the tab-completion script for `SHELL` to stdout and exit. `SHELL` must be one of `bash`, `zsh`, or `fish`.
+
+```bash
+breakfast --completion zsh   # print zsh completion script
+breakfast --completion bash  # print bash completion script
+breakfast --completion fish  # print fish completion script
+```
+
+This flag short-circuits before any GitHub token or `--owner` validation, so it works without any configuration. See [Installation → Shell completions](installation.md#shell-completions) for setup instructions.
+
 ## Summary views
 
 ### `--summarise-user-prs` / `--summarize-user-prs`

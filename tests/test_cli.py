@@ -4136,3 +4136,48 @@ def test_cli_offline_respects_age_flag(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert "PR number 1" in result.stdout
     assert "Age" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Shell completion (#350)
+# ---------------------------------------------------------------------------
+
+
+def test_completion_zsh_exits_zero_and_outputs_script():
+    """--completion zsh prints a zsh script and exits 0 without needing a token."""
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--completion", "zsh"])
+    assert result.exit_code == 0
+    assert "_BREAKFAST_COMPLETE" in result.output
+    assert "breakfast" in result.output
+
+
+def test_completion_bash_exits_zero_and_outputs_script():
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--completion", "bash"])
+    assert result.exit_code == 0
+    assert "_BREAKFAST_COMPLETE" in result.output
+    assert "breakfast" in result.output
+
+
+def test_completion_fish_exits_zero_and_outputs_script():
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--completion", "fish"])
+    assert result.exit_code == 0
+    assert "_BREAKFAST_COMPLETE" in result.output
+    assert "breakfast" in result.output
+
+
+def test_completion_requires_no_github_token(monkeypatch):
+    """--completion must work even with no GITHUB_TOKEN set."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "")
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--completion", "zsh"])
+    assert result.exit_code == 0
+
+
+def test_completion_rejects_unknown_shell():
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--completion", "powershell"])
+    assert result.exit_code != 0

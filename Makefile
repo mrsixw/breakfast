@@ -60,3 +60,4 @@ completions: .venv
 	rm -f completions/breakfast.bash.bak
 	_BREAKFAST_COMPLETE=zsh_source uv run breakfast > completions/_breakfast
 	_BREAKFAST_COMPLETE=fish_source uv run breakfast > completions/breakfast.fish
+

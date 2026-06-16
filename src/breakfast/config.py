@@ -585,6 +585,7 @@ def filter_pr_details(
     filter_state=None,
     filter_check=None,
     filter_approval=None,
+    filter_mergeable=None,
     check_statuses=None,
     approval_statuses=None,
     search_title=None,
@@ -634,6 +635,16 @@ def filter_pr_details(
         if filter_approval and approval_statuses is not None:
             pr_approval = approval_statuses.get(pr_detail["id"], "pending")
             if pr_approval not in filter_approval:
+                continue
+        if filter_mergeable:
+            raw = pr_detail.get("mergeable")
+            if raw is True:
+                mergeable_status = "clean"
+            elif raw is False:
+                mergeable_status = "conflict"
+            else:
+                mergeable_status = "unknown"
+            if mergeable_status not in filter_mergeable:
                 continue
         if search_title is not None:
             title = pr_detail.get("title", "")

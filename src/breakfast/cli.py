@@ -594,6 +594,15 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     help="Only show PRs with this review approval status. Repeat for multiple values.",
 )
 @click.option(
+    "--filter-mergeable",
+    type=click.Choice(["clean", "conflict", "unknown"], case_sensitive=False),
+    multiple=True,
+    help=(
+        "Only show PRs with this mergeable status. Repeat for multiple values"
+        " (OR logic). Values: clean, conflict, unknown."
+    ),
+)
+@click.option(
     "--filter-reviewer",
     multiple=True,
     help=(
@@ -771,6 +780,7 @@ def breakfast(
     filter_state,
     filter_check,
     filter_approval,
+    filter_mergeable,
     filter_reviewer,
     filter_label,
     exclude_label,
@@ -1583,6 +1593,7 @@ def breakfast(
         filter_state=filter_state,
         filter_check=filter_check,
         filter_approval=filter_approval,
+        filter_mergeable=filter_mergeable,
         check_statuses=check_statuses,
         approval_statuses=approval_statuses,
         search_title=search,

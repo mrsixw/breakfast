@@ -114,3 +114,14 @@ curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/orgs/YOUR_OR
 ```bash
 curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/users/YOUR_USER
 ```
+
+## Mergeable status shows "unknown" unexpectedly
+
+GitHub computes PR mergeability **lazily** — it does not calculate whether a PR has conflicts until someone (or something) asks. Immediately after a push to a PR branch or its base branch, GitHub marks `mergeable` as `null` while it queues the computation. This typically resolves within a few seconds.
+
+When `--filter-mergeable` is used, breakfast maps `mergeable: null` to `unknown`. This means:
+
+- A PR may briefly appear as `unknown` right after a push, even if it is actually clean.
+- Running breakfast again a few seconds later will show the correct `clean` or `conflict` status.
+
+If you consistently see `unknown` for a PR that has been idle for a while, it may indicate a GitHub API issue. Try refreshing with `--refresh` to bypass the local cache and fetch fresh data.

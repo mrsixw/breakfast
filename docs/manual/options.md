@@ -178,6 +178,18 @@ breakfast -o my-org -r my-app --filter-approval pending --filter-approval change
 
 > **Note:** Review and check statuses are cached alongside PR details, so repeated runs with these flags skip redundant API calls.
 
+### `--filter-mergeable`
+
+Only show PRs with a specific mergeable status. Accepted values: `clean` (no conflicts), `conflict` (needs a rebase), `unknown` (GitHub is still computing mergeability). Repeat the flag to match multiple statuses (OR logic).
+
+```bash
+breakfast -o my-org --filter-mergeable conflict                                           # needs a rebase
+breakfast -o my-org --filter-mergeable clean --filter-approval approved                   # ready to merge
+breakfast -o my-org --filter-mergeable conflict --filter-mergeable unknown                # needs attention
+```
+
+> **Note:** GitHub computes mergeability lazily — a PR may briefly appear as `unknown` immediately after a push while GitHub catches up. See [Troubleshooting](troubleshooting.md#mergeable-status-shows-unknown-unexpectedly) for details.
+
 ### `--filter-reviewer`
 
 Only show PRs that have a specific user listed as a requested reviewer. Matching is **case-insensitive**. Repeat the flag to include any of the given reviewers (OR logic).

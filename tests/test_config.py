@@ -182,6 +182,59 @@ def test_filter_pr_details_filter_approval():
     assert result[0]["id"] == 1
 
 
+def test_filter_pr_details_filter_mergeable_clean():
+    pr_details = [
+        {**_make_pr(pr_id=1), "mergeable": True},
+        {**_make_pr(pr_id=2), "mergeable": False},
+        {**_make_pr(pr_id=3), "mergeable": None},
+    ]
+    result = config.filter_pr_details(pr_details, [], filter_mergeable=("clean",))
+    assert len(result) == 1
+    assert result[0]["id"] == 1
+
+
+def test_filter_pr_details_filter_mergeable_conflict():
+    pr_details = [
+        {**_make_pr(pr_id=1), "mergeable": True},
+        {**_make_pr(pr_id=2), "mergeable": False},
+        {**_make_pr(pr_id=3), "mergeable": None},
+    ]
+    result = config.filter_pr_details(pr_details, [], filter_mergeable=("conflict",))
+    assert len(result) == 1
+    assert result[0]["id"] == 2
+
+
+def test_filter_pr_details_filter_mergeable_unknown():
+    pr_details = [
+        {**_make_pr(pr_id=1), "mergeable": True},
+        {**_make_pr(pr_id=2), "mergeable": False},
+        {**_make_pr(pr_id=3), "mergeable": None},
+    ]
+    result = config.filter_pr_details(pr_details, [], filter_mergeable=("unknown",))
+    assert len(result) == 1
+    assert result[0]["id"] == 3
+
+
+def test_filter_pr_details_filter_mergeable_missing_field():
+    pr_details = [_make_pr(pr_id=1)]  # no "mergeable" key — treated as unknown
+    result = config.filter_pr_details(pr_details, [], filter_mergeable=("unknown",))
+    assert len(result) == 1
+    result = config.filter_pr_details(pr_details, [], filter_mergeable=("clean",))
+    assert len(result) == 0
+
+
+def test_filter_pr_details_filter_mergeable_multi():
+    pr_details = [
+        {**_make_pr(pr_id=1), "mergeable": True},
+        {**_make_pr(pr_id=2), "mergeable": False},
+        {**_make_pr(pr_id=3), "mergeable": None},
+    ]
+    result = config.filter_pr_details(
+        pr_details, [], filter_mergeable=("clean", "conflict")
+    )
+    assert sorted(r["id"] for r in result) == [1, 2]
+
+
 def test_filter_pr_details_combined_filters():
     pr_details = [
         _make_pr(user="alice", state="open", repo="api", pr_id=1),

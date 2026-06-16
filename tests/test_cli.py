@@ -4181,3 +4181,53 @@ def test_completion_rejects_unknown_shell():
     runner = CliRunner()
     result = runner.invoke(cli.breakfast, ["--completion", "powershell"])
     assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# --filter-mergeable (#343)
+# ---------------------------------------------------------------------------
+
+
+def test_cli_filter_mergeable_conflict(monkeypatch):
+    """--filter-mergeable conflict shows only PRs with mergeable=False."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+
+    def fake_get_prs(_org, _repo_filter, _state="open"):
+        return [
+            "https://github.com/org/repo/pull/1",
+            "https://github.com/org/repo/pull/2",
+        ]
+
+    def fake_api_request(path):
+        number = 1 if path.endswith("/1") else 2
+        return {
+            "base": {"repo": {"name": "repo", "owner": {"login": "org"}}},
+            "mergeable": False if number == 1 else True,
+            "mergeable_state": "dirty" if number == 1 else "clean",
+            "additions": 1,
+            "deletions": 0,
+            "title": f"PR {number} {'conflict' if number == 1 else 'clean'}",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": f"https://github.com/org/repo/pull/{number}",
+            "number": number,
+        }
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--filter-mergeable", "conflict"],
+    )
+
+    assert result.exit_code == 0
+    assert "PR 1 conflict" in result.stdout
+    assert "PR 2 clean" not in result.stdout

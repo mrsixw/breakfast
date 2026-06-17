@@ -45,6 +45,8 @@ breakfast -o my-org -r my-app --filter-inactive 7
 breakfast -o my-org -r my-app --search "hotfix"
 breakfast -o my-org -r my-app --sort age
 breakfast -o my-org -r my-app --sort comments --reverse
+breakfast -o my-org -r my-app --sort size
+breakfast -o my-org -r my-app --sort size --reverse
 breakfast -o my-org -r my-app --format json
 breakfast -o my-org -r my-app --format markdown
 breakfast -o my-org -r my-app --format template --template "{repo}: {title} ({url})"
@@ -101,7 +103,7 @@ breakfast --completion bash
 
 ### Sorting
 
-- `--sort`: Sort by field: `repo` (default), `age`, `updated`, `author`, `comments`, `reviews`.
+- `--sort`: Sort by field: `repo` (default), `age`, `updated`, `author`, `comments`, `reviews`, `size`, `files`.
 - `--reverse`: Reverse the sort order.
 
 ### Summary views

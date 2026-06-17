@@ -55,6 +55,9 @@ breakfast -o my-org -r my-app --cache --refresh
 breakfast -o my-org -r my-app --cache --refresh-prs
 breakfast -o my-org -r my-app --legendary
 breakfast -o my-org -r my-app --legendary-only
+breakfast -o my-org -r my-app --filter-mergeable clean
+breakfast -o my-org -r my-app --filter-mergeable clean --filter-approval approved
+breakfast --completion bash
 ```
 
 ## Options
@@ -88,6 +91,7 @@ breakfast -o my-org -r my-app --legendary-only
 - `--filter-state`: Only show PRs with this state (`open`, `closed`, `draft`). Repeatable.
 - `--filter-check`: Only show PRs with this CI result (`pass`, `fail`, `pending`, `none`). Repeatable. Implies `--checks`.
 - `--filter-approval`: Only show PRs with this review status (`approved`, `pending`, `changes`). Repeatable.
+- `--filter-mergeable`: Only show PRs with this mergeable status (`clean`, `conflict`, `unknown`). Repeatable — OR logic.
 - `--label`: Only show PRs that have this label (case-insensitive, repeatable — OR logic).
 - `--exclude-label`: Hide PRs that have this label (case-insensitive, repeatable).
 - `--filter-reviewer`: Only show PRs with this user as a requested reviewer (case-insensitive, repeatable — OR logic).
@@ -119,6 +123,7 @@ breakfast -o my-org -r my-app --legendary-only
 
 ### Other
 
+- `--completion`: Print shell completion script for `bash`, `zsh`, or `fish` and exit. Eval in your shell config (e.g. `eval "$(breakfast --completion bash)"`).
 - `--config`: Path to a config file.
 - `--show-config`: Print resolved config and exit.
 - `--init-config`: Generate a default config file.

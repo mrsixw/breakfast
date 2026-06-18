@@ -73,6 +73,10 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Equivalent to: --mine-only
 # mine-only = false
 
+# Show only PRs where you are a requested reviewer.
+# Equivalent to: --needs-my-review
+# needs-my-review = false
+
 # Maximum number of PRs to display. Applied after all other filters.
 # Unset means show all results.
 # Equivalent to: --limit <n>

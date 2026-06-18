@@ -272,6 +272,25 @@ Processing platform PRs...🍳...Done
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
 ```
 
+### `--needs-my-review`
+
+Show only PRs where the authenticated GitHub user (determined from `GITHUB_TOKEN`) is a requested reviewer. Ideal for the morning triage: skip everything that isn't waiting on you.
+
+```bash
+breakfast -o my-org --needs-my-review
+breakfast -o my-org --needs-my-review --checks --age --sort age --reverse
+```
+
+Can also be set in the config file:
+
+```toml
+needs-my-review = true
+```
+
+Composable with all other filters, including `--mine-only` (the intersection of PRs you authored and PRs awaiting your review is usually empty, but breakfast won't error).
+
+Config key: `needs-my-review = false`
+
 ### `--no-drafts`
 
 Exclude draft PRs from results. Useful when you only want to review PRs that are ready for review.

@@ -417,6 +417,81 @@ def test_cli_mine_only_exits_cleanly_on_rate_limit(monkeypatch):
     assert "2026-04-10 16:04:48" in result.stderr
 
 
+def test_cli_needs_my_review_filters_to_requested_reviewer(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+
+    def fake_get_prs(_org, _repo_filter, _state="open"):
+        return [
+            "https://github.com/org/repo/pull/1",
+            "https://github.com/org/repo/pull/2",
+        ]
+
+    def fake_api_request(path):
+        number = 1 if path.endswith("/1") else 2
+        title = "Needs Alice Review" if number == 1 else "No Alice Review"
+        reviewers = [{"login": "alice"}] if number == 1 else []
+        return {
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": title,
+            "user": {"login": "bob"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "requested_reviewers": reviewers,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": f"https://github.com/org/repo/pull/{number}",
+            "number": number,
+        }
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+    monkeypatch.setattr(cli, "get_authenticated_user_login", lambda: "alice")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--needs-my-review"],
+    )
+
+    assert result.exit_code == 0
+    assert "Needs Alice Review" in result.stdout
+    assert "No Alice Review" not in result.stdout
+
+
+def test_cli_needs_my_review_login_fetched_once_with_mine_only(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+
+    call_count = {"n": 0}
+
+    def counting_login():
+        call_count["n"] += 1
+        return "alice"
+
+    def fake_get_prs(_org, _repo_filter, _state="open"):
+        return []
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(cli, "get_authenticated_user_login", counting_login)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--needs-my-review", "--mine-only"],
+    )
+
+    assert result.exit_code == 0
+    assert call_count["n"] == 1
+
+
 def test_cli_outputs_checks_column(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])

@@ -29,6 +29,7 @@ breakfast -o my-org -o another-org -r platform
 breakfast -o my-org:api -o another-org:platform
 breakfast -o my-org -r my-app --ignore-author dependabot[bot] --ignore-author renovate[bot]
 breakfast -o my-org -r my-app --mine-only
+breakfast -o my-org --needs-my-review
 breakfast -o my-org -r my-app --age
 breakfast -o my-org -r my-app --checks
 breakfast -o my-org -r my-app --approvals
@@ -87,6 +88,7 @@ breakfast --completion bash
 - `--ignore-author`: Exclude PRs by author (case-insensitive, repeatable).
 - `--no-ignore-author`: Clear `ignore-author` config defaults for this run.
 - `--mine-only`: Show only your own PRs.
+- `--needs-my-review`: Show only PRs where you are a requested reviewer.
 - `--no-drafts`: Hide draft PRs.
 - `--drafts-only`: Show only draft PRs.
 - `--fetch-state`: Which PR states to fetch from GitHub: `open` (default), `closed`, `merged`, `all`.

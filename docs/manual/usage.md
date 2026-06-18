@@ -43,6 +43,14 @@ breakfast -o my-org -r my-app \
   --ignore-author renovate[bot]
 ```
 
+### Morning triage: PRs waiting on you
+
+The most actionable morning view — show only PRs where you are a requested reviewer, sorted oldest-first so the most overdue appear at the top:
+
+```bash
+breakfast -o my-org --needs-my-review --checks --age --sort age --reverse
+```
+
 ### Show only your own PRs
 
 ```text

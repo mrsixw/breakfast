@@ -1110,10 +1110,14 @@ Sort the PR list by a named field. By default PRs are grouped by repository
 | `author`   | PR author login (alphabetical)                |
 | `comments` | Total comment count (issue + review comments) |
 | `reviews`  | Review comment count only                     |
+| `size`     | Total lines changed (additions + deletions)   |
+| `files`    | Number of files modified                      |
 
 ```bash
 breakfast -o my-org --sort age          # oldest PRs first
 breakfast -o my-org --sort comments     # most commented first
+breakfast -o my-org --sort size         # smallest diffs first
+breakfast -o my-org --sort size --reverse  # chonkers first
 ```
 
 Config key: `sort = "repo"`

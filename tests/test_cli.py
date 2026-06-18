@@ -3214,6 +3214,62 @@ def test_sort_reverse(monkeypatch):
     assert result.stdout.index("zebra") < result.stdout.index("alpha")
 
 
+def test_sort_by_size(monkeypatch):
+    prs = [
+        _make_sort_pr(1, "repo", "alice", _TS_A, _TS_A),
+        _make_sort_pr(2, "repo", "bob", _TS_A, _TS_A),
+    ]
+    prs[0]["additions"] = 200
+    prs[0]["deletions"] = 50
+    prs[1]["additions"] = 10
+    prs[1]["deletions"] = 5
+    result = _sort_invoke(monkeypatch, prs, "--sort", "size")
+    assert result.exit_code == 0
+    # ascending: smallest diff (PR 2, total 15) before largest (PR 1, total 250)
+    assert result.stdout.index("PR 2") < result.stdout.index("PR 1")
+
+
+def test_sort_by_size_reverse(monkeypatch):
+    prs = [
+        _make_sort_pr(1, "repo", "alice", _TS_A, _TS_A),
+        _make_sort_pr(2, "repo", "bob", _TS_A, _TS_A),
+    ]
+    prs[0]["additions"] = 200
+    prs[0]["deletions"] = 50
+    prs[1]["additions"] = 10
+    prs[1]["deletions"] = 5
+    result = _sort_invoke(monkeypatch, prs, "--sort", "size", "--reverse")
+    assert result.exit_code == 0
+    # reversed: largest diff (PR 1) first
+    assert result.stdout.index("PR 1") < result.stdout.index("PR 2")
+
+
+def test_sort_by_size_missing_fields(monkeypatch):
+    prs = [
+        _make_sort_pr(1, "repo", "alice", _TS_A, _TS_A),
+        _make_sort_pr(2, "repo", "bob", _TS_A, _TS_A),
+    ]
+    del prs[0]["additions"]
+    del prs[0]["deletions"]
+    result = _sort_invoke(monkeypatch, prs, "--sort", "size")
+    assert result.exit_code == 0
+    # PR 1 missing fields → treated as 0; PR 2 has additions=1, deletions=0 → 1
+    assert result.stdout.index("PR 1") < result.stdout.index("PR 2")
+
+
+def test_sort_by_files(monkeypatch):
+    prs = [
+        _make_sort_pr(1, "repo", "alice", _TS_A, _TS_A),
+        _make_sort_pr(2, "repo", "bob", _TS_A, _TS_A),
+    ]
+    prs[0]["changed_files"] = 30
+    prs[1]["changed_files"] = 3
+    result = _sort_invoke(monkeypatch, prs, "--sort", "files")
+    assert result.exit_code == 0
+    # ascending: fewest files (PR 2) before most (PR 1)
+    assert result.stdout.index("PR 2") < result.stdout.index("PR 1")
+
+
 # ---------------------------------------------------------------------------
 # --format template (#183)
 # ---------------------------------------------------------------------------

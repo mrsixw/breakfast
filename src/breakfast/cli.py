@@ -669,13 +669,13 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     "--sort",
     "sort_by",
     type=click.Choice(
-        ["repo", "age", "updated", "author", "comments", "reviews"],
+        ["repo", "age", "updated", "author", "comments", "reviews", "size", "files"],
         case_sensitive=False,
     ),
     default=None,
     help=(
         "Sort PRs by field. Choices: repo (default), age, updated,"
-        " author, comments, reviews."
+        " author, comments, reviews, size, files."
     ),
 )
 @click.option(
@@ -1625,6 +1625,8 @@ def breakfast(
         "author": lambda pr: pr.get("user", {}).get("login", "").lower(),
         "comments": lambda pr: pr.get("comments", 0) + pr.get("review_comments", 0),
         "reviews": lambda pr: pr.get("review_comments", 0),
+        "size": lambda pr: pr.get("additions", 0) + pr.get("deletions", 0),
+        "files": lambda pr: pr.get("changed_files", 0),
     }
     pr_details.sort(
         key=_SORT_KEYS.get(sort_by or "repo", _SORT_KEYS["repo"]),

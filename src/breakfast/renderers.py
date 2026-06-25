@@ -41,6 +41,8 @@ _COLUMN_DISPLAY_NAMES: dict[str, str] = {
     "approvals": "Approved",
     "head-branch": "Head Branch",
     "base-branch": "Base Branch",
+    "reviewers": "Reviewers",
+    "labels": "Labels",
     "mergeable": "Mergeable?",
     "link": "Link",
 }
@@ -55,6 +57,8 @@ _DROPPABLE_COLUMNS = [
     "Age",
     "Checks",
     "Apr",
+    "Reviewers",
+    "Labels",
     "Head Branch",
     "Base Branch",
     "Mrg",
@@ -93,6 +97,30 @@ def is_legendary(pr_detail, now=None):
 
 def _strip_ansi(s):
     return _ANSI_RE.sub("", str(s))
+
+
+def format_reviewers(reviewers_list: list[dict] | None) -> str:
+    """Format requested reviewers with +N overflow rule."""
+    if not reviewers_list:
+        return "-"
+    logins = [r["login"] for r in reviewers_list if "login" in r]
+    if not logins:
+        return "-"
+    if len(logins) > 2:
+        return f"{logins[0]}, {logins[1]} +{len(logins) - 2}"
+    return ", ".join(logins)
+
+
+def format_labels(labels_list: list[dict] | None) -> str:
+    """Format label names with +N overflow rule."""
+    if not labels_list:
+        return "-"
+    names = [lbl["name"] for lbl in labels_list if "name" in lbl]
+    if not names:
+        return "-"
+    if len(names) > 2:
+        return f"{names[0]}, {names[1]} +{len(names) - 2}"
+    return ", ".join(names)
 
 
 def _visible_width(s):
@@ -237,6 +265,14 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
 
     # 2. Truncate Author
     pr_data = _truncate_col(pr_data, "Author", terminal_width, min_len=8)
+    if fits():
+        return pr_data
+
+    # 2b. Truncate Reviewers / Labels
+    pr_data = _truncate_col(pr_data, "Reviewers", terminal_width, min_len=8)
+    if fits():
+        return pr_data
+    pr_data = _truncate_col(pr_data, "Labels", terminal_width, min_len=8)
     if fits():
         return pr_data
 
@@ -431,6 +467,8 @@ def render_markdown(
     head_branch,
     base_branch,
     status_style,
+    reviewers=False,
+    show_labels=False,
 ):
     from .logger import logger
 
@@ -488,6 +526,10 @@ def render_markdown(
             _bb_repo = pr_detail["base"]["repo"]["name"]
             _bb_url = f"https://github.com/{_bb_owner}/{_bb_repo}/tree/{_bb_name}"
             row["Base Branch"] = f"[{_bb_name}]({_bb_url})"
+        if reviewers:
+            row["Reviewers"] = format_reviewers(pr_detail.get("requested_reviewers"))
+        if show_labels:
+            row["Labels"] = format_labels(pr_detail.get("labels"))
         row["Mergeable?"] = _osc8_to_markdown(
             format_mergeable_status(
                 pr_detail.get("mergeable"),
@@ -664,6 +706,8 @@ def render_table(
     colour_index,
     max_title_length,
     column_specs,
+    reviewers=False,
+    show_labels=False,
     stdout_is_tty=None,
 ):
     from .logger import logger
@@ -749,6 +793,12 @@ def render_table(
             _bb_repo = pr_detail["base"]["repo"]["name"]
             _bb_url = f"https://github.com/{_bb_owner}/{_bb_repo}/tree/{_bb_name}"
             row["Base Branch"] = _seasonal_colour_link(_bb_url, _bb_name)
+        if reviewers:
+            row["Reviewers"] = _seasonal_colour(
+                format_reviewers(pr_detail.get("requested_reviewers"))
+            )
+        if show_labels:
+            row["Labels"] = _seasonal_colour(format_labels(pr_detail.get("labels")))
         row["Mergeable?"] = format_mergeable_status(
             pr_detail.get("mergeable"),
             pr_detail.get("mergeable_state"),

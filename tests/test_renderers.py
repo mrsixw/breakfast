@@ -393,3 +393,58 @@ def test_droppable_columns_approved():
     for row in fitted:
         assert "Approved" not in row
         assert "Apr" not in row
+
+
+def test_format_reviewers_and_labels_overflow():
+    """Verify that reviewers and labels format correctly with +N overflow."""
+    assert renderers.format_reviewers([{"login": "alice"}]) == "alice"
+    assert (
+        renderers.format_reviewers([{"login": "alice"}, {"login": "bob"}])
+        == "alice, bob"
+    )
+    assert (
+        renderers.format_reviewers(
+            [{"login": "alice"}, {"login": "bob"}, {"login": "charlie"}]
+        )
+        == "alice, bob +1"
+    )
+    assert renderers.format_reviewers([]) == "-"
+    assert renderers.format_reviewers(None) == "-"
+
+    assert renderers.format_labels([{"name": "bug"}]) == "bug"
+    assert (
+        renderers.format_labels([{"name": "bug"}, {"name": "urgent"}]) == "bug, urgent"
+    )
+    assert (
+        renderers.format_labels(
+            [{"name": "bug"}, {"name": "urgent"}, {"name": "enhancement"}]
+        )
+        == "bug, urgent +1"
+    )
+    assert renderers.format_labels([]) == "-"
+
+
+def test_autofit_truncates_reviewers_and_labels():
+    """Verify that reviewers and labels columns are truncated and dropped by autofit."""
+    rows = [
+        {
+            "Repo": "short",
+            "PR Title": "title",
+            "Author": "alice",
+            "Reviewers": "alice, bob +5",
+            "Labels": "bug, urgent +3",
+        }
+    ]
+    truncated = renderers._auto_fit(
+        rows, terminal_width=65, explicit_max_title_length=None
+    )
+    assert len(truncated[0]["Reviewers"]) <= 12
+    assert len(truncated[0]["Labels"]) <= 12
+
+    # Verify dropping under extremely narrow terminal
+    fitted = renderers._auto_fit(
+        rows, terminal_width=20, explicit_max_title_length=None
+    )
+    for row in fitted:
+        assert "Reviewers" not in row
+        assert "Labels" not in row

@@ -48,6 +48,8 @@ The default output is a colour-coded terminal table with the following columns:
 | Checks | CI/check run status: pass, fail, pending, none (only with `--checks`) — clickable link to the PR's checks tab |
 | Head Branch | Source branch the PR was raised from (only with `--head-branch`) — clickable link to the branch on GitHub |
 | Base Branch | Target branch the PR merges into (only with `--base-branch`) — clickable link to the branch on GitHub |
+| Reviewers | Requested reviewers for the PR (only with `--reviewers`) |
+| Labels | Labels applied to the PR (only with `--show-labels`) |
 | Mergeable? | Whether the PR can be merged cleanly. `✅` means truly ready (`clean`); `⚠️` means no conflicts but not ready (`behind`, `unstable`, or `blocked`); `❌` means conflicts exist. Also shows `🏁 merged`, `🚫 closed`, or `⏳ computing` as appropriate |
 | Link | Clickable link to the PR |
 
@@ -80,7 +82,7 @@ $ breakfast -o my-org -r platform --format markdown 2>/dev/null
 
 - ANSI colour codes are stripped — Markdown renderers don't support them.
 - OSC 8 terminal hyperlinks are converted to `[text](url)` Markdown links.
-- Optional columns (`--age`, `--checks`, `--approvals`, `--head-branch`, `--base-branch`) are included when their flags are set.
+- Optional columns (`--age`, `--checks`, `--approvals`, `--head-branch`, `--base-branch`, `--reviewers`, `--show-labels`) are included when their flags are set.
 - Progress messages still go to stderr, so the output can be redirected cleanly.
 
 ## CSV output (`--format csv`)

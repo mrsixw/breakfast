@@ -140,6 +140,69 @@ def test_cli_outputs_age_column_when_enabled(monkeypatch):
     assert "7" in result.stdout
 
 
+def test_cli_outputs_reviewers_and_labels_columns_when_enabled(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+
+    def fake_get_prs(_org, _repo_filter, _state="open"):
+        return ["https://github.com/org/repo/pull/1"]
+
+    def fake_api_request(_path):
+        return {
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": "Test PR",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": "https://github.com/org/repo/pull/1",
+            "number": 1,
+            "requested_reviewers": [{"login": "reviewer1"}, {"login": "reviewer2"}],
+            "labels": [{"name": "bug-label"}],
+        }
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--reviewers", "--show-labels"],
+    )
+
+    assert result.exit_code == 0
+    assert "Reviewers" in result.stdout
+    assert "reviewer1, reviewer2" in result.stdout
+    assert "Labels" in result.stdout
+    assert "bug-label" in result.stdout
+
+    result_md = runner.invoke(
+        cli.breakfast,
+        [
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--format",
+            "markdown",
+            "--reviewers",
+            "--show-labels",
+        ],
+    )
+    assert result_md.exit_code == 0
+    assert "Reviewers" in result_md.stdout
+    assert "reviewer1, reviewer2" in result_md.stdout
+    assert "Labels" in result_md.stdout
+    assert "bug-label" in result_md.stdout
+
+
 def _fake_pr_detail_with_branches():
     return {
         "base": {

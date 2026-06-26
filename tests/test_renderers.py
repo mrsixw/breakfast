@@ -411,6 +411,18 @@ def test_format_reviewers_and_labels_overflow():
     assert renderers.format_reviewers([]) == "-"
     assert renderers.format_reviewers(None) == "-"
 
+    # Teams review requests tests
+    assert (
+        renderers.format_reviewers([{"login": "alice"}], [{"slug": "team-slug"}])
+        == "alice, @team-slug"
+    )
+    assert (
+        renderers.format_reviewers(
+            [{"login": "alice"}, {"login": "bob"}], [{"slug": "team-slug"}]
+        )
+        == "alice, bob +1"
+    )
+
     assert renderers.format_labels([{"name": "bug"}]) == "bug"
     assert (
         renderers.format_labels([{"name": "bug"}, {"name": "urgent"}]) == "bug, urgent"

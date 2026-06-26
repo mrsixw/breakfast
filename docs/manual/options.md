@@ -849,10 +849,7 @@ columns = [
 When `columns` is set in config, it controls the table layout for all runs. CLI flags still override individual behaviours:
 
 - `--no-age` will suppress age data even if `age` is in `columns` (the column will be absent).
-- `--age` has no effect if `age` is not in `columns` (the column still won't appear).
-- All other flags (`--checks`, `--approvals`, etc.) follow the same logic.
-
-For a one-off column layout without changing your config, use the individual flags directly rather than `columns`.
+- If an optional column flag is passed on the CLI (e.g. `--age`, `--reviewers`, `--show-labels`, `--head-branch`, `--base-branch`), but that column is **not** in your custom `columns` list, it will be automatically appended to the end of the displayed columns. This allows easily toggling optional columns for a one-off run without modifying your configuration file.
 
 > **Note:** The `org` column is only shown when multiple organisations are queried (`-o org1 -o org2`). Listing it in `columns` while querying a single org is a no-op.
 

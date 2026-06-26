@@ -99,7 +99,7 @@ platform-api,138,Fix login bug,bob,https://github.com/my-org/platform-api/pull/1
 - Header row is always present.
 - ANSI colour codes are stripped — all values are plain text.
 - Multi-value fields (`labels`, `requested_reviewers`) are joined with `|` within the cell.
-- Optional columns (`--age`, `--checks`, `--approvals`) are appended when their flags are set.
+- Optional columns (`--age`, `--checks`, `--approvals`, `--reviewers`, `--show-labels`) are appended when their flags are set.
 - Progress messages still go to stderr, so the output can be redirected cleanly.
 - `format = "csv"` in `config.toml` sets CSV as the persistent default.
 
@@ -110,6 +110,8 @@ platform-api,138,Fix login bug,bob,https://github.com/my-org/platform-api/pull/1
 | `--age` | `age_days` |
 | `--checks` | `checks` |
 | `--approvals` | `approval`, `approval_current`, `approval_required` |
+| `--reviewers` | `requested_reviewers` |
+| `--show-labels` | `labels` |
 
 ### Shell examples
 
@@ -129,6 +131,8 @@ breakfast -o my-org -r platform --format csv 2>/dev/null | csvgrep -c author -m 
 With `--format json` (or the `--json` alias), output is a JSON array of objects.
 
 ### Schema
+
+Each PR object contains the default fields by default. Optional fields (`labels`, `requested_reviewers`, `checks`, and `approval` fields) are only included when their respective CLI flags or configuration keys are set.
 
 Each PR object contains:
 

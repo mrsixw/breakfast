@@ -1689,6 +1689,8 @@ def breakfast(
             check_statuses=check_statuses,
             approval_statuses=approval_statuses,
             approval_details=approval_details,
+            reviewers=reviewers,
+            show_labels=show_labels,
         )
     elif fmt == "markdown":
         render_markdown(
@@ -1714,6 +1716,8 @@ def breakfast(
             check_statuses=check_statuses,
             approval_statuses=approval_statuses,
             approval_details=approval_details,
+            reviewers=reviewers,
+            show_labels=show_labels,
         )
     elif fmt == "template":
         render_template(

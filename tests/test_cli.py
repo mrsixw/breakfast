@@ -140,6 +140,148 @@ def test_cli_outputs_age_column_when_enabled(monkeypatch):
     assert "7" in result.stdout
 
 
+def test_cli_outputs_reviewers_and_labels_columns_when_enabled(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+
+    def fake_get_prs(_org, _repo_filter, _state="open"):
+        return ["https://github.com/org/repo/pull/1"]
+
+    def fake_api_request(_path):
+        return {
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": "Test PR",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": "https://github.com/org/repo/pull/1",
+            "number": 1,
+            "requested_reviewers": [{"login": "reviewer1"}, {"login": "reviewer2"}],
+            "requested_teams": [{"slug": "team-slug"}],
+            "labels": [{"name": "bug-label"}],
+        }
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--reviewers", "--show-labels"],
+    )
+
+    assert result.exit_code == 0
+    assert "Reviewers" in result.stdout
+    assert "reviewer1, reviewer2 +1" in result.stdout
+    assert "Labels" in result.stdout
+    assert "bug-label" in result.stdout
+
+    result_md = runner.invoke(
+        cli.breakfast,
+        [
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--format",
+            "markdown",
+            "--reviewers",
+            "--show-labels",
+        ],
+    )
+    assert result_md.exit_code == 0
+    assert "Reviewers" in result_md.stdout
+    assert "reviewer1, reviewer2 +1" in result_md.stdout
+    assert "Labels" in result_md.stdout
+    assert "bug-label" in result_md.stdout
+
+    # Test CSV output when enabled
+    result_csv = runner.invoke(
+        cli.breakfast,
+        [
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--format",
+            "csv",
+            "--reviewers",
+            "--show-labels",
+        ],
+    )
+    assert result_csv.exit_code == 0
+    assert "labels" in result_csv.stdout
+    assert "requested_reviewers" in result_csv.stdout
+    assert "bug-label" in result_csv.stdout
+    assert "reviewer1|reviewer2|@team-slug" in result_csv.stdout
+
+    # Test CSV output when NOT enabled
+    result_csv_off = runner.invoke(
+        cli.breakfast,
+        [
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--format",
+            "csv",
+        ],
+    )
+    assert result_csv_off.exit_code == 0
+    assert "labels" not in result_csv_off.stdout
+    assert "requested_reviewers" not in result_csv_off.stdout
+
+    # Test JSON output when enabled
+    result_json = runner.invoke(
+        cli.breakfast,
+        [
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--format",
+            "json",
+            "--reviewers",
+            "--show-labels",
+        ],
+    )
+    assert result_json.exit_code == 0
+    json_start = result_json.stdout.index("[")
+    parsed_json = json.loads(result_json.stdout[json_start:])
+    assert parsed_json[0]["labels"] == ["bug-label"]
+    assert parsed_json[0]["requested_reviewers"] == [
+        "reviewer1",
+        "reviewer2",
+        "@team-slug",
+    ]
+
+    # Test JSON output when NOT enabled
+    result_json_off = runner.invoke(
+        cli.breakfast,
+        [
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--format",
+            "json",
+        ],
+    )
+    assert result_json_off.exit_code == 0
+    json_start_off = result_json_off.stdout.index("[")
+    parsed_json_off = json.loads(result_json_off.stdout[json_start_off:])
+    assert "labels" not in parsed_json_off[0]
+    assert "requested_reviewers" not in parsed_json_off[0]
+
+
 def _fake_pr_detail_with_branches():
     return {
         "base": {
@@ -266,7 +408,10 @@ def test_cli_outputs_json(monkeypatch):
     monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
 
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--json"])
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--json", "--reviewers", "--show-labels"],
+    )
 
     assert result.exit_code == 0
     data = json.loads(result.stdout[result.stdout.index("[") :])
@@ -4287,3 +4432,57 @@ def test_cli_filter_mergeable_conflict(monkeypatch):
     assert result.exit_code == 0
     assert "PR 1 conflict" in result.stdout
     assert "PR 2 clean" not in result.stdout
+
+
+def test_cli_auto_appends_optional_columns_missing_from_custom_columns_config(
+    monkeypatch,
+):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+
+    def fake_get_prs(_org, _repo_filter, _state="open"):
+        return ["https://github.com/org/repo/pull/1"]
+
+    def fake_api_request(_path):
+        return {
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": "Test PR",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": "https://github.com/org/repo/pull/1",
+            "number": 1,
+        }
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+
+    monkeypatch.setattr(
+        cli,
+        "load_config",
+        lambda *_: {
+            "columns": [
+                {"name": "repo", "header": None, "align": None},
+                {"name": "title", "header": None, "align": None},
+                {"name": "link", "header": None, "align": None},
+            ]
+        },
+    )
+
+    runner = CliRunner()
+
+    result_without = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+    assert result_without.exit_code == 0
+    assert "Age" not in result_without.stdout
+
+    result_with = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--age"])
+    assert result_with.exit_code == 0
+    assert "Age" in result_with.stdout

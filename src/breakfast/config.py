@@ -109,6 +109,14 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Equivalent to: --base-branch
 # base-branch = false
 
+# Show a column with the requested reviewers for each PR.
+# Equivalent to: --reviewers
+# reviewers = false
+
+# Show a column with the labels for each PR.
+# Equivalent to: --show-labels
+# show-labels = false
+
 # Truncate PR titles to this many characters (appends … when truncated).
 # Useful on narrow terminals. Unset means no truncation.
 # Equivalent to: --max-title-length <n>
@@ -116,10 +124,12 @@ _DEFAULT_CONFIG_CONTENT = """\
 
 # Control which columns appear, their order, headers, and alignment.
 # Each entry is {name = "..."} with optional header = "..." and align = "...".
-# Optional columns (age, checks, approvals, head-branch, base-branch) are
-# automatically enabled when included — no need to set their individual flags.
+# Optional columns (age, checks, approvals, head-branch, base-branch,
+# reviewers, labels) are automatically enabled when included — no need to
+# set their individual flags.
 # Available names: org, repo, title, author, state, files, commits, diff,
-#   comments, age, checks, approvals, head-branch, base-branch, mergeable, link
+#   comments, age, checks, approvals, head-branch, base-branch, reviewers,
+#   labels, mergeable, link
 # Expand to multi-line in your config for readability:
 #   columns = [
 #     {name = "repo"},
@@ -337,6 +347,8 @@ _VALID_COLUMN_NAMES = frozenset(
         "approvals",
         "head-branch",
         "base-branch",
+        "reviewers",
+        "labels",
         "mergeable",
         "link",
     }

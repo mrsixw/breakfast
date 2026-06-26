@@ -491,6 +491,16 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     help="Include a column showing the target branch the PR merges into.",
 )
 @click.option(
+    "--reviewers/--no-reviewers",
+    default=None,
+    help="Include a column showing requested reviewers for each PR.",
+)
+@click.option(
+    "--show-labels/--no-show-labels",
+    default=None,
+    help="Include a column showing labels for each PR.",
+)
+@click.option(
     "--status-style",
     type=click.Choice(["emoji", "ascii"], case_sensitive=False),
     default=None,
@@ -766,6 +776,8 @@ def breakfast(
     approvals,
     head_branch,
     base_branch,
+    reviewers,
+    show_labels,
     status_style,
     limit,
     workers,
@@ -855,6 +867,10 @@ def breakfast(
             head_branch = True
         if "base-branch" in _spec_names and base_branch is None:
             base_branch = True
+        if "reviewers" in _spec_names and reviewers is None:
+            reviewers = True
+        if "labels" in _spec_names and show_labels is None:
+            show_labels = True
 
     # --owner / deprecated --org / --organization flags; merge and warn on deprecated
     if org_deprecated:
@@ -963,6 +979,10 @@ def breakfast(
     )
     base_branch = (
         base_branch if base_branch is not None else cfg.get("base-branch", False)
+    )
+    reviewers = reviewers if reviewers is not None else cfg.get("reviewers", False)
+    show_labels = (
+        show_labels if show_labels is not None else cfg.get("show-labels", False)
     )
     if status_style is None:
         status_style = str(cfg.get("status-style", "emoji")).lower()
@@ -1669,6 +1689,8 @@ def breakfast(
             check_statuses=check_statuses,
             approval_statuses=approval_statuses,
             approval_details=approval_details,
+            reviewers=reviewers,
+            show_labels=show_labels,
         )
     elif fmt == "markdown":
         render_markdown(
@@ -1682,6 +1704,8 @@ def breakfast(
             head_branch=head_branch,
             base_branch=base_branch,
             status_style=status_style,
+            reviewers=reviewers,
+            show_labels=show_labels,
         )
     elif fmt == "csv":
         render_csv(
@@ -1692,6 +1716,8 @@ def breakfast(
             check_statuses=check_statuses,
             approval_statuses=approval_statuses,
             approval_details=approval_details,
+            reviewers=reviewers,
+            show_labels=show_labels,
         )
     elif fmt == "template":
         render_template(
@@ -1712,6 +1738,8 @@ def breakfast(
             approval_details=approval_details,
             head_branch=head_branch,
             base_branch=base_branch,
+            reviewers=reviewers,
+            show_labels=show_labels,
             status_style=status_style,
             seasonal_calendar=seasonal_calendar,
             colour=colour,

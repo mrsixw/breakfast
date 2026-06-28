@@ -136,9 +136,9 @@ def test_visible_width():
 
 
 def test_slice_by_width_ascii():
-    assert renderers._slice_by_width("hello", 3) == "hel"
-    assert renderers._slice_by_width("hello", 10) == "hello"
-    assert renderers._slice_by_width("hello", 0) == ""
+    assert renderers._slice_by_width("abcde", 3) == "abc"
+    assert renderers._slice_by_width("abcde", 10) == "abcde"
+    assert renderers._slice_by_width("abcde", 0) == ""
 
 
 def test_slice_by_width_cjk():

@@ -4005,6 +4005,11 @@ def _setup_colour_index_mocks(monkeypatch):
     )
     monkeypatch.setattr(api, "make_github_api_request", lambda _path: _COLOUR_INDEX_PR)
     monkeypatch.setattr(cli, "_stdout_is_tty", lambda: True)
+    monkeypatch.setattr(
+        renderers,
+        "apply_seasonal_colour",
+        lambda text, pr_num, calendar: f"\033[35m{text}\033[0m",
+    )
 
 
 def test_index_column_plain_by_default(monkeypatch):

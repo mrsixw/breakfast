@@ -27,6 +27,18 @@ If you lose internet connectivity, a request times out, or GitHub is experiencin
 
 If you know you are offline or have weak connectivity, you can force breakfast to use the local cache immediately without making any network requests by passing `--offline`.
 
+### `--mine-only` and `--needs-my-review` in offline mode
+
+breakfast caches your GitHub login in `user.json` inside the cache directory after the first successful online run. In offline mode (either `--offline` or automatic fallback), it reads this cached login so `--mine-only` and `--needs-my-review` work correctly.
+
+If you see the warning:
+
+```text
+⚠️  Offline mode: no cached login found — --mine-only / --needs-my-review skipped.
+```
+
+Run breakfast once without `--offline` while connected, then the cached login will be available for future offline runs.
+
 If errors persist and no cached data exists:
 
 - Check [GitHub Status](https://www.githubstatus.com/) for ongoing incidents

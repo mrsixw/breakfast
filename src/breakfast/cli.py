@@ -418,6 +418,11 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     help="Only include PRs authored by the currently authenticated GitHub user.",
 )
 @click.option(
+    "--needs-my-review/--no-needs-my-review",
+    default=None,
+    help="Only show PRs where you are a requested reviewer.",
+)
+@click.option(
     "--no-drafts",
     is_flag=True,
     default=False,
@@ -765,6 +770,7 @@ def breakfast(
     ignore_author,
     no_ignore_author,
     mine_only,
+    needs_my_review,
     no_drafts,
     drafts_only,
     age,
@@ -932,6 +938,11 @@ def breakfast(
     ignore_author = merged_ignore_authors
 
     mine_only = mine_only if mine_only is not None else cfg.get("mine-only", False)
+    needs_my_review = (
+        needs_my_review
+        if needs_my_review is not None
+        else cfg.get("needs-my-review", False)
+    )
     no_drafts = no_drafts or cfg.get("no-drafts", False)
     drafts_only = drafts_only or cfg.get("drafts-only", False)
     age = age if age is not None else cfg.get("age", False)
@@ -1159,7 +1170,7 @@ def breakfast(
         click.echo(click.style(message, fg="red", bold=True), err=True, color=colour)
         sys.exit(1)
     current_user_login = None
-    if mine_only and not offline:
+    if (mine_only or needs_my_review) and not offline:
         try:
             current_user_login = get_authenticated_user_login()
         except GitHubRateLimitError as exc:
@@ -1591,7 +1602,7 @@ def breakfast(
         if refresh or refresh_prs:
             click.echo("🔄 Cache refreshed.", err=True)
 
-    if mine_only and offline_mode and current_user_login is None:
+    if (mine_only or needs_my_review) and offline_mode and current_user_login is None:
         click.echo(
             click.style(
                 "🔌 Offline Mode: Displaying all cached PRs because "
@@ -1601,6 +1612,10 @@ def breakfast(
             err=True,
             color=colour,
         )
+
+    effective_filter_reviewer = list(filter_reviewer)
+    if needs_my_review and current_user_login:
+        effective_filter_reviewer.append(current_user_login)
 
     before_filter = len(pr_details)
     pr_details = filter_pr_details(
@@ -1617,7 +1632,7 @@ def breakfast(
         check_statuses=check_statuses,
         approval_statuses=approval_statuses,
         search_title=search,
-        filter_reviewer=filter_reviewer,
+        filter_reviewer=effective_filter_reviewer,
         filter_label=filter_label,
         exclude_label=exclude_label,
         filter_stale=filter_stale,

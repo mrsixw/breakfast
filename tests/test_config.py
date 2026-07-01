@@ -827,3 +827,77 @@ def test_load_config_owner_takes_precedence_over_organization(monkeypatch, tmp_p
     result = config.load_config()
 
     assert result.get("owner") == "new-owner"
+
+
+def test_load_config_unknown_keys_warning(monkeypatch, tmp_path):
+    """Test that unknown keys warn, with close match suggestion if it exists."""
+    warnings = []
+    # Mock click.echo to collect printed warnings
+    monkeypatch.setattr(
+        config.click, "echo", lambda msg, **kw: warnings.append(str(msg))
+    )
+
+    # 1. Config with a typo that has a close match
+    cfg_file1 = tmp_path / "config.toml"
+    cfg_file1.write_text("cheks = true\n")
+    monkeypatch.setattr(config, "get_config_paths", lambda: [cfg_file1])
+
+    config.load_config()
+    assert len(warnings) == 1
+    assert "Unknown config key 'cheks' in config.toml" in warnings[0]
+    assert "did you mean 'checks'?" in warnings[0]
+
+    # 2. Config with an unknown key that does NOT have a close match
+    warnings.clear()
+    cfg_file2 = tmp_path / "breakfast.toml"
+    cfg_file2.write_text('totallyinvalidkeyname = "hello"\n')
+    monkeypatch.setattr(config, "get_config_paths", lambda: [cfg_file2])
+
+    config.load_config()
+    assert len(warnings) == 1
+    assert "Unknown config key 'totallyinvalidkeyname' in breakfast.toml" in warnings[0]
+    assert "did you mean" not in warnings[0]
+
+
+def test_load_config_valid_extra_keys_do_not_warn(monkeypatch, tmp_path):
+    """Test that keys valid in cli.py but absent from default template do not warn."""
+    warnings = []
+    monkeypatch.setattr(
+        config.click, "echo", lambda msg, **kw: warnings.append(str(msg))
+    )
+
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('organization = "my-org"\ndrafts-only = true\noffline = true\n')
+    monkeypatch.setattr(config, "get_config_paths", lambda: [cfg_file])
+
+    config.load_config()
+    # Should only produce the 'organization' deprecation warning,
+    # NO unknown key warnings
+    assert not any("Unknown config key" in w for w in warnings)
+
+
+def test_load_config_all_known_keys_no_warnings(monkeypatch, tmp_path):
+    """Test that a config containing all known keys produces zero warnings."""
+    warnings = []
+    monkeypatch.setattr(
+        config.click, "echo", lambda msg, **kw: warnings.append(str(msg))
+    )
+
+    # Generate a config containing every key in KNOWN_KEYS
+    lines = []
+    for k in config.KNOWN_KEYS:
+        # Avoid using list types improperly for scalar checks (e.g. ignore-author)
+        if k in config._LIST_KEYS:
+            lines.append(f'{k} = ["val"]')
+        elif k == "columns":
+            lines.append(f"{k} = []")
+        else:
+            lines.append(f'{k} = "val"')
+
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text("\n".join(lines) + "\n")
+    monkeypatch.setattr(config, "get_config_paths", lambda: [cfg_file])
+
+    config.load_config()
+    # Check that no unknown key warnings were emitted
+    assert not any("Unknown config key" in w for w in warnings)

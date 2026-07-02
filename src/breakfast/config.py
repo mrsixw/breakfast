@@ -178,6 +178,7 @@ _DEFAULT_CONFIG_CONTENT = """\
 #   hindu      — Diwali 🪔, Holi 🎨
 #   islamic    — Eid al-Fitr 🌙, Eid al-Adha 🐑
 #   jewish     — Hanukkah 🕎, Passover 🪬, Rosh Hashanah 🍎, Sukkot 🌿
+#   rainbow    — permanent Pride 🌈 cycle, every day of the year
 #   sikh       — Vaisakhi 🌾, Bandi Chhor Divas 🪔
 #   western    — Christmas 🎄, Easter 🐣, Pride Month 🌈, Halloween 🎃 (default)
 #   off        — disable seasonal colours entirely

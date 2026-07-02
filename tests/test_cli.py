@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 import requests
 from click.testing import CliRunner
+from freezegun import freeze_time
 
 from breakfast import api, cache, cli, renderers
 
@@ -4093,9 +4094,12 @@ def test_index_column_coloured_when_enabled_by_config(monkeypatch, tmp_path):
     _setup_colour_index_mocks(monkeypatch)
     cfg_file = tmp_path / "test.toml"
     cfg_file.write_text("colour-index = true\n")
-    result = CliRunner().invoke(
-        cli.breakfast, ["-o", "org", "-r", "repo", "--config", str(cfg_file)]
-    )
+    # June has an active seasonal palette (Pride), so the index is coloured
+    # regardless of which real-world date the suite runs on.
+    with freeze_time("2026-06-01"):
+        result = CliRunner().invoke(
+            cli.breakfast, ["-o", "org", "-r", "repo", "--config", str(cfg_file)]
+        )
     assert result.exit_code == 0
     # ANSI escape codes should wrap the index digit
     assert not re.search(r"\| 0 +\|", result.stdout)

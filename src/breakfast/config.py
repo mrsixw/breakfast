@@ -1,3 +1,5 @@
+import difflib
+import os
 import re
 import tomllib
 from datetime import datetime
@@ -327,6 +329,13 @@ def _extract_option_blocks(content: str) -> list[tuple[str, str]]:
     return results
 
 
+_EXPLICIT_EXTRAS = {"organization", "drafts-only", "offline"}
+_KNOWN_KEYS_FROM_TEMPLATE = {
+    k for k, _ in _extract_option_blocks(_DEFAULT_CONFIG_CONTENT)
+}
+KNOWN_KEYS = frozenset(_KNOWN_KEYS_FROM_TEMPLATE | _EXPLICIT_EXTRAS)
+
+
 def _key_present_in_file(key: str, content: str) -> bool:
     """Return True if *key* appears in *content* as an active or commented option."""
     pattern = rf"^#?\s*{re.escape(key)}\s*="
@@ -440,26 +449,60 @@ def load_config(config_path=None):
     for path in reversed(paths):
         if path.exists():
             with open(path, "rb") as f:
+                # Resolve color suppression before TOML parse error might occur
+                ctx = click.get_current_context(silent=True)
+                no_color_cli = ctx.params.get("no_colour", False) if ctx else False
+                no_color_env = os.getenv("NO_COLOR") is not None
                 try:
                     data = tomllib.load(f)
                 except tomllib.TOMLDecodeError as e:
                     logger.warning("config_parse_error path=%s error=%r", path, str(e))
                     msg = f"Warning: Failed to parse config {path}: {e}"
-                    click.echo(click.style(msg, fg="yellow"), err=True)
+                    if not (no_color_cli or no_color_env):
+                        click.echo(click.style(msg, fg="yellow"), err=True)
+                    else:
+                        click.echo(msg, err=True)
                     continue
+
+            # Determine final color usage state including config setting
+            no_color_config = data.get("no-colour", False) or data.get(
+                "no-color", False
+            )
+            use_color = not (no_color_cli or no_color_env or no_color_config)
+
+            # Check for unknown config keys and warn
+            for key in sorted(data.keys()):
+                if key not in KNOWN_KEYS:
+                    closest_matches = difflib.get_close_matches(
+                        key.lower(), KNOWN_KEYS, n=1
+                    )
+                    if closest_matches:
+                        closest = closest_matches[0]
+                        warning_msg = (
+                            f"⚠️  Unknown config key '{key}' in {path.name}"
+                            f" — did you mean '{closest}'?"
+                        )
+                    else:
+                        warning_msg = f"⚠️  Unknown config key '{key}' in {path.name}"
+
+                    if use_color:
+                        click.echo(click.style(warning_msg, fg="yellow"), err=True)
+                    else:
+                        click.echo(warning_msg, err=True)
+
             # seasonal-colours = false → seasonal-calendar = "off" (backward compat)
             if not data.get("seasonal-colours", True):
                 data.setdefault("seasonal-calendar", "off")
             # organization → owner (deprecated key, backward compat)
             if "organization" in data:
-                click.echo(
-                    click.style(
-                        "⚠️  Config key 'organization' is deprecated and will be"
-                        " removed in a future release. Rename it to 'owner'.",
-                        fg="yellow",
-                    ),
-                    err=True,
+                dep_msg = (
+                    "⚠️  Config key 'organization' is deprecated and will be"
+                    " removed in a future release. Rename it to 'owner'."
                 )
+                if use_color:
+                    click.echo(click.style(dep_msg, fg="yellow"), err=True)
+                else:
+                    click.echo(dep_msg, err=True)
                 data.setdefault("owner", data.pop("organization"))
             for key in _LIST_KEYS:
                 if key in data and not isinstance(data[key], list):
@@ -469,14 +512,14 @@ def load_config(config_path=None):
                         key,
                         data[key],
                     )
-                    click.echo(
-                        click.style(
-                            f"Warning: config key '{key}' should be a list "
-                            f'(e.g. ["{data[key]}"]), wrapping scalar automatically.',
-                            fg="yellow",
-                        ),
-                        err=True,
+                    list_warn_msg = (
+                        f"Warning: config key '{key}' should be a list "
+                        f'(e.g. ["{data[key]}"]), wrapping scalar automatically.'
                     )
+                    if use_color:
+                        click.echo(click.style(list_warn_msg, fg="yellow"), err=True)
+                    else:
+                        click.echo(list_warn_msg, err=True)
                     data[key] = [data[key]]
             for key, value in data.items():
                 if isinstance(value, list) and isinstance(merged.get(key), list):

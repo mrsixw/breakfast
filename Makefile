@@ -1,7 +1,11 @@
 .ONESHELL:
 SHELL = /bin/bash
 
-.PHONY: activate build version-bump release breakfast smoketest test lint docs-lint format man completions
+PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/bin
+DESTDIR ?=
+
+.PHONY: activate build version-bump release breakfast smoketest test lint docs-lint format man completions install uninstall
 
 .venv:
 	uv venv .venv
@@ -14,6 +18,13 @@ build: .venv
 
 	uv sync --extra build
 	uv run shiv -c breakfast -o breakfast --python '/usr/bin/env python3' --preamble utils/preamble.py .
+
+install: build
+	install -d "$(DESTDIR)$(BINDIR)"
+	install -m 755 breakfast "$(DESTDIR)$(BINDIR)/breakfast"
+
+uninstall:
+	rm -f "$(DESTDIR)$(BINDIR)/breakfast"
 
 version-bump:
 	git mkver patch

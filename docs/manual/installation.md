@@ -36,6 +36,32 @@ make build
 
 This produces a `./breakfast` standalone executable using [shiv](https://github.com/linkedin/shiv).
 
+### Install the binary
+
+To install the built executable to a standard Unix path:
+
+```bash
+sudo make install
+```
+
+By default, this installs the executable to `/usr/local/bin`. You can customize the installation prefix using the `PREFIX` variable:
+
+```bash
+make install PREFIX=$HOME/.local
+```
+
+To uninstall:
+
+```bash
+sudo make uninstall
+```
+
+If installed with a custom `PREFIX`:
+
+```bash
+make uninstall PREFIX=$HOME/.local
+```
+
 ## Set up your GitHub token
 
 breakfast requires a `GITHUB_TOKEN` environment variable:

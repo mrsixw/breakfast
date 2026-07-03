@@ -574,6 +574,31 @@ def test_global_january_purple_across_calendars():
         assert result.startswith(ui.SEASONAL_PALETTES["purple"]), f"cal={cal}"
 
 
+def test_rainbow_calendar_always_returns_pride_rainbow():
+    for month in range(1, 13):
+        result = ui._rainbow_calendar(_today(month))
+        assert result == ui.PRIDE_RAINBOW
+
+
+def test_apply_seasonal_colour_rainbow_cycles_by_pr_number():
+    with freeze_time("2025-09-03"):  # an otherwise unthemed month
+        results = [
+            ui.apply_seasonal_colour("x", i, calendar="rainbow")
+            for i in range(len(ui.PRIDE_RAINBOW))
+        ]
+    for i, expected in enumerate(ui.PRIDE_RAINBOW):
+        assert results[i].startswith(expected)
+
+
+def test_apply_seasonal_colour_rainbow_overrides_january_purple():
+    # Unlike every other calendar, rainbow mode is a permanent user choice
+    # and is exempt from the January purple override.
+    with freeze_time("2025-01-15"):
+        result = ui.apply_seasonal_colour("x", 0, calendar="rainbow")
+    assert result.startswith(ui.PRIDE_RAINBOW[0])
+    assert not result.startswith(ui.SEASONAL_PALETTES["purple"])
+
+
 def test_islamic_calendar_eid_al_adha():
     # Eid al-Adha 2024 starts June 16, 3-day window
     for d in range(16, 19):

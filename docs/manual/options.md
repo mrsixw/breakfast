@@ -1040,6 +1040,7 @@ Choose which cultural holiday calendar drives the seasonal colour effects in the
 | `"hindu"` | Diwali 🪔 (gold), Holi 🎨 (rainbow) |
 | `"islamic"` | Eid al-Fitr 🌙 (green), Eid al-Adha 🐑 (green) |
 | `"jewish"` | Hanukkah 🕎 (blue), Rosh Hashanah 🍎 (gold), Passover 🪬 (spring green), Sukkot 🌿 (orange) |
+| `"rainbow"` | Permanent Pride 🌈 cycle, every day of the year — no holiday detection |
 | `"sikh"` | Vaisakhi 🌾 (spring green), Bandi Chhor Divas 🪔 (gold) |
 | `"western"` | Gregorian calendar: Christmas 🎄, Easter 🐣, Pride Month 🌈, Halloween 🎃, Valentine's Day 💕, Lunar New Year 🧧 (default) |
 | `"off"` | Disable seasonal colours entirely |
@@ -1049,6 +1050,8 @@ seasonal-calendar = "east-asian"
 ```
 
 Note: `seasonal-colours = false` is a backward-compatible alias for `seasonal-calendar = "off"`.
+
+Note: every other calendar defers to purple in January; `"rainbow"` is the one exception and keeps cycling through the Pride colours all year, including January.
 
 ### `--colour-diagnostics` / `--color-diagnostics`
 

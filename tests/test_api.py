@@ -1,3 +1,6 @@
+import threading
+from concurrent.futures import CancelledError
+
 import pytest
 import requests
 
@@ -30,6 +33,7 @@ def test_make_github_api_request_retries_on_connection_error(monkeypatch):
 
     assert result == {"ok": True}
     assert len(attempts) == 3
+    assert api.get_api_stats()["rest_calls"] == 3
 
 
 def test_make_github_api_request_raises_after_max_retries_connection_error(monkeypatch):
@@ -1059,36 +1063,41 @@ def test_match_repo_filter_glob_no_partial_match():
 # ---------------------------------------------------------------------------
 
 
-def _make_rate_limit_response(reset_ts="1712000000"):
-    """Return a fake requests.Response that looks like a GitHub rate-limit 403."""
-
-    class FakeResponse:
-        status_code = 403
-        headers = {
-            "X-RateLimit-Remaining": "0",
-            "X-RateLimit-Reset": reset_ts,
-        }
-
-        def raise_for_status(self):
-            raise requests.exceptions.HTTPError(response=self)
-
-    return FakeResponse()
-
-
-def test_make_github_api_request_raises_rate_limit_error(monkeypatch):
+def test_make_github_api_request_raises_rate_limit_error(monkeypatch, requests_mock):
     monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
-    monkeypatch.setattr(
-        api.requests, "get", lambda *_a, **_kw: _make_rate_limit_response()
+    requests_mock.get(
+        f"{api.GITHUB_API_URL}/user",
+        status_code=403,
+        headers={
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": "1712000000",
+        },
+        json={"message": "API rate limit exceeded"},
     )
 
-    with pytest.raises(api.GitHubRateLimitError):
+    with pytest.raises(api.GitHubRateLimitError) as exc_info:
         api.make_github_api_request("/user")
 
+    assert exc_info.value.resource == "rest"
+    assert exc_info.value.remaining == 0
+    stats = api.get_api_stats()
+    assert stats["rest_calls"] == 1
+    assert stats["rest_rate_limit_remaining"] == 0
+    assert stats["rest_rate_limit_exhausted"] is True
 
-def test_make_github_api_request_rate_limit_error_contains_reset_time(monkeypatch):
+
+def test_make_github_api_request_rate_limit_error_contains_reset_time(
+    monkeypatch, requests_mock
+):
     monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
-    monkeypatch.setattr(
-        api.requests, "get", lambda *_a, **_kw: _make_rate_limit_response("1712000000")
+    requests_mock.get(
+        f"{api.GITHUB_API_URL}/user",
+        status_code=403,
+        headers={
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": "1712000000",
+        },
+        json={"message": "API rate limit exceeded"},
     )
 
     with pytest.raises(api.GitHubRateLimitError) as exc_info:
@@ -1099,22 +1108,139 @@ def test_make_github_api_request_rate_limit_error_contains_reset_time(monkeypatc
 
 
 def test_make_github_api_request_403_without_rate_limit_header_raises_http_error(
-    monkeypatch,
+    monkeypatch, requests_mock
 ):
     """A plain 403 (auth failure) should raise HTTPError, not GitHubRateLimitError."""
-
-    class FakeForbidden:
-        status_code = 403
-        headers = {}  # no X-RateLimit-Remaining header
-
-        def raise_for_status(self):
-            raise requests.exceptions.HTTPError(response=self)
-
     monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
-    monkeypatch.setattr(api.requests, "get", lambda *_a, **_kw: FakeForbidden())
+    requests_mock.get(
+        f"{api.GITHUB_API_URL}/user",
+        status_code=403,
+        json={"message": "Resource not accessible by token"},
+    )
 
     with pytest.raises(requests.exceptions.HTTPError):
         api.make_github_api_request("/user")
+
+
+def test_make_github_api_request_accepts_last_successful_request(
+    monkeypatch, requests_mock
+):
+    """A successful response that consumes the last request remains usable."""
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    requests_mock.get(
+        f"{api.GITHUB_API_URL}/user",
+        status_code=200,
+        headers={"X-RateLimit-Remaining": "0"},
+        json={"login": "alice"},
+    )
+
+    result = api.make_github_api_request("/user")
+
+    assert result == {"login": "alice"}
+    stats = api.get_api_stats()
+    assert stats["rest_calls"] == 1
+    assert stats["rest_rate_limit_remaining"] == 0
+    assert stats["rest_rate_limit_exhausted"] is True
+
+
+def test_make_github_api_request_detects_secondary_rate_limit(
+    monkeypatch, requests_mock
+):
+    """A Retry-After 429 is typed as secondary rate-limit exhaustion."""
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    requests_mock.get(
+        f"{api.GITHUB_API_URL}/user",
+        status_code=429,
+        headers={"Retry-After": "60"},
+        json={"message": "You have exceeded a secondary rate limit."},
+    )
+
+    with pytest.raises(api.GitHubRateLimitError) as exc_info:
+        api.make_github_api_request("/user")
+
+    assert exc_info.value.retry_after == "60"
+    assert exc_info.value.reset_time is not None
+    assert api.get_api_stats()["rest_rate_limit_exhausted"] is True
+
+
+def test_make_github_graphql_request_detects_rate_limit_error(
+    monkeypatch, requests_mock
+):
+    """GraphQL RATE_LIMITED responses preserve reset metadata and stats."""
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    requests_mock.post(
+        api.GITHUB_GRAPHQL_URL,
+        status_code=200,
+        headers={
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": "1712000000",
+        },
+        json={
+            "data": None,
+            "errors": [{"type": "RATE_LIMITED", "message": "rate limit"}],
+        },
+    )
+
+    with pytest.raises(api.GitHubRateLimitError) as exc_info:
+        api.make_github_graphql_request("{ viewer { login } }")
+
+    assert exc_info.value.resource == "graphql"
+    assert exc_info.value.remaining == 0
+    stats = api.get_api_stats()
+    assert stats["graphql_calls"] == 1
+    assert stats["graphql_rate_limit_remaining"] == 0
+    assert stats["graphql_rate_limit_exhausted"] is True
+
+
+def test_make_github_graphql_request_plain_403_is_not_rate_limit(
+    monkeypatch, requests_mock
+):
+    """GraphQL authorization failures remain ordinary HTTP errors."""
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    requests_mock.post(
+        api.GITHUB_GRAPHQL_URL,
+        status_code=403,
+        json={"message": "Resource not accessible by token"},
+    )
+
+    with pytest.raises(requests.exceptions.HTTPError):
+        api.make_github_graphql_request("{ viewer { login } }")
+
+
+def test_make_github_graphql_request_accepts_last_successful_request(
+    monkeypatch, requests_mock
+):
+    """GraphQL data remains valid when the response leaves zero points."""
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    requests_mock.post(
+        api.GITHUB_GRAPHQL_URL,
+        status_code=200,
+        headers={"X-RateLimit-Remaining": "0"},
+        json={"data": {"viewer": {"login": "alice"}}},
+    )
+
+    result = api.make_github_graphql_request("{ viewer { login } }")
+
+    assert result == {"data": {"viewer": {"login": "alice"}}}
+    stats = api.get_api_stats()
+    assert stats["graphql_calls"] == 1
+    assert stats["graphql_rate_limit_remaining"] == 0
+    assert stats["graphql_rate_limit_exhausted"] is True
+
+
+def test_request_stop_event_prevents_another_http_attempt(requests_mock):
+    """A stopped concurrent pool aborts before issuing another request."""
+    stop_event = threading.Event()
+    stop_event.set()
+    api.set_api_request_stop_event(stop_event)
+    matcher = requests_mock.get(f"{api.GITHUB_API_URL}/user", json={"login": "alice"})
+
+    try:
+        with pytest.raises(CancelledError):
+            api.make_github_api_request("/user")
+    finally:
+        api.clear_api_request_stop_event(stop_event)
+    assert matcher.call_count == 0
 
 
 # ---------------------------------------------------------------------------

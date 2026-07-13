@@ -77,6 +77,61 @@ def graphql_cache_path(org: str, repo_filter: str) -> Path:
     return _CACHE_DIR / f"graphql_{key}.json"
 
 
+def identity_cache_path(token: str) -> Path:
+    """Return the versioned identity cache path for a GitHub token."""
+    key = hashlib.sha256(token.encode()).hexdigest()[:16]
+    return _CACHE_DIR / f"identity_v1_{key}.json"
+
+
+def read_cached_user_login(token: str | None) -> str | None:
+    """Return the cached login associated with *token*, if available."""
+    if not token:
+        return None
+    path = identity_cache_path(token)
+    try:
+        if not path.exists():
+            logger.debug(
+                "cache_miss layer=identity path=%s reason=file_not_found", path
+            )
+            return None
+        data = json.loads(path.read_text())
+        login = data["login"]
+        if not isinstance(login, str) or not login.strip():
+            raise ValueError("cached login is empty or invalid")
+        logger.debug("cache_hit layer=identity path=%s login=%s", path, login)
+        return login
+    except (OSError, json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
+        logger.warning(
+            "cache_read_error layer=identity path=%s error=%r", path, str(exc)
+        )
+        click.echo(
+            click.style(f"Warning: failed to read identity cache: {exc}", fg="yellow"),
+            err=True,
+        )
+        return None
+
+
+def write_cached_user_login(token: str | None, login: str) -> None:
+    """Persist *login* for *token* without storing the credential itself."""
+    if not token:
+        return
+    try:
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path = identity_cache_path(token)
+        _atomic_write_text(path, json.dumps({"login": login}))
+        logger.debug("cache_write layer=identity path=%s login=%s", path, login)
+    except OSError as exc:
+        logger.warning(
+            "cache_write_error layer=identity path=%s error=%r",
+            identity_cache_path(token),
+            str(exc),
+        )
+        click.echo(
+            click.style(f"Warning: failed to write identity cache: {exc}", fg="yellow"),
+            err=True,
+        )
+
+
 def read_graphql_cache(org: str, repo_filter: str, ttl: int) -> list | None:
     """Return cached PR URL list if present and within TTL, else None."""
     path = graphql_cache_path(org, repo_filter)

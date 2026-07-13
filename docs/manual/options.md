@@ -888,7 +888,7 @@ workers = 16
 
 ## Caching options
 
-The disk cache is **off by default**. Enable it with `--cache` or `cache = true` in config. Once enabled, results are stored in `~/.cache/breakfast/` (or `$XDG_CACHE_HOME/breakfast/`) and reused until the TTL expires.
+The disk cache is **off by default**. Enable it with `--cache` or `cache = true` in config. Once enabled, results are stored in `~/.cache/breakfast/` (or `$XDG_CACHE_HOME/breakfast/`) and reused until the TTL expires. Complete cache hits are resolved before GitHub identity or diagnostics requests, so `--mine-only` and `--needs-my-review` can also avoid the API after the token's login has been cached by a successful run.
 
 ### `--cache` / `--no-cache`
 
@@ -924,6 +924,8 @@ cache-ttl = "5m"
 
 Fetch fresh data and write it to the cache, ignoring whatever is already cached. Requires `--cache` (or `cache = true` in config) — exits with an error if the cache is not enabled. Subsequent runs within the TTL will be served from the freshly updated cache.
 
+If GitHub exhausts a REST or GraphQL rate limit during the refresh, breakfast displays the latest coherent full cache instead and prints a warning that the requested refresh could not be completed. The degraded run exits successfully because cached output was produced, but the cache timestamp is not updated.
+
 ```bash
 breakfast -o my-org -r my-app --cache --refresh
 ```
@@ -931,6 +933,8 @@ breakfast -o my-org -r my-app --cache --refresh
 ### `--refresh-prs`
 
 Re-fetch PR details (comments, CI status, merge state) using the cached repo list, then write the fresh results back to the cache. Requires `--cache` (or `cache = true` in config) — exits with an error if the cache is not enabled. Faster than `--refresh` when you know the set of open PRs hasn't changed.
+
+Like `--refresh`, a rate-limited `--refresh-prs` run falls back to the latest full cache with a clear warning and does not overwrite it with partial results.
 
 ```bash
 breakfast -o my-org -r my-app --cache --refresh-prs
@@ -940,14 +944,15 @@ breakfast -o my-org -r my-app --cache --refresh-prs
 
 Force offline mode using the most recent cached data (even if it has expired beyond the configured TTL).
 
-If internet connectivity is absent or weak, breakfast will also automatically fall back to the most recent disk cache (even if older than the TTL) and display a clear offline banner.
+If internet connectivity is absent or weak, or GitHub exhausts a REST or GraphQL rate limit, breakfast will automatically fall back to the most recent full disk cache (even if older than the TTL) and display a clear `stderr` banner. A rate-limit banner names the exhausted API, reports the cache age, and includes the reset time when GitHub provides one.
 
 When offline mode is active (either forced via `--offline` or via automatic fallback):
 
 - It reads from the cache regardless of the TTL expiration.
 - It bypasses all update checks, check status fetches, and approval fetches.
 - It does not write any refreshed data back to the cache, preventing corrupted timestamps.
-- If `--mine-only` is used but the current user login cannot be fetched, a warning is printed to `stderr` indicating that all cached PRs are shown.
+- Successful online identity lookups are cached by a SHA-256-derived, token-specific key; the token itself is never written to disk.
+- `--mine-only` and `--needs-my-review` use that cached login. If no login has been cached for the active token, a warning is printed to `stderr` stating that the identity-dependent filter was not applied and all cached PRs are shown.
 
 If `--offline` is enabled but no cached data is found on disk, the application exits with an error.
 
@@ -969,6 +974,8 @@ offline = true
 | `--cache --refresh` | yes | skip, write fresh | skip, write fresh |
 | `--no-cache` | no (override) | skip | skip |
 | `--offline` | yes | read (ignore TTL) | read (ignore TTL, no write) |
+
+When a live cache-enabled run is rate limited, the full PR detail cache is read with TTL expiry ignored. If no matching full cache is available, breakfast exits non-zero, leaves `stdout` empty, and reports both the missing cache and reset time on `stderr`.
 
 ## Update notifications
 
@@ -1080,7 +1087,7 @@ Each row shows filled blocks rendered in the actual colour alongside the ANSI co
 
 ### `--api-stats`
 
-Print API diagnostics to stderr after the normal output. Useful for understanding slow runs or diagnosing rate-limit issues.
+Print API diagnostics to stderr after the normal output. Useful for understanding slow runs or diagnosing rate-limit issues. Call counts represent attempted HTTP requests, including retries and rate-limited responses. The summary uses metadata captured from those responses and never makes its own diagnostics request.
 
 ```bash
 breakfast -o my-org -r my-app --api-stats
@@ -1096,8 +1103,22 @@ Output is written to **stderr** so it does not interfere with `--json` piping. E
   REST rate limit:  4913 requests remaining
   REST rate resets: 10:30:00 UTC
   GQL rate limit:   4998 points remaining
-  GQL rate resets:  2026-04-11T10:30:00Z
+  GQL rate resets:  10:30:00 UTC
+  Data source:      live GitHub API
 ```
+
+When a limit causes cached fallback, the exhausted resource and cache source are explicit:
+
+```text
+🐛 Debug summary
+  API calls:        1 (1 REST + 0 GraphQL)
+  REST rate limit:   exhausted (0 requests remaining)
+  REST rate resets:  11:19:37 UTC
+  GQL rate limit:    not reported this run
+  Data source:      local cache (12 minutes ago)
+```
+
+`not reported this run` means that resource returned no rate-limit headers; it does not mean the resource is exhausted.
 
 Can also be enabled persistently via config:
 

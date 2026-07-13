@@ -99,6 +99,54 @@ def test_make_cache_key_differs_by_input():
 
 
 # ---------------------------------------------------------------------------
+# cached identity
+# ---------------------------------------------------------------------------
+
+
+def test_cached_user_login_roundtrip(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+
+    cache.write_cached_user_login("token-one", "alice")
+
+    assert cache.read_cached_user_login("token-one") == "alice"
+    payload = json.loads(cache.identity_cache_path("token-one").read_text())
+    assert payload == {"login": "alice"}
+    assert "token-one" not in cache.identity_cache_path("token-one").name
+
+
+def test_cached_user_login_is_scoped_by_token(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+
+    cache.write_cached_user_login("token-one", "alice")
+    cache.write_cached_user_login("token-two", "bob")
+
+    assert cache.read_cached_user_login("token-one") == "alice"
+    assert cache.read_cached_user_login("token-two") == "bob"
+    assert cache.identity_cache_path("token-one") != cache.identity_cache_path(
+        "token-two"
+    )
+
+
+def test_read_cached_user_login_corrupt_warns_to_stderr(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    path = cache.identity_cache_path("token-one")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("}{ bad json")
+    echo_calls = []
+    monkeypatch.setattr(
+        cache.click,
+        "echo",
+        lambda message, **kwargs: echo_calls.append((message, kwargs)),
+    )
+    monkeypatch.setattr(cache.click, "style", lambda message, **_kwargs: message)
+
+    assert cache.read_cached_user_login("token-one") is None
+    assert len(echo_calls) == 1
+    assert "identity cache" in echo_calls[0][0]
+    assert echo_calls[0][1]["err"] is True
+
+
+# ---------------------------------------------------------------------------
 # read_pr_cache / write_pr_cache
 # ---------------------------------------------------------------------------
 

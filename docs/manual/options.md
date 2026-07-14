@@ -149,12 +149,16 @@ Config key: `fetch-state = "open"`
 
 Only show PRs with a specific state. Accepted values: `open`, `closed`, `draft`. Repeat the flag to match multiple states.
 
-`draft` matches PRs where `draft=true`. It can be combined with other states:
+`open` matches PRs that are open and ready for review, excluding drafts. `closed`
+matches all closed PRs, including PRs closed while still drafts. `draft` matches
+PRs where `draft=true`. Values use OR logic, so combine `open` and `draft` when
+you want all open work:
 
 ```bash
-breakfast -o my-org -r my-app --filter-state open                        # open PRs only (includes drafts)
-breakfast -o my-org -r my-app --filter-state draft                       # only draft PRs
-breakfast -o my-org -r my-app --filter-state closed --filter-state draft # closed or draft
+breakfast -o my-org -r my-app --filter-state open                       # ready, open PRs only
+breakfast -o my-org -r my-app --filter-state draft                      # only draft PRs
+breakfast -o my-org -r my-app --filter-state open --filter-state draft  # ready and draft PRs
+breakfast -o my-org -r my-app --filter-state closed                     # all closed PRs
 ```
 
 ### `--filter-check`

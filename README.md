@@ -92,7 +92,7 @@ breakfast --completion bash
 - `--no-drafts`: Hide draft PRs.
 - `--drafts-only`: Show only draft PRs.
 - `--fetch-state`: Which PR states to fetch from GitHub: `open` (default), `closed`, `merged`, `all`.
-- `--filter-state`: Only show PRs with this state (`open`, `closed`, `draft`). Repeatable.
+- `--filter-state`: Only show PRs with this state (`open` excludes drafts; `closed` includes all closed PRs; `draft` selects drafts). Repeatable with OR logic.
 - `--filter-check`: Only show PRs with this CI result (`pass`, `fail`, `pending`, `none`). Repeatable. Implies `--checks`.
 - `--filter-approval`: Only show PRs with this review status (`approved`, `pending`, `changes`). Repeatable.
 - `--filter-mergeable`: Only show PRs with this mergeable status (`clean`, `conflict`, `unknown`). Repeatable — OR logic.

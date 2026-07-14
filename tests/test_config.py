@@ -142,19 +142,59 @@ def test_filter_pr_details_filter_state_draft():
     draft_pr = {**_make_pr(state="open", pr_id=1), "draft": True}
     open_pr = {**_make_pr(state="open", pr_id=2), "draft": False}
     closed_pr = {**_make_pr(state="closed", pr_id=3), "draft": False}
-    pr_details = [draft_pr, open_pr, closed_pr]
+    open_pr_without_draft = _make_pr(state="open", pr_id=4)
+    open_pr_with_null_draft = {**_make_pr(state="open", pr_id=5), "draft": None}
+    closed_draft_pr = {**_make_pr(state="closed", pr_id=6), "draft": True}
+    pr_details = [
+        draft_pr,
+        open_pr,
+        closed_pr,
+        open_pr_without_draft,
+        open_pr_with_null_draft,
+        closed_draft_pr,
+    ]
 
     # draft only
     result = config.filter_pr_details(pr_details, [], filter_state=("draft",))
-    assert [r["id"] for r in result] == [1]
+    assert [r["id"] for r in result] == [1, 6]
 
     # closed + draft
     result = config.filter_pr_details(pr_details, [], filter_state=("closed", "draft"))
-    assert sorted(r["id"] for r in result) == [1, 3]
+    assert [r["id"] for r in result] == [1, 3, 6]
 
-    # open alone still includes draft PRs (state=open)
+    # open excludes drafts and treats missing or null draft metadata as non-draft
     result = config.filter_pr_details(pr_details, [], filter_state=("open",))
-    assert sorted(r["id"] for r in result) == [1, 2]
+    assert [r["id"] for r in result] == [2, 4, 5]
+
+    # open + draft explicitly includes both categories
+    result = config.filter_pr_details(pr_details, [], filter_state=("open", "draft"))
+    assert [r["id"] for r in result] == [1, 2, 4, 5, 6]
+
+    # closed remains a lifecycle state and includes closed drafts
+    result = config.filter_pr_details(pr_details, [], filter_state=("closed",))
+    assert [r["id"] for r in result] == [3, 6]
+
+
+def test_filter_pr_details_filter_state_draft_flag_intersections():
+    draft_pr = {**_make_pr(state="open", pr_id=1), "draft": True}
+    open_pr = {**_make_pr(state="open", pr_id=2), "draft": False}
+    pr_details = [draft_pr, open_pr]
+
+    result = config.filter_pr_details(
+        pr_details,
+        [],
+        drafts_only=True,
+        filter_state=("open",),
+    )
+    assert result == []
+
+    result = config.filter_pr_details(
+        pr_details,
+        [],
+        no_drafts=True,
+        filter_state=("draft",),
+    )
+    assert result == []
 
 
 def test_filter_pr_details_filter_check():

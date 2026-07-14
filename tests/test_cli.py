@@ -1413,6 +1413,42 @@ def _make_pr_fixture(title="Test PR", number=1):
     }
 
 
+@pytest.mark.parametrize(
+    ("filter_states", "ready_visible", "draft_visible"),
+    [
+        (["open"], True, False),
+        (["open", "draft"], True, True),
+    ],
+)
+def test_cli_filter_state_handles_drafts(
+    monkeypatch, filter_states, ready_visible, draft_visible
+):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+
+    urls = [
+        "https://github.com/org/repo/pull/1",
+        "https://github.com/org/repo/pull/2",
+    ]
+    ready_pr = {**_make_pr_fixture("Ready for review", 1), "draft": False}
+    draft_pr = {**_make_pr_fixture("Still a draft", 2), "draft": True}
+    pr_details = {
+        "/repos/org/repo/pulls/1": ready_pr,
+        "/repos/org/repo/pulls/2": draft_pr,
+    }
+
+    monkeypatch.setattr(cli, "get_github_prs", lambda *_args: urls)
+    monkeypatch.setattr(api, "make_github_api_request", pr_details.__getitem__)
+
+    state_args = [arg for state in filter_states for arg in ("--filter-state", state)]
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo", *state_args])
+
+    assert result.exit_code == 0
+    assert ("Ready for review" in result.stdout) is ready_visible
+    assert ("Still a draft" in result.stdout) is draft_visible
+
+
 def test_cli_status_columns_use_ascii_to_keep_rows_aligned(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])

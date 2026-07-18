@@ -25,9 +25,11 @@ from .api import (
 )
 from .cache import (
     parse_ttl,
+    read_cached_user_login,
     read_graphql_cache,
     read_pr_cache,
     read_repo_pr_cache,
+    write_cached_user_login,
     write_graphql_cache,
     write_pr_cache,
     write_repo_pr_cache,
@@ -1170,13 +1172,17 @@ def breakfast(
         click.echo(click.style(message, fg="red", bold=True), err=True, color=colour)
         sys.exit(1)
     current_user_login = None
-    if (mine_only or needs_my_review) and not offline:
-        try:
-            current_user_login = get_authenticated_user_login()
-        except GitHubRateLimitError as exc:
-            _handle_rate_limit(exc, json_output)
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-            pass
+    if mine_only or needs_my_review:
+        if not offline:
+            try:
+                current_user_login = get_authenticated_user_login()
+                write_cached_user_login(current_user_login)
+            except GitHubRateLimitError as exc:
+                _handle_rate_limit(exc, json_output)
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+                pass
+        else:
+            current_user_login = read_cached_user_login()
     t_acquire = time.monotonic()
 
     # Cache key encodes each org with its effective scoped filter for determinism
@@ -1605,8 +1611,9 @@ def breakfast(
     if (mine_only or needs_my_review) and offline_mode and current_user_login is None:
         click.echo(
             click.style(
-                "🔌 Offline Mode: Displaying all cached PRs because "
-                "current user login could not be retrieved.",
+                "⚠️  Offline mode: no cached login found — "
+                "--mine-only / --needs-my-review skipped. "
+                "Run online once to cache your login.",
                 fg="yellow",
             ),
             err=True,

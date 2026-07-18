@@ -951,7 +951,7 @@ When offline mode is active (either forced via `--offline` or via automatic fall
 - It reads from the cache regardless of the TTL expiration.
 - It bypasses all update checks, check status fetches, and approval fetches.
 - It does not write any refreshed data back to the cache, preventing corrupted timestamps.
-- If `--mine-only` is used but the current user login cannot be fetched, a warning is printed to `stderr` indicating that all cached PRs are shown.
+- If `--mine-only` or `--needs-my-review` is used, breakfast reads your GitHub login from a small `user.json` file in the cache directory (written automatically on the first successful online run). If no cached login exists yet, a warning is printed to `stderr` and the filter is skipped — run once online to prime the cache.
 
 If `--offline` is enabled but no cached data is found on disk, the application exits with an error.
 

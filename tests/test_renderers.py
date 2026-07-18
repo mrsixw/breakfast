@@ -135,6 +135,50 @@ def test_visible_width():
     assert renderers._visible_width("hello") == 5
 
 
+def test_slice_by_width_ascii():
+    assert renderers._slice_by_width("abcde", 3) == "abc"
+    assert renderers._slice_by_width("abcde", 10) == "abcde"
+    assert renderers._slice_by_width("abcde", 0) == ""
+
+
+def test_slice_by_width_cjk():
+    # Each CJK character is width 2
+    s = "日本語テスト"  # 6 chars × 2 = width 12
+    assert renderers._visible_width(renderers._slice_by_width(s, 5)) <= 5
+    assert renderers._visible_width(renderers._slice_by_width(s, 6)) <= 6
+    assert renderers._visible_width(renderers._slice_by_width(s, 12)) == 12
+
+
+def test_slice_by_width_mixed():
+    s = "AB日C"  # A=1, B=1, 日=2, C=1 → total width 5
+    # max_width=3: A(1)+B(1)=2, 日(2) would make 4>3 → only "AB"
+    assert renderers._slice_by_width(s, 3) == "AB"
+    assert renderers._visible_width(renderers._slice_by_width(s, 3)) <= 3
+    # max_width=4: A(1)+B(1)+日(2)=4 exactly → "AB日"
+    assert renderers._slice_by_width(s, 4) == "AB日"
+
+
+def test_truncate_formatted_text_ascii():
+    result = renderers._truncate_formatted_text("Hello world", 7)
+    assert renderers._visible_width(result) <= 7
+    assert result.endswith("…")
+
+
+def test_truncate_formatted_text_cjk():
+    # 5 CJK chars = display width 10; truncate to limit 7 must stay ≤ 7 columns
+    cjk = "日本語テス"
+    result = renderers._truncate_formatted_text(cjk, 7)
+    assert renderers._visible_width(result) <= 7
+    assert result.endswith("…")
+
+
+def test_truncate_formatted_text_mixed():
+    mixed = "AB日本語CD"  # A=1,B=1,日=2,本=2,語=2,C=1,D=1 → total 10
+    result = renderers._truncate_formatted_text(mixed, 6)
+    assert renderers._visible_width(result) <= 6
+    assert result.endswith("…")
+
+
 def test_osc8_to_markdown():
     link = "\x1b]8;;http://example.com\x1b\\linktext\x1b]8;;\x1b\\"
     assert renderers._osc8_to_markdown(link) == "[linktext](http://example.com)"

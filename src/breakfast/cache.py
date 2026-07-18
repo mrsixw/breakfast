@@ -319,6 +319,30 @@ def write_repo_pr_cache(
         )
 
 
+def read_cached_user_login() -> str | None:
+    """Return the GitHub login persisted from a previous online run, or None."""
+    path = _CACHE_DIR / "user.json"
+    try:
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text())
+        return data.get("login") or None
+    except (OSError, json.JSONDecodeError, KeyError) as exc:
+        logger.warning("cache_read_error layer=user_login error=%r", str(exc))
+        return None
+
+
+def write_cached_user_login(login: str) -> None:
+    """Persist *login* to the cache directory for offline use."""
+    try:
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path = _CACHE_DIR / "user.json"
+        _atomic_write_text(path, json.dumps({"login": login}))
+        logger.debug("cache_write layer=user_login login=%s", login)
+    except OSError as exc:
+        logger.warning("cache_write_error layer=user_login error=%r", str(exc))
+
+
 def write_pr_cache(
     org: str,
     repo_filter: str,

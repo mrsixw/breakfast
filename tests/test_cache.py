@@ -451,3 +451,32 @@ def test_read_pr_cache_expired_but_ignored(monkeypatch, tmp_path):
     assert result is not None
     assert result["prs"] == pr_details
     assert result["fetched_at"] == old_time
+
+
+# ---------------------------------------------------------------------------
+# user login cache (#334)
+# ---------------------------------------------------------------------------
+
+
+def test_write_and_read_cached_user_login(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_cached_user_login("alice")
+    assert cache.read_cached_user_login() == "alice"
+
+
+def test_read_cached_user_login_returns_none_when_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    assert cache.read_cached_user_login() is None
+
+
+def test_read_cached_user_login_returns_none_on_corrupt_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    (tmp_path / "user.json").write_text("not json{{")
+    assert cache.read_cached_user_login() is None
+
+
+def test_write_cached_user_login_overwrites(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_cached_user_login("alice")
+    cache.write_cached_user_login("bob")
+    assert cache.read_cached_user_login() == "bob"

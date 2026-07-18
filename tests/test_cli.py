@@ -4369,19 +4369,18 @@ def test_cli_offline_mode_does_not_write_cache(monkeypatch, tmp_path):
     assert data_after["fetched_at"] == old_time
 
 
-def test_cli_offline_mode_mine_only_warning(monkeypatch, tmp_path):
+def test_cli_offline_mode_mine_only_no_cached_login_warns(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+    monkeypatch.setattr(cli, "read_cached_user_login", cache.read_cached_user_login)
 
-    # Pre-populate expired cache
+    # Pre-populate expired cache (no user.json — simulates first-time offline run)
     pr_details = [_make_pr_detail(1)]
     cache.write_pr_cache("org", "repo", pr_details)
-
-    # Manually backdate cache fetched_at
     path = cache.cache_path("org", "repo")
     data = json.loads(path.read_text())
     old_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
@@ -4396,11 +4395,79 @@ def test_cli_offline_mode_mine_only_warning(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert "PR number 1" in result.stdout
-    expected_msg = (
-        "🔌 Offline Mode: Displaying all cached PRs because "
-        "current user login could not be retrieved."
+    assert "no cached login found" in result.stderr
+    assert "--mine-only / --needs-my-review skipped" in result.stderr
+
+
+def test_cli_mine_only_online_persists_login(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "write_cached_user_login", cache.write_cached_user_login)
+    monkeypatch.setattr(cli, "get_authenticated_user_login", lambda: "alice")
+
+    def fake_get_prs(_org, _repo_filter, _state="open"):
+        return ["https://github.com/org/repo/pull/1"]
+
+    def fake_api_request(path):
+        return {
+            "base": {"repo": {"name": "repo", "owner": {"login": "org"}}},
+            "head": {"sha": "abc123"},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 1,
+            "deletions": 0,
+            "title": "Alice PR",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": "https://github.com/org/repo/pull/1",
+            "number": 1,
+            "id": 1001,
+            "labels": [],
+            "requested_reviewers": [],
+            "draft": False,
+        }
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--mine-only"])
+
+    assert result.exit_code == 0
+    assert cache.read_cached_user_login() == "alice"
+
+
+def test_cli_offline_mine_only_with_cached_login_filters(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+    monkeypatch.setattr(cli, "read_cached_user_login", cache.read_cached_user_login)
+
+    cache.write_cached_user_login("alice")
+
+    alice_pr = _make_pr_detail(1)  # default author is alice
+    bob_pr = {**_make_pr_detail(2), "user": {"login": "bob"}}
+    cache.write_pr_cache("org", "repo", [alice_pr, bob_pr])
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--offline", "--mine-only"],
     )
-    assert expected_msg in result.stderr
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    assert "PR number 2" not in result.stdout
+    assert "no cached login found" not in result.stderr
 
 
 def test_cli_offline_respects_no_age_flag(monkeypatch, tmp_path):

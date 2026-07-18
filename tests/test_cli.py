@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 import requests
 from click.testing import CliRunner
+from freezegun import freeze_time
 
 from breakfast import api, cache, cli, renderers
 
@@ -140,6 +141,148 @@ def test_cli_outputs_age_column_when_enabled(monkeypatch):
     assert "7" in result.stdout
 
 
+def test_cli_outputs_reviewers_and_labels_columns_when_enabled(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+
+    def fake_get_prs(_org, _repo_filter, _state="open"):
+        return ["https://github.com/org/repo/pull/1"]
+
+    def fake_api_request(_path):
+        return {
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": "Test PR",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": "https://github.com/org/repo/pull/1",
+            "number": 1,
+            "requested_reviewers": [{"login": "reviewer1"}, {"login": "reviewer2"}],
+            "requested_teams": [{"slug": "team-slug"}],
+            "labels": [{"name": "bug-label"}],
+        }
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--reviewers", "--show-labels"],
+    )
+
+    assert result.exit_code == 0
+    assert "Reviewers" in result.stdout
+    assert "reviewer1, reviewer2 +1" in result.stdout
+    assert "Labels" in result.stdout
+    assert "bug-label" in result.stdout
+
+    result_md = runner.invoke(
+        cli.breakfast,
+        [
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--format",
+            "markdown",
+            "--reviewers",
+            "--show-labels",
+        ],
+    )
+    assert result_md.exit_code == 0
+    assert "Reviewers" in result_md.stdout
+    assert "reviewer1, reviewer2 +1" in result_md.stdout
+    assert "Labels" in result_md.stdout
+    assert "bug-label" in result_md.stdout
+
+    # Test CSV output when enabled
+    result_csv = runner.invoke(
+        cli.breakfast,
+        [
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--format",
+            "csv",
+            "--reviewers",
+            "--show-labels",
+        ],
+    )
+    assert result_csv.exit_code == 0
+    assert "labels" in result_csv.stdout
+    assert "requested_reviewers" in result_csv.stdout
+    assert "bug-label" in result_csv.stdout
+    assert "reviewer1|reviewer2|@team-slug" in result_csv.stdout
+
+    # Test CSV output when NOT enabled
+    result_csv_off = runner.invoke(
+        cli.breakfast,
+        [
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--format",
+            "csv",
+        ],
+    )
+    assert result_csv_off.exit_code == 0
+    assert "labels" not in result_csv_off.stdout
+    assert "requested_reviewers" not in result_csv_off.stdout
+
+    # Test JSON output when enabled
+    result_json = runner.invoke(
+        cli.breakfast,
+        [
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--format",
+            "json",
+            "--reviewers",
+            "--show-labels",
+        ],
+    )
+    assert result_json.exit_code == 0
+    json_start = result_json.stdout.index("[")
+    parsed_json = json.loads(result_json.stdout[json_start:])
+    assert parsed_json[0]["labels"] == ["bug-label"]
+    assert parsed_json[0]["requested_reviewers"] == [
+        "reviewer1",
+        "reviewer2",
+        "@team-slug",
+    ]
+
+    # Test JSON output when NOT enabled
+    result_json_off = runner.invoke(
+        cli.breakfast,
+        [
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--format",
+            "json",
+        ],
+    )
+    assert result_json_off.exit_code == 0
+    json_start_off = result_json_off.stdout.index("[")
+    parsed_json_off = json.loads(result_json_off.stdout[json_start_off:])
+    assert "labels" not in parsed_json_off[0]
+    assert "requested_reviewers" not in parsed_json_off[0]
+
+
 def _fake_pr_detail_with_branches():
     return {
         "base": {
@@ -266,7 +409,10 @@ def test_cli_outputs_json(monkeypatch):
     monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
 
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--json"])
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--json", "--reviewers", "--show-labels"],
+    )
 
     assert result.exit_code == 0
     data = json.loads(result.stdout[result.stdout.index("[") :])
@@ -1265,6 +1411,42 @@ def _make_pr_fixture(title="Test PR", number=1):
         "html_url": f"https://github.com/org/repo/pull/{number}",
         "number": number,
     }
+
+
+@pytest.mark.parametrize(
+    ("filter_states", "ready_visible", "draft_visible"),
+    [
+        (["open"], True, False),
+        (["open", "draft"], True, True),
+    ],
+)
+def test_cli_filter_state_handles_drafts(
+    monkeypatch, filter_states, ready_visible, draft_visible
+):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+
+    urls = [
+        "https://github.com/org/repo/pull/1",
+        "https://github.com/org/repo/pull/2",
+    ]
+    ready_pr = {**_make_pr_fixture("Ready for review", 1), "draft": False}
+    draft_pr = {**_make_pr_fixture("Still a draft", 2), "draft": True}
+    pr_details = {
+        "/repos/org/repo/pulls/1": ready_pr,
+        "/repos/org/repo/pulls/2": draft_pr,
+    }
+
+    monkeypatch.setattr(cli, "get_github_prs", lambda *_args: urls)
+    monkeypatch.setattr(api, "make_github_api_request", pr_details.__getitem__)
+
+    state_args = [arg for state in filter_states for arg in ("--filter-state", state)]
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo", *state_args])
+
+    assert result.exit_code == 0
+    assert ("Ready for review" in result.stdout) is ready_visible
+    assert ("Still a draft" in result.stdout) is draft_visible
 
 
 def test_cli_status_columns_use_ascii_to_keep_rows_aligned(monkeypatch):
@@ -3935,6 +4117,11 @@ def _setup_colour_index_mocks(monkeypatch):
     )
     monkeypatch.setattr(api, "make_github_api_request", lambda _path: _COLOUR_INDEX_PR)
     monkeypatch.setattr(cli, "_stdout_is_tty", lambda: True)
+    monkeypatch.setattr(
+        renderers,
+        "apply_seasonal_colour",
+        lambda text, pr_num, calendar: f"\033[35m{text}\033[0m",
+    )
 
 
 def test_index_column_plain_by_default(monkeypatch):
@@ -3948,9 +4135,12 @@ def test_index_column_coloured_when_enabled_by_config(monkeypatch, tmp_path):
     _setup_colour_index_mocks(monkeypatch)
     cfg_file = tmp_path / "test.toml"
     cfg_file.write_text("colour-index = true\n")
-    result = CliRunner().invoke(
-        cli.breakfast, ["-o", "org", "-r", "repo", "--config", str(cfg_file)]
-    )
+    # June has an active seasonal palette (Pride), so the index is coloured
+    # regardless of which real-world date the suite runs on.
+    with freeze_time("2026-06-01"):
+        result = CliRunner().invoke(
+            cli.breakfast, ["-o", "org", "-r", "repo", "--config", str(cfg_file)]
+        )
     assert result.exit_code == 0
     # ANSI escape codes should wrap the index digit
     assert not re.search(r"\| 0 +\|", result.stdout)
@@ -4429,3 +4619,57 @@ def test_cli_filter_mergeable_conflict(monkeypatch):
     assert result.exit_code == 0
     assert "PR 1 conflict" in result.stdout
     assert "PR 2 clean" not in result.stdout
+
+
+def test_cli_auto_appends_optional_columns_missing_from_custom_columns_config(
+    monkeypatch,
+):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+
+    def fake_get_prs(_org, _repo_filter, _state="open"):
+        return ["https://github.com/org/repo/pull/1"]
+
+    def fake_api_request(_path):
+        return {
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": "Test PR",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": "https://github.com/org/repo/pull/1",
+            "number": 1,
+        }
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+
+    monkeypatch.setattr(
+        cli,
+        "load_config",
+        lambda *_: {
+            "columns": [
+                {"name": "repo", "header": None, "align": None},
+                {"name": "title", "header": None, "align": None},
+                {"name": "link", "header": None, "align": None},
+            ]
+        },
+    )
+
+    runner = CliRunner()
+
+    result_without = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+    assert result_without.exit_code == 0
+    assert "Age" not in result_without.stdout
+
+    result_with = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--age"])
+    assert result_with.exit_code == 0
+    assert "Age" in result_with.stdout

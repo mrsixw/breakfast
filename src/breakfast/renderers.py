@@ -41,6 +41,8 @@ _COLUMN_DISPLAY_NAMES: dict[str, str] = {
     "approvals": "Approved",
     "head-branch": "Head Branch",
     "base-branch": "Base Branch",
+    "reviewers": "Reviewers",
+    "labels": "Labels",
     "mergeable": "Mergeable?",
     "link": "Link",
 }
@@ -55,6 +57,8 @@ _DROPPABLE_COLUMNS = [
     "Age",
     "Checks",
     "Apr",
+    "Reviewers",
+    "Labels",
     "Head Branch",
     "Base Branch",
     "Mrg",
@@ -93,6 +97,31 @@ def is_legendary(pr_detail, now=None):
 
 def _strip_ansi(s):
     return _ANSI_RE.sub("", str(s))
+
+
+def _format_overflow_list(values: list[str], limit: int = 2) -> str:
+    """Format a list of strings with +N overflow rule."""
+    if not values:
+        return "-"
+    if len(values) > limit:
+        head = ", ".join(values[:limit])
+        return f"{head} +{len(values) - limit}"
+    return ", ".join(values)
+
+
+def format_reviewers(
+    reviewers_list: list[dict] | None, teams_list: list[dict] | None = None
+) -> str:
+    """Format requested reviewers and teams with +N overflow rule."""
+    logins = [r["login"] for r in (reviewers_list or []) if "login" in r]
+    team_slugs = [f"@{t['slug']}" for t in (teams_list or []) if "slug" in t]
+    return _format_overflow_list(logins + team_slugs)
+
+
+def format_labels(labels_list: list[dict] | None) -> str:
+    """Format label names with +N overflow rule."""
+    names = [lbl["name"] for lbl in (labels_list or []) if "name" in lbl]
+    return _format_overflow_list(names)
 
 
 def _visible_width(s):
@@ -255,6 +284,14 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     if fits():
         return pr_data
 
+    # 2b. Truncate Reviewers / Labels
+    pr_data = _truncate_col(pr_data, "Reviewers", terminal_width, min_len=8)
+    if fits():
+        return pr_data
+    pr_data = _truncate_col(pr_data, "Labels", terminal_width, min_len=8)
+    if fits():
+        return pr_data
+
     # 3. Truncate Head Branch / Base Branch (before Repo — branches matter less)
     pr_data = _truncate_col(pr_data, "Head Branch", terminal_width, min_len=8)
     if fits():
@@ -353,8 +390,23 @@ def _apply_column_specs(
         return pr_data, None
 
     first = pr_data[0]
+    spec_names = {spec["name"] for spec in column_specs}
+    optional_mapping = {
+        "Age": "age",
+        "Checks": "checks",
+        "Approved": "approvals",
+        "Head Branch": "head-branch",
+        "Base Branch": "base-branch",
+        "Reviewers": "reviewers",
+        "Labels": "labels",
+    }
+    resolved_specs = list(column_specs)
+    for display_key, spec_name in optional_mapping.items():
+        if display_key in first and spec_name not in spec_names:
+            resolved_specs.append({"name": spec_name, "header": None, "align": None})
+
     ordered: list[tuple[str, str, str | None]] = []
-    for spec in column_specs:
+    for spec in resolved_specs:
         display_key = _COLUMN_DISPLAY_NAMES.get(spec["name"])
         if not display_key:
             continue
@@ -392,6 +444,8 @@ def render_json(
     check_statuses,
     approval_statuses,
     approval_details,
+    reviewers=False,
+    show_labels=False,
 ):
     from .logger import logger
 
@@ -414,11 +468,13 @@ def render_json(
             "changed_files": pr_detail.get("changed_files"),
             "commits": pr_detail.get("commits"),
             "review_comments": pr_detail.get("review_comments"),
-            "labels": [lb["name"] for lb in pr_detail.get("labels", [])],
-            "requested_reviewers": [
-                r["login"] for r in pr_detail.get("requested_reviewers", [])
-            ],
         }
+        if show_labels:
+            entry["labels"] = [lb["name"] for lb in pr_detail.get("labels", [])]
+        if reviewers:
+            logins = [r["login"] for r in pr_detail.get("requested_reviewers", [])]
+            teams = [f"@{t['slug']}" for t in pr_detail.get("requested_teams", [])]
+            entry["requested_reviewers"] = logins + teams
         if checks:
             entry["checks"] = check_statuses.get(pr_detail["id"], "none")
         if approvals:
@@ -446,6 +502,8 @@ def render_markdown(
     head_branch,
     base_branch,
     status_style,
+    reviewers=False,
+    show_labels=False,
 ):
     from .logger import logger
 
@@ -503,6 +561,13 @@ def render_markdown(
             _bb_repo = pr_detail["base"]["repo"]["name"]
             _bb_url = f"https://github.com/{_bb_owner}/{_bb_repo}/tree/{_bb_name}"
             row["Base Branch"] = f"[{_bb_name}]({_bb_url})"
+        if reviewers:
+            row["Reviewers"] = format_reviewers(
+                pr_detail.get("requested_reviewers"),
+                pr_detail.get("requested_teams"),
+            )
+        if show_labels:
+            row["Labels"] = format_labels(pr_detail.get("labels"))
         row["Mergeable?"] = _osc8_to_markdown(
             format_mergeable_status(
                 pr_detail.get("mergeable"),
@@ -535,6 +600,8 @@ def render_csv(
     check_statuses,
     approval_statuses,
     approval_details,
+    reviewers=False,
+    show_labels=False,
 ):
     from .logger import logger
 
@@ -556,9 +623,11 @@ def render_csv(
         "changed_files",
         "commits",
         "review_comments",
-        "labels",
-        "requested_reviewers",
     ]
+    if show_labels:
+        fieldnames.append("labels")
+    if reviewers:
+        fieldnames.append("requested_reviewers")
     if age:
         fieldnames.append("age_days")
     if checks:
@@ -585,11 +654,13 @@ def render_csv(
             "changed_files": pr_detail.get("changed_files", ""),
             "commits": pr_detail.get("commits", ""),
             "review_comments": pr_detail.get("review_comments", ""),
-            "labels": "|".join(lb["name"] for lb in pr_detail.get("labels", [])),
-            "requested_reviewers": "|".join(
-                r["login"] for r in pr_detail.get("requested_reviewers", [])
-            ),
         }
+        if show_labels:
+            row["labels"] = "|".join(lbl["name"] for lbl in pr_detail.get("labels", []))
+        if reviewers:
+            logins = [r["login"] for r in pr_detail.get("requested_reviewers", [])]
+            teams = [f"@{t['slug']}" for t in pr_detail.get("requested_teams", [])]
+            row["requested_reviewers"] = "|".join(logins + teams)
         if age:
             row["age_days"] = _get_pr_age_days(pr_detail)
         if checks:
@@ -679,6 +750,8 @@ def render_table(
     colour_index,
     max_title_length,
     column_specs,
+    reviewers=False,
+    show_labels=False,
     stdout_is_tty=None,
 ):
     from .logger import logger
@@ -764,6 +837,15 @@ def render_table(
             _bb_repo = pr_detail["base"]["repo"]["name"]
             _bb_url = f"https://github.com/{_bb_owner}/{_bb_repo}/tree/{_bb_name}"
             row["Base Branch"] = _seasonal_colour_link(_bb_url, _bb_name)
+        if reviewers:
+            row["Reviewers"] = _seasonal_colour(
+                format_reviewers(
+                    pr_detail.get("requested_reviewers"),
+                    pr_detail.get("requested_teams"),
+                )
+            )
+        if show_labels:
+            row["Labels"] = _seasonal_colour(format_labels(pr_detail.get("labels")))
         row["Mergeable?"] = format_mergeable_status(
             pr_detail.get("mergeable"),
             pr_detail.get("mergeable_state"),

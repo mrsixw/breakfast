@@ -1,8 +1,8 @@
 import datetime
-from unittest.mock import patch
 
 import click
 import pytest
+from freezegun import freeze_time
 
 from breakfast import ui
 
@@ -169,8 +169,7 @@ def test_western_calendar_non_special_months_return_none(month):
 
 
 def test_apply_seasonal_colour_uses_single_colour():
-    with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = _today(1)  # January → purple
+    with freeze_time("2026-01-01"):  # January → purple
         for pr_num in range(8):
             result = ui.apply_seasonal_colour("alice", pr_num)
             assert result.startswith(ui.SEASONAL_PALETTES["purple"])
@@ -179,16 +178,14 @@ def test_apply_seasonal_colour_uses_single_colour():
 
 
 def test_apply_seasonal_colour_non_special_month_returns_plain():
-    with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = _today(7)  # July → no seasonal theme
+    with freeze_time("2026-07-01"):  # July → no seasonal theme
         for pr_num in range(4):
             result = ui.apply_seasonal_colour("alice", pr_num)
             assert result == "alice"
 
 
 def test_apply_seasonal_colour_christmas_alternates():
-    with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = _today(12)  # December
+    with freeze_time("2026-12-01"):  # December
         even_result = ui.apply_seasonal_colour("Test PR", 2)
         odd_result = ui.apply_seasonal_colour("Test PR", 3)
     # Even PR numbers → red, odd → green
@@ -197,8 +194,7 @@ def test_apply_seasonal_colour_christmas_alternates():
 
 
 def test_apply_seasonal_colour_wraps_and_resets():
-    with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = _today(10)  # October → orange
+    with freeze_time("2026-10-01"):  # October → orange
         result = ui.apply_seasonal_colour("hello", 0)
     assert "\033[0m" in result
     assert "hello" in result
@@ -210,8 +206,7 @@ def test_apply_seasonal_colour_wraps_and_resets():
 
 
 def test_apply_seasonal_colour_valentines_day():
-    with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = _today(2, day=14)  # Feb 14
+    with freeze_time("2026-02-14"):  # Feb 14
         result = ui.apply_seasonal_colour("alice", 0)
     assert result.startswith(ui.SEASONAL_PALETTES["pink"])
     assert result.endswith("\033[0m")
@@ -219,8 +214,7 @@ def test_apply_seasonal_colour_valentines_day():
 
 
 def test_apply_seasonal_colour_not_valentines_day():
-    with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = _today(2, day=15)  # Feb 15 — plain
+    with freeze_time("2026-02-15"):  # Feb 15 — plain
         result = ui.apply_seasonal_colour("alice", 0)
     assert result == "alice"
 
@@ -241,8 +235,7 @@ def test_lny_date_known_years():
 
 def test_apply_seasonal_colour_lny_february():
     # 2026 LNY is 17 February — should show gold.
-    with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = datetime.date(2026, 2, 17)
+    with freeze_time("2026-02-17"):
         result = ui.apply_seasonal_colour("alice", 0)
     assert result.startswith(ui.SEASONAL_PALETTES["lny"])
     assert result.endswith("\033[0m")
@@ -250,8 +243,7 @@ def test_apply_seasonal_colour_lny_february():
 
 def test_apply_seasonal_colour_lny_january_stays_purple():
     # 2025 LNY is 29 January — January purple (birthday) must NOT be overridden.
-    with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = datetime.date(2025, 1, 29)
+    with freeze_time("2025-01-29"):
         result = ui.apply_seasonal_colour("alice", 0)
     assert result.startswith(ui.SEASONAL_PALETTES["purple"])
     assert not result.startswith(ui.SEASONAL_PALETTES["lny"])
@@ -263,8 +255,7 @@ def test_apply_seasonal_colour_lny_january_stays_purple():
 
 
 def test_apply_seasonal_colour_pride_cycles_rainbow():
-    with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = _today(6)  # June → Pride
+    with freeze_time("2026-06-01"):  # June → Pride
         for i, expected_colour in enumerate(ui.PRIDE_RAINBOW):
             result = ui.apply_seasonal_colour("alice", i)
             assert result.startswith(expected_colour)
@@ -272,8 +263,7 @@ def test_apply_seasonal_colour_pride_cycles_rainbow():
 
 
 def test_apply_seasonal_colour_pride_wraps():
-    with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = _today(6)
+    with freeze_time("2026-06-01"):
         n = len(ui.PRIDE_RAINBOW)
         assert ui.apply_seasonal_colour("x", 0) == ui.apply_seasonal_colour("x", n)
 
@@ -435,22 +425,19 @@ def test_render_pr_summary_small_draft_minority_keeps_solid_block():
 
 
 def test_apply_seasonal_colour_off_returns_plain():
-    with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = _today(1)  # January — normally purple
+    with freeze_time("2026-01-01"):  # January — normally purple
         result = ui.apply_seasonal_colour("alice", 0, calendar="off")
     assert result == "alice"
 
 
 def test_apply_seasonal_colour_unknown_calendar_returns_plain():
-    with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = _today(1)
+    with freeze_time("2026-01-01"):
         result = ui.apply_seasonal_colour("alice", 0, calendar="nonexistent")
     assert result == "alice"
 
 
 def test_apply_seasonal_colour_western_default():
-    with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = _today(1)  # January → purple
+    with freeze_time("2026-01-01"):  # January → purple
         result = ui.apply_seasonal_colour("alice", 0)  # default calendar
     assert result.startswith(ui.SEASONAL_PALETTES["purple"])
 
@@ -539,16 +526,14 @@ def test_sikh_calendar_non_holiday_returns_none():
 
 
 def test_apply_seasonal_colour_jewish_calendar():
-    with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = datetime.date(2025, 12, 14)  # Hanukkah
+    with freeze_time("2025-12-14"):  # Hanukkah
         result = ui.apply_seasonal_colour("alice", 0, calendar="jewish")
     assert result.startswith(ui.SEASONAL_PALETTES["blue"])
     assert result.endswith("\033[0m")
 
 
 def test_apply_seasonal_colour_holi_cycles_by_pr_number():
-    with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = datetime.date(2025, 3, 14)  # Holi
+    with freeze_time("2025-03-14"):  # Holi
         results = [ui.apply_seasonal_colour("x", i, calendar="hindu") for i in range(6)]
     for i, expected in enumerate(ui.HOLI_RAINBOW):
         assert results[i].startswith(expected)
@@ -567,8 +552,7 @@ def test_in_holiday_window_unknown_year():
 
 def test_western_calendar_january_stays_purple_on_lny_2025():
     # 2025 LNY is Jan 29 — must return purple, not LNY gold.
-    with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = datetime.date(2025, 1, 29)
+    with freeze_time("2025-01-29"):
         result = ui.apply_seasonal_colour("alice", 0, calendar="western")
     assert result.startswith(ui.SEASONAL_PALETTES["purple"])
 
@@ -576,8 +560,7 @@ def test_western_calendar_january_stays_purple_on_lny_2025():
 def test_render_pr_summary_seasonal_calendar():
     # When a non-"off" calendar is passed, seasonal colours are applied.
     groups = [("alice", _ALICE_URL, 3, 0, 10, 0)]
-    with patch("breakfast.ui.datetime") as mock_dt:
-        mock_dt.date.today.return_value = _today(1)  # January → purple
+    with freeze_time("2026-01-01"):  # January → purple
         result = ui.render_pr_summary(groups, "Title", "Author", True, "western")
     assert "\033[" in result
 
@@ -586,10 +569,34 @@ def test_global_january_purple_across_calendars():
     # Eid al-Fitr (2031-01-24), Eid al-Adha (2038-01-16), or LNY (2025-01-29)
     # falling in January must always return purple regardless of calendar.
     for cal in ["jewish", "islamic", "hindu", "sikh", "east-asian", "western"]:
-        with patch("breakfast.ui.datetime") as mock_dt:
-            mock_dt.date.today.return_value = datetime.date(2025, 1, 29)
+        with freeze_time("2025-01-29"):
             result = ui.apply_seasonal_colour("x", 0, calendar=cal)
         assert result.startswith(ui.SEASONAL_PALETTES["purple"]), f"cal={cal}"
+
+
+def test_rainbow_calendar_always_returns_pride_rainbow():
+    for month in range(1, 13):
+        result = ui._rainbow_calendar(_today(month))
+        assert result == ui.PRIDE_RAINBOW
+
+
+def test_apply_seasonal_colour_rainbow_cycles_by_pr_number():
+    with freeze_time("2025-09-03"):  # an otherwise unthemed month
+        results = [
+            ui.apply_seasonal_colour("x", i, calendar="rainbow")
+            for i in range(len(ui.PRIDE_RAINBOW))
+        ]
+    for i, expected in enumerate(ui.PRIDE_RAINBOW):
+        assert results[i].startswith(expected)
+
+
+def test_apply_seasonal_colour_rainbow_overrides_january_purple():
+    # Unlike every other calendar, rainbow mode is a permanent user choice
+    # and is exempt from the January purple override.
+    with freeze_time("2025-01-15"):
+        result = ui.apply_seasonal_colour("x", 0, calendar="rainbow")
+    assert result.startswith(ui.PRIDE_RAINBOW[0])
+    assert not result.startswith(ui.SEASONAL_PALETTES["purple"])
 
 
 def test_islamic_calendar_eid_al_adha():

@@ -1,3 +1,5 @@
+import difflib
+import os
 import re
 import tomllib
 from datetime import datetime
@@ -113,6 +115,14 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Equivalent to: --base-branch
 # base-branch = false
 
+# Show a column with the requested reviewers for each PR.
+# Equivalent to: --reviewers
+# reviewers = false
+
+# Show a column with the labels for each PR.
+# Equivalent to: --show-labels
+# show-labels = false
+
 # Truncate PR titles to this many characters (appends … when truncated).
 # Useful on narrow terminals. Unset means no truncation.
 # Equivalent to: --max-title-length <n>
@@ -120,10 +130,12 @@ _DEFAULT_CONFIG_CONTENT = """\
 
 # Control which columns appear, their order, headers, and alignment.
 # Each entry is {name = "..."} with optional header = "..." and align = "...".
-# Optional columns (age, checks, approvals, head-branch, base-branch) are
-# automatically enabled when included — no need to set their individual flags.
+# Optional columns (age, checks, approvals, head-branch, base-branch,
+# reviewers, labels) are automatically enabled when included — no need to
+# set their individual flags.
 # Available names: org, repo, title, author, state, files, commits, diff,
-#   comments, age, checks, approvals, head-branch, base-branch, mergeable, link
+#   comments, age, checks, approvals, head-branch, base-branch, reviewers,
+#   labels, mergeable, link
 # Expand to multi-line in your config for readability:
 #   columns = [
 #     {name = "repo"},
@@ -168,6 +180,7 @@ _DEFAULT_CONFIG_CONTENT = """\
 #   hindu      — Diwali 🪔, Holi 🎨
 #   islamic    — Eid al-Fitr 🌙, Eid al-Adha 🐑
 #   jewish     — Hanukkah 🕎, Passover 🪬, Rosh Hashanah 🍎, Sukkot 🌿
+#   rainbow    — permanent Pride 🌈 cycle, every day of the year
 #   sikh       — Vaisakhi 🌾, Bandi Chhor Divas 🪔
 #   western    — Christmas 🎄, Easter 🐣, Pride Month 🌈, Halloween 🎃 (default)
 #   off        — disable seasonal colours entirely
@@ -317,6 +330,13 @@ def _extract_option_blocks(content: str) -> list[tuple[str, str]]:
     return results
 
 
+_EXPLICIT_EXTRAS = {"organization", "drafts-only", "offline"}
+_KNOWN_KEYS_FROM_TEMPLATE = {
+    k for k, _ in _extract_option_blocks(_DEFAULT_CONFIG_CONTENT)
+}
+KNOWN_KEYS = frozenset(_KNOWN_KEYS_FROM_TEMPLATE | _EXPLICIT_EXTRAS)
+
+
 def _key_present_in_file(key: str, content: str) -> bool:
     """Return True if *key* appears in *content* as an active or commented option."""
     pattern = rf"^#?\s*{re.escape(key)}\s*="
@@ -341,6 +361,8 @@ _VALID_COLUMN_NAMES = frozenset(
         "approvals",
         "head-branch",
         "base-branch",
+        "reviewers",
+        "labels",
         "mergeable",
         "link",
     }
@@ -428,26 +450,60 @@ def load_config(config_path=None):
     for path in reversed(paths):
         if path.exists():
             with open(path, "rb") as f:
+                # Resolve color suppression before TOML parse error might occur
+                ctx = click.get_current_context(silent=True)
+                no_color_cli = ctx.params.get("no_colour", False) if ctx else False
+                no_color_env = os.getenv("NO_COLOR") is not None
                 try:
                     data = tomllib.load(f)
                 except tomllib.TOMLDecodeError as e:
                     logger.warning("config_parse_error path=%s error=%r", path, str(e))
                     msg = f"Warning: Failed to parse config {path}: {e}"
-                    click.echo(click.style(msg, fg="yellow"), err=True)
+                    if not (no_color_cli or no_color_env):
+                        click.echo(click.style(msg, fg="yellow"), err=True)
+                    else:
+                        click.echo(msg, err=True)
                     continue
+
+            # Determine final color usage state including config setting
+            no_color_config = data.get("no-colour", False) or data.get(
+                "no-color", False
+            )
+            use_color = not (no_color_cli or no_color_env or no_color_config)
+
+            # Check for unknown config keys and warn
+            for key in sorted(data.keys()):
+                if key not in KNOWN_KEYS:
+                    closest_matches = difflib.get_close_matches(
+                        key.lower(), KNOWN_KEYS, n=1
+                    )
+                    if closest_matches:
+                        closest = closest_matches[0]
+                        warning_msg = (
+                            f"⚠️  Unknown config key '{key}' in {path.name}"
+                            f" — did you mean '{closest}'?"
+                        )
+                    else:
+                        warning_msg = f"⚠️  Unknown config key '{key}' in {path.name}"
+
+                    if use_color:
+                        click.echo(click.style(warning_msg, fg="yellow"), err=True)
+                    else:
+                        click.echo(warning_msg, err=True)
+
             # seasonal-colours = false → seasonal-calendar = "off" (backward compat)
             if not data.get("seasonal-colours", True):
                 data.setdefault("seasonal-calendar", "off")
             # organization → owner (deprecated key, backward compat)
             if "organization" in data:
-                click.echo(
-                    click.style(
-                        "⚠️  Config key 'organization' is deprecated and will be"
-                        " removed in a future release. Rename it to 'owner'.",
-                        fg="yellow",
-                    ),
-                    err=True,
+                dep_msg = (
+                    "⚠️  Config key 'organization' is deprecated and will be"
+                    " removed in a future release. Rename it to 'owner'."
                 )
+                if use_color:
+                    click.echo(click.style(dep_msg, fg="yellow"), err=True)
+                else:
+                    click.echo(dep_msg, err=True)
                 data.setdefault("owner", data.pop("organization"))
             for key in _LIST_KEYS:
                 if key in data and not isinstance(data[key], list):
@@ -457,14 +513,14 @@ def load_config(config_path=None):
                         key,
                         data[key],
                     )
-                    click.echo(
-                        click.style(
-                            f"Warning: config key '{key}' should be a list "
-                            f'(e.g. ["{data[key]}"]), wrapping scalar automatically.',
-                            fg="yellow",
-                        ),
-                        err=True,
+                    list_warn_msg = (
+                        f"Warning: config key '{key}' should be a list "
+                        f'(e.g. ["{data[key]}"]), wrapping scalar automatically.'
                     )
+                    if use_color:
+                        click.echo(click.style(list_warn_msg, fg="yellow"), err=True)
+                    else:
+                        click.echo(list_warn_msg, err=True)
                     data[key] = [data[key]]
             for key, value in data.items():
                 if isinstance(value, list) and isinstance(merged.get(key), list):
@@ -599,6 +655,33 @@ def filter_pr_details(
     filter_stale=None,
     filter_inactive=None,
 ):
+    """Apply configured filters to pull request details.
+
+    Args:
+        pr_details: Pull request detail mappings to filter.
+        ignore_authors: Author logins to exclude.
+        mine_only: Whether to include only PRs authored by the current user.
+        current_user_login: Authenticated GitHub login used by ``mine_only``.
+        no_drafts: Whether to exclude draft PRs.
+        drafts_only: Whether to include only draft PRs.
+        filter_state: Accepted PR state labels. ``open`` excludes drafts,
+            ``closed`` includes closed drafts, and ``draft`` is matched
+            independently using OR semantics.
+        filter_check: Accepted CI check states.
+        filter_approval: Accepted review approval states.
+        filter_mergeable: Accepted mergeability states.
+        check_statuses: CI check states keyed by PR ID.
+        approval_statuses: Approval states keyed by PR ID.
+        search_title: Case-insensitive title regular expression.
+        filter_reviewer: Requested reviewer logins to include.
+        filter_label: PR labels to include.
+        exclude_label: PR labels to exclude.
+        filter_stale: Minimum PR age in days.
+        filter_inactive: Minimum PR inactivity in days.
+
+    Returns:
+        list: Pull request details matching every configured filter.
+    """
     ignore_set = normalize_ignore_authors(ignore_authors)
     current_user_login_normalized = (
         current_user_login.lower()
@@ -628,7 +711,9 @@ def filter_pr_details(
             include_drafts = "draft" in filter_state_lower
             is_draft = pr_detail.get("draft", False)
             pr_state = pr_detail.get("state", "").lower()
-            state_match = bool(regular_states) and pr_state in regular_states
+            state_match = pr_state in regular_states and not (
+                pr_state == "open" and is_draft
+            )
             draft_match = include_drafts and is_draft
             if not (state_match or draft_match):
                 continue

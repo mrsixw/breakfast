@@ -25,6 +25,7 @@ breakfast = "breakfast.cli:breakfast"
 test = [
   "pytest",
   "requests-mock",
+  "freezegun",
 ]
 lint = [
   "black",
@@ -37,6 +38,7 @@ build = [
 dev = [
   "black",
   "click-man",
+  "freezegun",
   "pytest",
   "requests-mock",
   "ruff",

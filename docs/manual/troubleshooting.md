@@ -137,3 +137,17 @@ When `--filter-mergeable` is used, breakfast maps `mergeable: null` to `unknown`
 - Running breakfast again a few seconds later will show the correct `clean` or `conflict` status.
 
 If you consistently see `unknown` for a PR that has been idle for a while, it may indicate a GitHub API issue. Try refreshing with `--refresh` to bypass the local cache and fetch fresh data.
+
+## "Warning: Unknown config key '...' in config"
+
+If you see a yellow warning on startup:
+
+```text
+⚠️  Unknown config key 'cheks' in config.toml — did you mean 'checks'?
+```
+
+This indicates that your `breakfast.toml` (or `config.toml`) contains a key that breakfast does not recognize. This is usually due to a typo or a deprecated/removed option.
+
+- Double-check the option name against the default config template (which you can generate using `breakfast --init-config`).
+- If you made a typo, correct the key name in your configuration file.
+- If you have an outdated config file, you can run `breakfast --update-config` to append any missing options from the newest default template.

@@ -517,11 +517,21 @@ def _western_calendar(today: datetime.date) -> "str | list[str] | None":
     return None
 
 
+def _rainbow_calendar(today: datetime.date) -> "str | list[str] | None":
+    """Return the Pride rainbow cycle for every day of the year.
+
+    Unlike the other calendars, this is a permanent opt-in rather than a
+    date-driven holiday, so it is exempt from the January purple override.
+    """
+    return PRIDE_RAINBOW
+
+
 CALENDARS: dict[str, object] = {
     "east-asian": _east_asian_calendar,
     "hindu": _hindu_calendar,
     "islamic": _islamic_calendar,
     "jewish": _jewish_calendar,
+    "rainbow": _rainbow_calendar,
     "sikh": _sikh_calendar,
     "western": _western_calendar,
 }
@@ -547,7 +557,8 @@ def apply_seasonal_colour(text: str, pr_number: int, calendar: str = "western") 
 
     The *calendar* argument selects which cultural calendar's holidays drive
     the seasonal colours. Valid values: ``"western"`` (default), ``"jewish"``,
-    ``"islamic"``, ``"hindu"``, ``"sikh"``, or ``"off"`` to disable entirely.
+    ``"islamic"``, ``"hindu"``, ``"sikh"``, ``"rainbow"`` (permanent Pride
+    cycle, any date), or ``"off"`` to disable entirely.
 
     Lists (December candy-cane, June Pride, Holi rainbow) cycle by PR number.
     """
@@ -557,7 +568,7 @@ def apply_seasonal_colour(text: str, pr_number: int, calendar: str = "western") 
     if calendar_fn is None:
         return text
     today = datetime.date.today()
-    if today.month == 1:
+    if today.month == 1 and calendar != "rainbow":
         colour = SEASONAL_PALETTES["purple"]
         return f"{colour}{text}\033[0m"
     result = calendar_fn(today)
@@ -785,7 +796,9 @@ def render_colour_diagnostics() -> str:
 
     # Pride Month rainbow — one swatch per colour in the cycle.
     pride_swatches = "  ".join(f"{code}{BLOCK}\033[0m" for code in PRIDE_RAINBOW)
-    lines.append(f"  {_vpad('Pride Month 🌈 (June)', 34)}  {pride_swatches}")
+    lines.append(
+        f"  {_vpad('Pride 🌈 (June, or rainbow calendar)', 34)}  {pride_swatches}"
+    )
 
     # Holi rainbow — one swatch per colour in the cycle.
     holi_swatches = "  ".join(f"{code}{BLOCK}\033[0m" for code in HOLI_RAINBOW)

@@ -149,12 +149,16 @@ Config key: `fetch-state = "open"`
 
 Only show PRs with a specific state. Accepted values: `open`, `closed`, `draft`. Repeat the flag to match multiple states.
 
-`draft` matches PRs where `draft=true`. It can be combined with other states:
+`open` matches PRs that are open and ready for review, excluding drafts. `closed`
+matches all closed PRs, including PRs closed while still drafts. `draft` matches
+PRs where `draft=true`. Values use OR logic, so combine `open` and `draft` when
+you want all open work:
 
 ```bash
-breakfast -o my-org -r my-app --filter-state open                        # open PRs only (includes drafts)
-breakfast -o my-org -r my-app --filter-state draft                       # only draft PRs
-breakfast -o my-org -r my-app --filter-state closed --filter-state draft # closed or draft
+breakfast -o my-org -r my-app --filter-state open                       # ready, open PRs only
+breakfast -o my-org -r my-app --filter-state draft                      # only draft PRs
+breakfast -o my-org -r my-app --filter-state open --filter-state draft  # ready and draft PRs
+breakfast -o my-org -r my-app --filter-state closed                     # all closed PRs
 ```
 
 ### `--filter-check`
@@ -582,6 +586,52 @@ Both flags can be combined to show the full branch path at a glance:
 breakfast -o my-org -r platform --head-branch --base-branch
 ```
 
+### `--reviewers`
+
+Add a "Reviewers" column showing the requested reviewers for each PR. Shows up to 2 logins, then `+N` overflow (e.g. `alice, bob +1`). Off by default.
+
+```text
+$ breakfast -o my-org -r platform --reviewers
+Fetching my-org PRs...🥐...Done
+Processing platform PRs...🍩🧇...Done
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------------+--------------+--------+
+|         | Repo           | PR Title        | Author | State   | Files | Commits |    +/-     | Comments | Reviewers          | Mergeable?   | Link   |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------------+--------------+--------+
+|       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | dave, ellen        | ✅ (clean)   | PR-142 |
+|       1 | platform-api   | Fix login bug   | bob    | open    |   1   |    1    |  +5/-2     |    3     | frank, grace +1    | ✅ (clean)   | PR-138 |
+|       2 | platform-ui    | Update nav bar  | carol  | open    |  12   |    4    |  +280/-95  |    1     | -                  | ❌ (dirty)   | PR-87  |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------------+--------------+--------+
+```
+
+Enable in config:
+
+```toml
+reviewers = true
+```
+
+### `--show-labels`
+
+Add a "Labels" column showing the labels applied to each PR. Shows up to 2 labels, then `+N` overflow (e.g. `bug, enhancement +1`). Off by default.
+
+```text
+$ breakfast -o my-org -r platform --show-labels
+Fetching my-org PRs...🥐...Done
+Processing platform PRs...🍩🧇...Done
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------------+--------------+--------+
+|         | Repo           | PR Title        | Author | State   | Files | Commits |    +/-     | Comments | Labels             | Mergeable?   | Link   |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------------+--------------+--------+
+|       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | bug, urgent        | ✅ (clean)   | PR-142 |
+|       1 | platform-api   | Fix login bug   | bob    | open    |   1   |    1    |  +5/-2     |    3     | feat               | ✅ (clean)   | PR-138 |
+|       2 | platform-ui    | Update nav bar  | carol  | open    |  12   |    4    |  +280/-95  |    1     | docs, chore +3     | ❌ (dirty)   | PR-87  |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------------+--------------+--------+
+```
+
+Enable in config:
+
+```toml
+show-labels = true
+```
+
 ### `--status-style`
 
 Choose how the `Checks`, `Approved`, and `Mergeable?` columns are rendered in table output.
@@ -740,12 +790,14 @@ Each entry in the list is an inline TOML table with a required `name` key and tw
 | `approvals` | `Approved` | **Optional** (off by default) | Review approval status: ✅ approved, ❌ changes, ⏳ pending. Requires an extra API call per PR. |
 | `head-branch` | `Head Branch` | **Optional** (off by default) | Source branch the PR was raised from, hyperlinked. |
 | `base-branch` | `Base Branch` | **Optional** (off by default) | Target branch the PR merges into, hyperlinked. |
+| `reviewers` | `Reviewers` | **Optional** (off by default) | Requested reviewers for the PR, up to 2 logins, then `+N` overflow. |
+| `labels` | `Labels` | **Optional** (off by default) | Labels applied to the PR, up to 2 labels, then `+N` overflow. |
 | `mergeable` | `Mergeable?` | Yes | GitHub's mergeability status: ✅ (clean), ❌ (dirty), ⚠️ (behind), ⏳ computing. |
 | `link` | `Link` | Yes | Clickable `PR-N` hyperlink to the PR on GitHub. |
 
 #### Auto-enabling optional columns
 
-Optional columns (`age`, `checks`, `approvals`, `head-branch`, `base-branch`) are **automatically enabled** when they appear in your `columns` list. You do not need to also set `age = true` or pass `--age` on every run.
+Optional columns (`age`, `checks`, `approvals`, `head-branch`, `base-branch`, `reviewers`, `labels`) are **automatically enabled** when they appear in your `columns` list. You do not need to also set `age = true` or pass `--age` on every run.
 
 #### Worked examples
 
@@ -820,10 +872,7 @@ columns = [
 When `columns` is set in config, it controls the table layout for all runs. CLI flags still override individual behaviours:
 
 - `--no-age` will suppress age data even if `age` is in `columns` (the column will be absent).
-- `--age` has no effect if `age` is not in `columns` (the column still won't appear).
-- All other flags (`--checks`, `--approvals`, etc.) follow the same logic.
-
-For a one-off column layout without changing your config, use the individual flags directly rather than `columns`.
+- If an optional column flag is passed on the CLI (e.g. `--age`, `--reviewers`, `--show-labels`, `--head-branch`, `--base-branch`), but that column is **not** in your custom `columns` list, it will be automatically appended to the end of the displayed columns. This allows easily toggling optional columns for a one-off run without modifying your configuration file.
 
 > **Note:** The `org` column is only shown when multiple organisations are queried (`-o org1 -o org2`). Listing it in `columns` while querying a single org is a no-op.
 
@@ -995,6 +1044,7 @@ Choose which cultural holiday calendar drives the seasonal colour effects in the
 | `"hindu"` | Diwali 🪔 (gold), Holi 🎨 (rainbow) |
 | `"islamic"` | Eid al-Fitr 🌙 (green), Eid al-Adha 🐑 (green) |
 | `"jewish"` | Hanukkah 🕎 (blue), Rosh Hashanah 🍎 (gold), Passover 🪬 (spring green), Sukkot 🌿 (orange) |
+| `"rainbow"` | Permanent Pride 🌈 cycle, every day of the year — no holiday detection |
 | `"sikh"` | Vaisakhi 🌾 (spring green), Bandi Chhor Divas 🪔 (gold) |
 | `"western"` | Gregorian calendar: Christmas 🎄, Easter 🐣, Pride Month 🌈, Halloween 🎃, Valentine's Day 💕, Lunar New Year 🧧 (default) |
 | `"off"` | Disable seasonal colours entirely |
@@ -1004,6 +1054,8 @@ seasonal-calendar = "east-asian"
 ```
 
 Note: `seasonal-colours = false` is a backward-compatible alias for `seasonal-calendar = "off"`.
+
+Note: every other calendar defers to purple in January; `"rainbow"` is the one exception and keeps cycling through the Pride colours all year, including January.
 
 ### `--colour-diagnostics` / `--color-diagnostics`
 

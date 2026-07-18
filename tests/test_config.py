@@ -142,19 +142,59 @@ def test_filter_pr_details_filter_state_draft():
     draft_pr = {**_make_pr(state="open", pr_id=1), "draft": True}
     open_pr = {**_make_pr(state="open", pr_id=2), "draft": False}
     closed_pr = {**_make_pr(state="closed", pr_id=3), "draft": False}
-    pr_details = [draft_pr, open_pr, closed_pr]
+    open_pr_without_draft = _make_pr(state="open", pr_id=4)
+    open_pr_with_null_draft = {**_make_pr(state="open", pr_id=5), "draft": None}
+    closed_draft_pr = {**_make_pr(state="closed", pr_id=6), "draft": True}
+    pr_details = [
+        draft_pr,
+        open_pr,
+        closed_pr,
+        open_pr_without_draft,
+        open_pr_with_null_draft,
+        closed_draft_pr,
+    ]
 
     # draft only
     result = config.filter_pr_details(pr_details, [], filter_state=("draft",))
-    assert [r["id"] for r in result] == [1]
+    assert [r["id"] for r in result] == [1, 6]
 
     # closed + draft
     result = config.filter_pr_details(pr_details, [], filter_state=("closed", "draft"))
-    assert sorted(r["id"] for r in result) == [1, 3]
+    assert [r["id"] for r in result] == [1, 3, 6]
 
-    # open alone still includes draft PRs (state=open)
+    # open excludes drafts and treats missing or null draft metadata as non-draft
     result = config.filter_pr_details(pr_details, [], filter_state=("open",))
-    assert sorted(r["id"] for r in result) == [1, 2]
+    assert [r["id"] for r in result] == [2, 4, 5]
+
+    # open + draft explicitly includes both categories
+    result = config.filter_pr_details(pr_details, [], filter_state=("open", "draft"))
+    assert [r["id"] for r in result] == [1, 2, 4, 5, 6]
+
+    # closed remains a lifecycle state and includes closed drafts
+    result = config.filter_pr_details(pr_details, [], filter_state=("closed",))
+    assert [r["id"] for r in result] == [3, 6]
+
+
+def test_filter_pr_details_filter_state_draft_flag_intersections():
+    draft_pr = {**_make_pr(state="open", pr_id=1), "draft": True}
+    open_pr = {**_make_pr(state="open", pr_id=2), "draft": False}
+    pr_details = [draft_pr, open_pr]
+
+    result = config.filter_pr_details(
+        pr_details,
+        [],
+        drafts_only=True,
+        filter_state=("open",),
+    )
+    assert result == []
+
+    result = config.filter_pr_details(
+        pr_details,
+        [],
+        no_drafts=True,
+        filter_state=("draft",),
+    )
+    assert result == []
 
 
 def test_filter_pr_details_filter_check():
@@ -827,3 +867,77 @@ def test_load_config_owner_takes_precedence_over_organization(monkeypatch, tmp_p
     result = config.load_config()
 
     assert result.get("owner") == "new-owner"
+
+
+def test_load_config_unknown_keys_warning(monkeypatch, tmp_path):
+    """Test that unknown keys warn, with close match suggestion if it exists."""
+    warnings = []
+    # Mock click.echo to collect printed warnings
+    monkeypatch.setattr(
+        config.click, "echo", lambda msg, **kw: warnings.append(str(msg))
+    )
+
+    # 1. Config with a typo that has a close match
+    cfg_file1 = tmp_path / "config.toml"
+    cfg_file1.write_text("cheks = true\n")
+    monkeypatch.setattr(config, "get_config_paths", lambda: [cfg_file1])
+
+    config.load_config()
+    assert len(warnings) == 1
+    assert "Unknown config key 'cheks' in config.toml" in warnings[0]
+    assert "did you mean 'checks'?" in warnings[0]
+
+    # 2. Config with an unknown key that does NOT have a close match
+    warnings.clear()
+    cfg_file2 = tmp_path / "breakfast.toml"
+    cfg_file2.write_text('totallyinvalidkeyname = "hello"\n')
+    monkeypatch.setattr(config, "get_config_paths", lambda: [cfg_file2])
+
+    config.load_config()
+    assert len(warnings) == 1
+    assert "Unknown config key 'totallyinvalidkeyname' in breakfast.toml" in warnings[0]
+    assert "did you mean" not in warnings[0]
+
+
+def test_load_config_valid_extra_keys_do_not_warn(monkeypatch, tmp_path):
+    """Test that keys valid in cli.py but absent from default template do not warn."""
+    warnings = []
+    monkeypatch.setattr(
+        config.click, "echo", lambda msg, **kw: warnings.append(str(msg))
+    )
+
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('organization = "my-org"\ndrafts-only = true\noffline = true\n')
+    monkeypatch.setattr(config, "get_config_paths", lambda: [cfg_file])
+
+    config.load_config()
+    # Should only produce the 'organization' deprecation warning,
+    # NO unknown key warnings
+    assert not any("Unknown config key" in w for w in warnings)
+
+
+def test_load_config_all_known_keys_no_warnings(monkeypatch, tmp_path):
+    """Test that a config containing all known keys produces zero warnings."""
+    warnings = []
+    monkeypatch.setattr(
+        config.click, "echo", lambda msg, **kw: warnings.append(str(msg))
+    )
+
+    # Generate a config containing every key in KNOWN_KEYS
+    lines = []
+    for k in config.KNOWN_KEYS:
+        # Avoid using list types improperly for scalar checks (e.g. ignore-author)
+        if k in config._LIST_KEYS:
+            lines.append(f'{k} = ["val"]')
+        elif k == "columns":
+            lines.append(f"{k} = []")
+        else:
+            lines.append(f'{k} = "val"')
+
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text("\n".join(lines) + "\n")
+    monkeypatch.setattr(config, "get_config_paths", lambda: [cfg_file])
+
+    config.load_config()
+    # Check that no unknown key warnings were emitted
+    assert not any("Unknown config key" in w for w in warnings)

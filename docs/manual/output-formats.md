@@ -48,6 +48,8 @@ The default output is a colour-coded terminal table with the following columns:
 | Checks | CI/check run status: pass, fail, pending, none (only with `--checks`) — clickable link to the PR's checks tab |
 | Head Branch | Source branch the PR was raised from (only with `--head-branch`) — clickable link to the branch on GitHub |
 | Base Branch | Target branch the PR merges into (only with `--base-branch`) — clickable link to the branch on GitHub |
+| Reviewers | Requested reviewers for the PR (only with `--reviewers`) |
+| Labels | Labels applied to the PR (only with `--show-labels`) |
 | Mergeable? | Whether the PR can be merged cleanly. `✅` means truly ready (`clean`); `⚠️` means no conflicts but not ready (`behind`, `unstable`, or `blocked`); `❌` means conflicts exist. Also shows `🏁 merged`, `🚫 closed`, or `⏳ computing` as appropriate |
 | Link | Clickable link to the PR |
 
@@ -80,7 +82,7 @@ $ breakfast -o my-org -r platform --format markdown 2>/dev/null
 
 - ANSI colour codes are stripped — Markdown renderers don't support them.
 - OSC 8 terminal hyperlinks are converted to `[text](url)` Markdown links.
-- Optional columns (`--age`, `--checks`, `--approvals`, `--head-branch`, `--base-branch`) are included when their flags are set.
+- Optional columns (`--age`, `--checks`, `--approvals`, `--head-branch`, `--base-branch`, `--reviewers`, `--show-labels`) are included when their flags are set.
 - Progress messages still go to stderr, so the output can be redirected cleanly.
 
 ## CSV output (`--format csv`)
@@ -97,7 +99,7 @@ platform-api,138,Fix login bug,bob,https://github.com/my-org/platform-api/pull/1
 - Header row is always present.
 - ANSI colour codes are stripped — all values are plain text.
 - Multi-value fields (`labels`, `requested_reviewers`) are joined with `|` within the cell.
-- Optional columns (`--age`, `--checks`, `--approvals`) are appended when their flags are set.
+- Optional columns (`--age`, `--checks`, `--approvals`, `--reviewers`, `--show-labels`) are appended when their flags are set.
 - Progress messages still go to stderr, so the output can be redirected cleanly.
 - `format = "csv"` in `config.toml` sets CSV as the persistent default.
 
@@ -108,6 +110,8 @@ platform-api,138,Fix login bug,bob,https://github.com/my-org/platform-api/pull/1
 | `--age` | `age_days` |
 | `--checks` | `checks` |
 | `--approvals` | `approval`, `approval_current`, `approval_required` |
+| `--reviewers` | `requested_reviewers` |
+| `--show-labels` | `labels` |
 
 ### Shell examples
 
@@ -127,6 +131,8 @@ breakfast -o my-org -r platform --format csv 2>/dev/null | csvgrep -c author -m 
 With `--format json` (or the `--json` alias), output is a JSON array of objects.
 
 ### Schema
+
+Each PR object contains the default fields by default. Optional fields (`labels`, `requested_reviewers`, `checks`, and `approval` fields) are only included when their respective CLI flags or configuration keys are set.
 
 Each PR object contains:
 

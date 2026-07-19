@@ -45,6 +45,30 @@ If errors persist and no cached data exists:
 - Verify your token hasn't been revoked
 - Check your [API rate limit](https://docs.github.com/en/rest/rate-limit): `curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/rate_limit`
 
+## GitHub GraphQL resource limits
+
+GitHub may reject a query that asks it to process too many repositories and
+pull requests at once. breakfast automatically uses bounded repository pages
+and retries the same page with progressively fewer repositories when GitHub
+reports `RESOURCE_LIMITS_EXCEEDED`.
+
+If even a single-repository page cannot be served, breakfast exits cleanly
+without a Python traceback and prints:
+
+```text
+🥞 GitHub couldn't return the PR list because the GraphQL query exceeded resource limits. Try again or narrow the requested repositories.
+```
+
+Retry the command later or use owner-scoped repository filters to reduce the
+query, for example:
+
+```bash
+breakfast -o my-org:api -o my-org:web
+```
+
+The error is written to stderr, so redirected JSON, CSV, Markdown, and template
+output on stdout is not contaminated by diagnostics.
+
 ## Slow performance
 
 PR details are fetched in parallel (up to 8 concurrent requests), and results are cached to disk for 5 minutes by default. If output is slow on the first run:

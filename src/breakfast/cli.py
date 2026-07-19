@@ -11,6 +11,8 @@ import requests
 
 from .api import (
     SECRET_GITHUB_TOKEN,
+    GitHubGraphQLError,
+    GitHubGraphQLResourceLimitError,
     GitHubRateLimitError,
     OwnerNotFoundError,
     _fetch_pr_detail,
@@ -1438,6 +1440,31 @@ def breakfast(
             if cache_enabled:
                 needs_cache_write = True
 
+        except GitHubGraphQLResourceLimitError as exc:
+            logger.warning(
+                "graphql_resource_limit_unrecoverable error_count=%d errors=%s",
+                exc.error_count,
+                exc.summary,
+            )
+            # End the active fetch progress line before showing the error.
+            click.echo("", err=True)
+            msg = (
+                "🥞 GitHub couldn't return the PR list because the GraphQL query "
+                "exceeded resource limits. Try again or narrow the requested "
+                "repositories."
+            )
+            click.echo(click.style(msg, fg="red", bold=True), err=True, color=colour)
+            sys.exit(1)
+        except GitHubGraphQLError as exc:
+            logger.warning(
+                "graphql_request_failed error_count=%d errors=%s",
+                exc.error_count,
+                exc.summary,
+            )
+            click.echo("", err=True)
+            msg = f"🥞 GitHub couldn't complete the GraphQL request: {exc.summary}"
+            click.echo(click.style(msg, fg="red", bold=True), err=True, color=colour)
+            sys.exit(1)
         except (
             requests.exceptions.ConnectionError,
             requests.exceptions.Timeout,

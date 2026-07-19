@@ -198,6 +198,134 @@ def test_get_github_prs_filters_and_paginates(monkeypatch):
     ]
 
 
+def test_get_github_prs_starts_with_bounded_repository_page(monkeypatch):
+    variables_seen = []
+
+    def fake_graphql_request(_query, variables):
+        variables_seen.append(dict(variables))
+        return _single_page_graphql([])
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
+
+    api.get_github_prs("org", None)
+
+    assert variables_seen == [
+        {"owner": "org", "cursor": None, "repositoryPageSize": 25}
+    ]
+
+
+def test_get_github_prs_reduces_page_size_after_resource_limit(monkeypatch):
+    variables_seen = []
+
+    def fake_graphql_request(_query, variables):
+        variables_seen.append(dict(variables))
+        if len(variables_seen) == 1:
+            raise api.GitHubGraphQLResourceLimitError(
+                [
+                    {
+                        "type": "RESOURCE_LIMITS_EXCEEDED",
+                        "message": "Resource limits for this query exceeded.",
+                    }
+                ]
+            )
+        return _single_page_graphql([])
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
+
+    api.get_github_prs("org", None)
+
+    assert [variables["repositoryPageSize"] for variables in variables_seen] == [
+        25,
+        12,
+    ]
+
+
+def test_get_github_prs_retains_reduced_size_without_corrupting_cursor(monkeypatch):
+    variables_seen = []
+
+    def fake_graphql_request(_query, variables):
+        variables_seen.append(dict(variables))
+        if len(variables_seen) == 1:
+            raise api.GitHubGraphQLResourceLimitError(
+                [
+                    {
+                        "type": "RESOURCE_LIMITS_EXCEEDED",
+                        "message": "Resource limits for this query exceeded.",
+                    }
+                ]
+            )
+        if len(variables_seen) == 2:
+            return {
+                "data": {
+                    "repositoryOwner": {
+                        "repositories": {
+                            "nodes": [],
+                            "pageInfo": {
+                                "endCursor": "cursor-1",
+                                "hasNextPage": True,
+                            },
+                        }
+                    }
+                }
+            }
+        return _single_page_graphql([])
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
+    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+
+    api.get_github_prs("org", None)
+
+    assert [
+        (variables["cursor"], variables["repositoryPageSize"])
+        for variables in variables_seen
+    ] == [(None, 25), (None, 12), ("cursor-1", 12)]
+
+
+def test_get_github_prs_propagates_resource_limit_at_page_size_one(monkeypatch):
+    page_sizes = []
+
+    def fake_graphql_request(_query, variables):
+        page_sizes.append(variables["repositoryPageSize"])
+        raise api.GitHubGraphQLResourceLimitError(
+            [
+                {
+                    "type": "RESOURCE_LIMITS_EXCEEDED",
+                    "message": "Resource limits for this query exceeded.",
+                }
+            ]
+        )
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
+
+    with pytest.raises(api.GitHubGraphQLResourceLimitError):
+        api.get_github_prs("org", None)
+
+    assert page_sizes == [25, 12, 6, 3, 1]
+
+
+def test_get_github_prs_does_not_retry_mixed_graphql_errors(monkeypatch):
+    page_sizes = []
+
+    def fake_graphql_request(_query, variables):
+        page_sizes.append(variables["repositoryPageSize"])
+        raise api.GitHubGraphQLError(
+            [
+                {"type": "FORBIDDEN", "message": "Access denied."},
+                {
+                    "type": "RESOURCE_LIMITS_EXCEEDED",
+                    "message": "Resource limits for this query exceeded.",
+                },
+            ]
+        )
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
+
+    with pytest.raises(api.GitHubGraphQLError):
+        api.get_github_prs("org", None)
+
+    assert page_sizes == [25]
+
+
 def _single_page_response(repos):
     return {
         "data": {
@@ -852,6 +980,59 @@ def test_make_github_graphql_request_retries_on_chunked_encoding_error(monkeypat
 
     assert result == {"data": {"ok": True}}
     assert len(attempts) == 3
+
+
+def test_make_github_graphql_request_bounds_repeated_resource_errors(
+    monkeypatch, requests_mock, caplog
+):
+    errors = [
+        {
+            "type": "RESOURCE_LIMITS_EXCEEDED",
+            "path": ["repositoryOwner", "repositories", "nodes", index, "url"],
+            "message": "Resource limits for this query exceeded.",
+        }
+        for index in range(500)
+    ]
+    requests_mock.post(
+        api.GITHUB_GRAPHQL_URL,
+        json={"data": {"repositoryOwner": {"repositories": None}}, "errors": errors},
+    )
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    caplog.set_level("WARNING")
+
+    with pytest.raises(api.GitHubGraphQLResourceLimitError) as exc_info:
+        api.make_github_graphql_request("{ viewer { login } }")
+
+    exc = exc_info.value
+    assert exc.error_count == 500
+    assert len(exc.errors) == 10
+    assert "RESOURCE_LIMITS_EXCEEDED=500" in str(exc)
+    assert "repositories', 'nodes'" not in str(exc)
+    assert len(str(exc)) < 250
+    assert "error_count=500" in caplog.text
+    assert caplog.text.count("RESOURCE_LIMITS_EXCEEDED") == 1
+    assert len(caplog.text) < 500
+
+
+def test_make_github_graphql_request_does_not_mask_mixed_errors(
+    monkeypatch, requests_mock
+):
+    errors = [
+        {"type": "FORBIDDEN", "message": "Access denied."},
+        {
+            "type": "RESOURCE_LIMITS_EXCEEDED",
+            "message": "Resource limits for this query exceeded.",
+        },
+    ]
+    requests_mock.post(api.GITHUB_GRAPHQL_URL, json={"data": {}, "errors": errors})
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+
+    with pytest.raises(api.GitHubGraphQLError) as exc_info:
+        api.make_github_graphql_request("{ viewer { login } }")
+
+    assert type(exc_info.value) is api.GitHubGraphQLError
+    assert "FORBIDDEN=1" in exc_info.value.summary
+    assert "RESOURCE_LIMITS_EXCEEDED=1" in exc_info.value.summary
 
 
 def test_make_github_api_request_retries_on_chunked_encoding_error(monkeypatch):

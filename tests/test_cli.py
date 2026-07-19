@@ -3751,6 +3751,81 @@ def test_owner_not_found_exits_cleanly(monkeypatch, tmp_path):
     assert "Traceback" not in result.output
 
 
+def test_graphql_resource_limit_aborts_without_partial_output_or_cache(monkeypatch):
+    calls = []
+    cache_writes = []
+
+    def fake_get_prs(owner, _filters, _state):
+        calls.append(owner)
+        if owner == "second-owner":
+            raise api.GitHubGraphQLResourceLimitError(
+                [
+                    {
+                        "type": "RESOURCE_LIMITS_EXCEEDED",
+                        "path": [
+                            "repositoryOwner",
+                            "repositories",
+                            "nodes",
+                            index,
+                            "url",
+                        ],
+                        "message": "Resource limits for this query exceeded.",
+                    }
+                    for index in range(500)
+                ]
+            )
+        return ["https://github.com/first-owner/repo/pull/1"]
+
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(
+        cli,
+        "write_graphql_cache",
+        lambda *args: cache_writes.append(args),
+    )
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        ["-o", "first-owner", "-o", "second-owner", "--cache"],
+    )
+
+    assert result.exit_code == 1
+    assert calls == ["first-owner", "second-owner"]
+    assert cache_writes == []
+    assert result.stdout == ""
+    assert "exceeded resource limits" in result.stderr
+    assert result.stderr.count("RESOURCE_LIMITS_EXCEEDED") == 0
+    assert len(result.stderr) < 300
+    assert "Traceback" not in result.output
+
+
+def test_other_graphql_errors_exit_cleanly(monkeypatch):
+    def fake_get_prs(_owner, _filters, _state):
+        raise api.GitHubGraphQLError(
+            [
+                {"type": "FORBIDDEN", "message": "Access denied."},
+                {
+                    "type": "RESOURCE_LIMITS_EXCEEDED",
+                    "message": "Resource limits for this query exceeded.",
+                },
+            ]
+        )
+
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org"])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "FORBIDDEN=1" in result.stderr
+    assert "RESOURCE_LIMITS_EXCEEDED=1" in result.stderr
+    assert len(result.stderr) < 300
+    assert "Traceback" not in result.output
+
+
 # ---------------------------------------------------------------------------
 # Multiple repo filters (#290)
 # ---------------------------------------------------------------------------

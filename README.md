@@ -139,3 +139,7 @@ breakfast --completion bash
 - [User Manual](docs/manual/) - Installation, usage, options reference, output formats, and troubleshooting
 - [Design Documents](docs/design/) - Technical designs for planned features
 - [Contributing](CONTRIBUTING.md) - How to contribute to the project
+
+---
+
+Made with ❤️ in the UK.

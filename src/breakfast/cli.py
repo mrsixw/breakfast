@@ -334,7 +334,7 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     return pr_detail, check_status, approval_detail
 
 
-@click.command(epilog="Made with ❤️  in the UK")
+@click.command(epilog="Made with ❤️ in the UK")
 @click.option(
     "--completion",
     "completion_shell",

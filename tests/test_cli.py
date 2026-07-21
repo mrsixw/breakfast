@@ -4759,4 +4759,4 @@ def test_help_shows_credit_line():
     runner = CliRunner()
     result = runner.invoke(cli.breakfast, ["--help"])
     assert result.exit_code == 0
-    assert "Made with ❤️  in the UK" in result.stdout
+    assert "Made with ❤️ in the UK" in result.stdout

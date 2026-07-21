@@ -597,7 +597,7 @@ def test_config_file_sets_organization(runner, monkeypatch, tmp_path):
 
     call_args = {}
 
-    def capture_get_prs(org, repo_filter):
+    def capture_get_prs(org, repo_filter, fetch_state="open"):
         call_args["org"] = org
         return []
 

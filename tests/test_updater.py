@@ -139,6 +139,116 @@ def test_write_and_read_version_cache(monkeypatch, tmp_path):
     assert updater._read_version_cache() == "3.0.0"
 
 
+def test_write_version_cache_stores_release_body(monkeypatch, tmp_path):
+    monkeypatch.setattr(updater, "_CACHE_DIR", tmp_path)
+
+    body = "- fix: some thing\n- feat: other"
+    updater._write_version_cache("3.0.0", release_body=body)
+    assert updater._read_cached_release_body() == body
+
+
+def test_write_version_cache_no_body_returns_none(monkeypatch, tmp_path):
+    monkeypatch.setattr(updater, "_CACHE_DIR", tmp_path)
+
+    updater._write_version_cache("3.0.0")
+    assert updater._read_cached_release_body() is None
+
+
+def test_get_release_summary_bullet_points():
+    body = (
+        "## What's new\n- fix: bug squashed\n- feat: cool thing\n"
+        "- chore: cleanup\n- extra: fourth"
+    )
+    summary = updater.get_release_summary(body)
+    assert "fix: bug squashed" in summary
+    assert "feat: cool thing" in summary
+    assert "extra: fourth" not in summary  # only first 3 bullets
+
+
+def test_get_release_summary_strips_headers():
+    body = "# Release v1.0\n## Changes\n- fix: something"
+    summary = updater.get_release_summary(body)
+    assert "#" not in summary
+    assert "fix: something" in summary
+
+
+def test_get_release_summary_strips_urls():
+    body = "- fix: see https://github.com/org/repo/issues/1 for details"
+    summary = updater.get_release_summary(body)
+    assert "https://" not in summary
+    assert "fix: see" in summary
+
+
+def test_get_release_summary_truncates():
+    body = "- " + "x" * 300
+    summary = updater.get_release_summary(body, max_chars=50)
+    assert len(summary) <= 50
+    assert summary.endswith("…")
+
+
+def test_get_release_summary_empty_body():
+    assert updater.get_release_summary("") == ""
+    assert updater.get_release_summary(None) == ""
+
+
+def test_check_for_update_with_summary(monkeypatch, tmp_path):
+    monkeypatch.setattr(updater, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(updater, "pkg_version", lambda _name: "0.9.0")
+    monkeypatch.setattr(updater, "get_latest_version", lambda: "0.10.0")
+    updater._write_version_cache("0.10.0", release_body="- feat: cool new feature")
+
+    result = updater.check_for_update(show_summary=True)
+
+    assert result is not None
+    assert "cool new feature" in result
+    assert "📋" in result
+
+
+def test_check_for_update_without_summary_does_not_include_body(monkeypatch, tmp_path):
+    monkeypatch.setattr(updater, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(updater, "pkg_version", lambda _name: "0.9.0")
+    monkeypatch.setattr(updater, "get_latest_version", lambda: "0.10.0")
+    updater._write_version_cache("0.10.0", release_body="- feat: cool new feature")
+
+    result = updater.check_for_update(show_summary=False)
+
+    assert result is not None
+    assert "cool new feature" not in result
+
+
+def test_check_for_update_summary_missing_body_still_shows_banner(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(updater, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(updater, "pkg_version", lambda _name: "0.9.0")
+    monkeypatch.setattr(updater, "get_latest_version", lambda: "0.10.0")
+    updater._write_version_cache("0.10.0")  # no body
+
+    result = updater.check_for_update(show_summary=True)
+
+    assert result is not None
+    assert "fresh breakfast" in result
+    assert "📋" not in result
+
+
+def test_get_latest_version_stores_release_body(monkeypatch, tmp_path):
+    monkeypatch.setattr(updater, "_CACHE_DIR", tmp_path)
+
+    class FakeResp:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"tag_name": "v2.0.0", "body": "- feat: new thing"}
+
+    monkeypatch.setattr(updater.requests, "get", lambda *a, **kw: FakeResp())
+
+    updater.get_latest_version()
+    assert updater._read_cached_release_body() == "- feat: new thing"
+
+
 def test_get_cache_dir_xdg(tmp_path, monkeypatch):
     custom_path = tmp_path / "custom-cache"
     monkeypatch.setenv("XDG_CACHE_HOME", str(custom_path))

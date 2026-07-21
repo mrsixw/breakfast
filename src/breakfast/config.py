@@ -1,10 +1,15 @@
+import difflib
+import os
 import re
 import tomllib
 from datetime import datetime
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 
 import click
 
+from .api import get_pr_age_days, get_pr_inactive_days
 from .logger import logger
 from .xdg import get_config_dir, get_config_paths
 
@@ -26,17 +31,22 @@ _DEFAULT_CONFIG_CONTENT = """\
 
 # -----------------------------------------------------------------------------
 # Target
-# Which organisation and repos to query by default.
+# Which owner and repos to query by default.
 # -----------------------------------------------------------------------------
 
-# GitHub organisation to query for open pull requests.
-# Equivalent to: breakfast -o <value>
+# GitHub owner (organization or personal account) to query for open pull requests.
+# Equivalent to: breakfast -o <value> (repeat -o for multiple owners).
 # Required (must be set here or passed with -o on every run).
-# organization = "my-org"
+# For multiple owners, use a list: owner = ["my-org", "another-org"]
+# Note: the old 'organization' key still works but is deprecated — use 'owner'.
+# owner = "my-org"
 
-# Filter repositories by name substring. Only repos whose name contains
-# this string are included. An empty string matches all repos.
-# Equivalent to: breakfast -r <value>
+# Filter repositories by name. Only repos whose name matches are included.
+# Supports substring matching and glob patterns (* ? [). Use a list to match
+# any of several filters (OR logic). Omit to match all repos.
+# Equivalent to: breakfast -r <value> (repeat -r for multiple filters).
+# Single filter:   repo-filter = "my-app"
+# Multiple:        repo-filter = ["api", "platform", "service-*"]
 # repo-filter = "my-app"
 
 
@@ -44,6 +54,16 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Filtering
 # Control which PRs appear in the output.
 # -----------------------------------------------------------------------------
+
+# Which PR states to fetch from GitHub. Default: open.
+# Choices: open, closed, merged, all.
+# Equivalent to: --fetch-state <value>
+# fetch-state = "open"
+
+# Repositories to exclude from results. Supports glob patterns (same syntax as
+# --repo-filter). Useful for hiding archived repos, forks, or internal tooling.
+# Equivalent to: --exclude-repo "old-*" --exclude-repo "infra-*"
+# exclude-repos = ["old-*", "infra-*"]
 
 # Authors to exclude from the output (case-insensitive). Useful for hiding
 # bot PRs. List format — add as many entries as you like.
@@ -54,6 +74,10 @@ _DEFAULT_CONFIG_CONTENT = """\
 # (determined from GITHUB_TOKEN). Useful for a personal morning view.
 # Equivalent to: --mine-only
 # mine-only = false
+
+# Show only PRs where you are a requested reviewer.
+# Equivalent to: --needs-my-review
+# needs-my-review = false
 
 # Maximum number of PRs to display. Applied after all other filters.
 # Unset means show all results.
@@ -91,10 +115,35 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Equivalent to: --base-branch
 # base-branch = false
 
+# Show a column with the requested reviewers for each PR.
+# Equivalent to: --reviewers
+# reviewers = false
+
+# Show a column with the labels for each PR.
+# Equivalent to: --show-labels
+# show-labels = false
+
 # Truncate PR titles to this many characters (appends … when truncated).
 # Useful on narrow terminals. Unset means no truncation.
 # Equivalent to: --max-title-length <n>
 # max-title-length = 72
+
+# Control which columns appear, their order, headers, and alignment.
+# Each entry is {name = "..."} with optional header = "..." and align = "...".
+# Optional columns (age, checks, approvals, head-branch, base-branch,
+# reviewers, labels) are automatically enabled when included — no need to
+# set their individual flags.
+# Available names: org, repo, title, author, state, files, commits, diff,
+#   comments, age, checks, approvals, head-branch, base-branch, reviewers,
+#   labels, mergeable, link
+# Expand to multi-line in your config for readability:
+#   columns = [
+#     {name = "repo"},
+#     {name = "title", header = "PR"},
+#     {name = "age", align = "right"},
+#     {name = "link"},
+#   ]
+# columns = [{name = "repo"}, {name = "title"}, {name = "author"}, {name = "link"}]
 
 
 # -----------------------------------------------------------------------------
@@ -105,8 +154,17 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Output format. "table" renders a coloured terminal table (default).
 # "json" outputs machine-readable JSON — useful for scripting or piping.
 # "markdown" renders a GitHub-flavoured Markdown table — great for pasting into docs.
-# Equivalent to: --format table|json|markdown
+# "csv" outputs comma-separated values for spreadsheet import.
+# "template" renders each PR using a custom format string (see template below).
+# Equivalent to: --format table|json|markdown|csv|template
 # format = "table"
+
+# Custom format string for --format template.
+# Available fields: {repo}, {title}, {author}, {url}, {state}, {number},
+#   {created_at}, {updated_at}, {additions}, {deletions}, {changed_files},
+#   {commits}, {review_comments}, {labels}, {requested_reviewers}
+# Equivalent to: --template <value>
+# template = "{repo}: {title} ({url})"
 
 # How status columns (Checks, Approved, Mergeable?) are rendered.
 #   emoji  — colourful emoji labels, e.g. ✅ pass, ❌ fail  (default)
@@ -116,6 +174,21 @@ _DEFAULT_CONFIG_CONTENT = """\
 
 # A little something extra for the observant. 🌟
 # seasonal-colours = true
+
+# Which cultural holiday calendar drives seasonal colours.
+#   east-asian — Lunar New Year 🧧, Mid-Autumn Festival 🎑, Songkran 💦, Hanami 🌸
+#   hindu      — Diwali 🪔, Holi 🎨
+#   islamic    — Eid al-Fitr 🌙, Eid al-Adha 🐑
+#   jewish     — Hanukkah 🕎, Passover 🪬, Rosh Hashanah 🍎, Sukkot 🌿
+#   rainbow    — permanent Pride 🌈 cycle, every day of the year
+#   sikh       — Vaisakhi 🌾, Bandi Chhor Divas 🪔
+#   western    — Christmas 🎄, Easter 🐣, Pride Month 🌈, Halloween 🎃 (default)
+#   off        — disable seasonal colours entirely
+# Note: seasonal-colours = false is equivalent to seasonal-calendar = "off"
+# seasonal-calendar = "western"
+
+# Colour the row-index column with the seasonal palette.
+# colour-index = true
 
 
 # -----------------------------------------------------------------------------
@@ -136,7 +209,7 @@ _DEFAULT_CONFIG_CONTENT = """\
 # -----------------------------------------------------------------------------
 # Caching
 # Cache results on disk so repeated runs are near-instant.
-# The cache is keyed by (organization, repo-filter) — each pair gets its own
+# The cache is keyed by (owner, repo-filter) — each pair gets its own
 # file stored in ~/.cache/breakfast/ (or $XDG_CACHE_HOME/breakfast/).
 # -----------------------------------------------------------------------------
 
@@ -196,6 +269,31 @@ _DEFAULT_CONFIG_CONTENT = """\
 # oldest PR age, and total comments per repo.
 # Equivalent to: --summarise-repo-prs
 # summarise-repo-prs = false
+
+
+# -----------------------------------------------------------------------------
+# Update notifications
+# Control how version update alerts appear.
+# -----------------------------------------------------------------------------
+
+# When a newer version of breakfast is available, include a short summary of
+# what's new (pulled from the GitHub release notes) below the update banner.
+# Equivalent to: --update-summary
+# update-summary = false
+
+
+# -----------------------------------------------------------------------------
+# Sorting
+# Control how the PR list is ordered.
+# -----------------------------------------------------------------------------
+
+# Sort PRs by field. Choices: repo (default), age, updated, author, comments, reviews.
+# Equivalent to: --sort <field>
+# sort = "repo"
+
+# Reverse the sort order.
+# Equivalent to: --reverse
+# sort-reverse = false
 """
 
 
@@ -232,13 +330,114 @@ def _extract_option_blocks(content: str) -> list[tuple[str, str]]:
     return results
 
 
+_EXPLICIT_EXTRAS = {"organization", "drafts-only", "offline"}
+_KNOWN_KEYS_FROM_TEMPLATE = {
+    k for k, _ in _extract_option_blocks(_DEFAULT_CONFIG_CONTENT)
+}
+KNOWN_KEYS = frozenset(_KNOWN_KEYS_FROM_TEMPLATE | _EXPLICIT_EXTRAS)
+
+
 def _key_present_in_file(key: str, content: str) -> bool:
     """Return True if *key* appears in *content* as an active or commented option."""
     pattern = rf"^#?\s*{re.escape(key)}\s*="
     return bool(re.search(pattern, content, re.MULTILINE))
 
 
-_LIST_KEYS = {"ignore-author"}
+_LIST_KEYS = {"ignore-author", "exclude-repos"}
+
+_VALID_COLUMN_NAMES = frozenset(
+    {
+        "org",
+        "repo",
+        "title",
+        "author",
+        "state",
+        "files",
+        "commits",
+        "diff",
+        "comments",
+        "age",
+        "checks",
+        "approvals",
+        "head-branch",
+        "base-branch",
+        "reviewers",
+        "labels",
+        "mergeable",
+        "link",
+    }
+)
+
+_VALID_ALIGNMENTS = frozenset({"left", "center", "right"})
+
+
+def parse_columns_config(columns_raw):
+    """Parse the ``columns`` config value into a list of column spec dicts.
+
+    Accepts either a plain list of column-name strings or a list of inline TOML
+    tables with ``name``, optional ``header``, and optional ``align`` keys.
+
+    Returns ``None`` when *columns_raw* is falsy (no custom column config).
+    Returns a list of ``{"name": str, "header": str|None, "align": str|None}``
+    dicts preserving the user's requested order.
+    """
+    if not columns_raw:
+        return None
+
+    specs = []
+    for item in columns_raw:
+        if isinstance(item, str):
+            name = item.lower()
+            if name not in _VALID_COLUMN_NAMES:
+                click.echo(
+                    click.style(
+                        f"Warning: unknown column name '{name}' in config — skipping.",
+                        fg="yellow",
+                    ),
+                    err=True,
+                )
+                continue
+            specs.append({"name": name, "header": None, "align": None})
+        elif isinstance(item, dict):
+            name = str(item.get("name", "")).lower()
+            if not name or name not in _VALID_COLUMN_NAMES:
+                click.echo(
+                    click.style(
+                        f"Warning: unknown or missing column name '{name}'"
+                        " in config — skipping.",
+                        fg="yellow",
+                    ),
+                    err=True,
+                )
+                continue
+            header = item.get("header") or None
+            raw_align = item.get("align")
+            if raw_align is not None:
+                align = str(raw_align).lower()
+                if align not in _VALID_ALIGNMENTS:
+                    click.echo(
+                        click.style(
+                            f"Warning: invalid align '{raw_align}' for column"
+                            f" '{name}' — must be left, center, or right."
+                            " Ignoring.",
+                            fg="yellow",
+                        ),
+                        err=True,
+                    )
+                    align = None
+            else:
+                align = None
+            specs.append({"name": name, "header": header, "align": align})
+        else:
+            click.echo(
+                click.style(
+                    f"Warning: invalid columns entry {item!r} in config — skipping.",
+                    fg="yellow",
+                ),
+                err=True,
+            )
+
+    return specs or None
 
 
 def load_config(config_path=None):
@@ -251,13 +450,61 @@ def load_config(config_path=None):
     for path in reversed(paths):
         if path.exists():
             with open(path, "rb") as f:
+                # Resolve color suppression before TOML parse error might occur
+                ctx = click.get_current_context(silent=True)
+                no_color_cli = ctx.params.get("no_colour", False) if ctx else False
+                no_color_env = os.getenv("NO_COLOR") is not None
                 try:
                     data = tomllib.load(f)
                 except tomllib.TOMLDecodeError as e:
                     logger.warning("config_parse_error path=%s error=%r", path, str(e))
                     msg = f"Warning: Failed to parse config {path}: {e}"
-                    click.echo(click.style(msg, fg="yellow"), err=True)
+                    if not (no_color_cli or no_color_env):
+                        click.echo(click.style(msg, fg="yellow"), err=True)
+                    else:
+                        click.echo(msg, err=True)
                     continue
+
+            # Determine final color usage state including config setting
+            no_color_config = data.get("no-colour", False) or data.get(
+                "no-color", False
+            )
+            use_color = not (no_color_cli or no_color_env or no_color_config)
+
+            # Check for unknown config keys and warn
+            for key in sorted(data.keys()):
+                if key not in KNOWN_KEYS:
+                    closest_matches = difflib.get_close_matches(
+                        key.lower(), KNOWN_KEYS, n=1
+                    )
+                    if closest_matches:
+                        closest = closest_matches[0]
+                        warning_msg = (
+                            f"⚠️  Unknown config key '{key}' in {path.name}"
+                            f" — did you mean '{closest}'?"
+                        )
+                    else:
+                        warning_msg = f"⚠️  Unknown config key '{key}' in {path.name}"
+
+                    if use_color:
+                        click.echo(click.style(warning_msg, fg="yellow"), err=True)
+                    else:
+                        click.echo(warning_msg, err=True)
+
+            # seasonal-colours = false → seasonal-calendar = "off" (backward compat)
+            if not data.get("seasonal-colours", True):
+                data.setdefault("seasonal-calendar", "off")
+            # organization → owner (deprecated key, backward compat)
+            if "organization" in data:
+                dep_msg = (
+                    "⚠️  Config key 'organization' is deprecated and will be"
+                    " removed in a future release. Rename it to 'owner'."
+                )
+                if use_color:
+                    click.echo(click.style(dep_msg, fg="yellow"), err=True)
+                else:
+                    click.echo(dep_msg, err=True)
+                data.setdefault("owner", data.pop("organization"))
             for key in _LIST_KEYS:
                 if key in data and not isinstance(data[key], list):
                     logger.warning(
@@ -266,14 +513,14 @@ def load_config(config_path=None):
                         key,
                         data[key],
                     )
-                    click.echo(
-                        click.style(
-                            f"Warning: config key '{key}' should be a list "
-                            f'(e.g. ["{data[key]}"]), wrapping scalar automatically.',
-                            fg="yellow",
-                        ),
-                        err=True,
+                    list_warn_msg = (
+                        f"Warning: config key '{key}' should be a list "
+                        f'(e.g. ["{data[key]}"]), wrapping scalar automatically.'
                     )
+                    if use_color:
+                        click.echo(click.style(list_warn_msg, fg="yellow"), err=True)
+                    else:
+                        click.echo(list_warn_msg, err=True)
                     data[key] = [data[key]]
             for key, value in data.items():
                 if isinstance(value, list) and isinstance(merged.get(key), list):
@@ -355,7 +602,15 @@ def update_config():
     new_content = existing_content
     if not new_content.endswith("\n"):
         new_content += "\n"
-    new_content += "\n# --- Added by --update-config ---\n"
+    try:
+        _version = pkg_version("breakfast")
+    except PackageNotFoundError:
+        _version = "unknown"
+    readable_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    separator = (
+        f"# --- Added by --update-config (breakfast v{_version}) on {readable_ts} ---"
+    )
+    new_content += f"\n{separator}\n"
     for _key, block in missing:
         new_content += f"\n{block}\n"
 
@@ -390,10 +645,43 @@ def filter_pr_details(
     filter_state=None,
     filter_check=None,
     filter_approval=None,
+    filter_mergeable=None,
     check_statuses=None,
     approval_statuses=None,
     search_title=None,
+    filter_reviewer=None,
+    filter_label=None,
+    exclude_label=None,
+    filter_stale=None,
+    filter_inactive=None,
 ):
+    """Apply configured filters to pull request details.
+
+    Args:
+        pr_details: Pull request detail mappings to filter.
+        ignore_authors: Author logins to exclude.
+        mine_only: Whether to include only PRs authored by the current user.
+        current_user_login: Authenticated GitHub login used by ``mine_only``.
+        no_drafts: Whether to exclude draft PRs.
+        drafts_only: Whether to include only draft PRs.
+        filter_state: Accepted PR state labels. ``open`` excludes drafts,
+            ``closed`` includes closed drafts, and ``draft`` is matched
+            independently using OR semantics.
+        filter_check: Accepted CI check states.
+        filter_approval: Accepted review approval states.
+        filter_mergeable: Accepted mergeability states.
+        check_statuses: CI check states keyed by PR ID.
+        approval_statuses: Approval states keyed by PR ID.
+        search_title: Case-insensitive title regular expression.
+        filter_reviewer: Requested reviewer logins to include.
+        filter_label: PR labels to include.
+        exclude_label: PR labels to exclude.
+        filter_stale: Minimum PR age in days.
+        filter_inactive: Minimum PR inactivity in days.
+
+    Returns:
+        list: Pull request details matching every configured filter.
+    """
     ignore_set = normalize_ignore_authors(ignore_authors)
     current_user_login_normalized = (
         current_user_login.lower()
@@ -423,7 +711,9 @@ def filter_pr_details(
             include_drafts = "draft" in filter_state_lower
             is_draft = pr_detail.get("draft", False)
             pr_state = pr_detail.get("state", "").lower()
-            state_match = bool(regular_states) and pr_state in regular_states
+            state_match = pr_state in regular_states and not (
+                pr_state == "open" and is_draft
+            )
             draft_match = include_drafts and is_draft
             if not (state_match or draft_match):
                 continue
@@ -435,9 +725,38 @@ def filter_pr_details(
             pr_approval = approval_statuses.get(pr_detail["id"], "pending")
             if pr_approval not in filter_approval:
                 continue
+        if filter_mergeable:
+            raw = pr_detail.get("mergeable")
+            if raw is True:
+                mergeable_status = "clean"
+            elif raw is False:
+                mergeable_status = "conflict"
+            else:
+                mergeable_status = "unknown"
+            if mergeable_status not in filter_mergeable:
+                continue
         if search_title is not None:
             title = pr_detail.get("title", "")
             if not re.search(search_title, title, re.IGNORECASE):
+                continue
+        if filter_reviewer:
+            reviewers = {
+                r["login"].lower() for r in pr_detail.get("requested_reviewers", [])
+            }
+            if not any(rv.lower() in reviewers for rv in filter_reviewer):
+                continue
+        if filter_label:
+            pr_labels = {lb["name"].lower() for lb in pr_detail.get("labels", [])}
+            if not any(lbl.lower() in pr_labels for lbl in filter_label):
+                continue
+        if exclude_label:
+            pr_labels = {lb["name"].lower() for lb in pr_detail.get("labels", [])}
+            if any(lbl.lower() in pr_labels for lbl in exclude_label):
+                continue
+        if filter_stale is not None and get_pr_age_days(pr_detail) < filter_stale:
+            continue
+        if filter_inactive is not None:
+            if get_pr_inactive_days(pr_detail) < filter_inactive:
                 continue
 
         filtered.append(pr_detail)

@@ -131,7 +131,7 @@ def test_get_github_prs_filters_and_paginates(monkeypatch):
     responses = [
         {
             "data": {
-                "organization": {
+                "repositoryOwner": {
                     "repositories": {
                         "nodes": [
                             {
@@ -162,7 +162,7 @@ def test_get_github_prs_filters_and_paginates(monkeypatch):
         },
         {
             "data": {
-                "organization": {
+                "repositoryOwner": {
                     "repositories": {
                         "nodes": [
                             {
@@ -198,10 +198,170 @@ def test_get_github_prs_filters_and_paginates(monkeypatch):
     ]
 
 
+def test_get_github_prs_starts_with_bounded_repository_page(monkeypatch):
+    variables_seen = []
+
+    def fake_graphql_request(_query, variables):
+        variables_seen.append(dict(variables))
+        return _single_page_graphql([])
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
+
+    api.get_github_prs("org", None)
+
+    assert variables_seen == [
+        {"owner": "org", "cursor": None, "repositoryPageSize": 25}
+    ]
+
+
+def test_get_github_prs_reduces_page_size_after_resource_limit(monkeypatch):
+    variables_seen = []
+
+    def fake_graphql_request(_query, variables):
+        variables_seen.append(dict(variables))
+        if len(variables_seen) == 1:
+            raise api.GitHubGraphQLResourceLimitError(
+                [
+                    {
+                        "type": "RESOURCE_LIMITS_EXCEEDED",
+                        "message": "Resource limits for this query exceeded.",
+                    }
+                ]
+            )
+        return _single_page_graphql([])
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
+
+    api.get_github_prs("org", None)
+
+    assert [variables["repositoryPageSize"] for variables in variables_seen] == [
+        25,
+        12,
+    ]
+
+
+def test_get_github_prs_retains_reduced_size_without_corrupting_cursor(monkeypatch):
+    variables_seen = []
+
+    def fake_graphql_request(_query, variables):
+        variables_seen.append(dict(variables))
+        if len(variables_seen) == 1:
+            raise api.GitHubGraphQLResourceLimitError(
+                [
+                    {
+                        "type": "RESOURCE_LIMITS_EXCEEDED",
+                        "message": "Resource limits for this query exceeded.",
+                    }
+                ]
+            )
+        if len(variables_seen) == 2:
+            return {
+                "data": {
+                    "repositoryOwner": {
+                        "repositories": {
+                            "nodes": [],
+                            "pageInfo": {
+                                "endCursor": "cursor-1",
+                                "hasNextPage": True,
+                            },
+                        }
+                    }
+                }
+            }
+        return _single_page_graphql([])
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
+    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+
+    api.get_github_prs("org", None)
+
+    assert [
+        (variables["cursor"], variables["repositoryPageSize"])
+        for variables in variables_seen
+    ] == [(None, 25), (None, 12), ("cursor-1", 12)]
+
+
+def test_get_github_prs_propagates_resource_limit_at_page_size_one(monkeypatch):
+    page_sizes = []
+
+    def fake_graphql_request(_query, variables):
+        page_sizes.append(variables["repositoryPageSize"])
+        raise api.GitHubGraphQLResourceLimitError(
+            [
+                {
+                    "type": "RESOURCE_LIMITS_EXCEEDED",
+                    "message": "Resource limits for this query exceeded.",
+                }
+            ]
+        )
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
+
+    with pytest.raises(api.GitHubGraphQLResourceLimitError):
+        api.get_github_prs("org", None)
+
+    assert page_sizes == [25, 12, 6, 3, 1]
+
+
+def test_get_github_prs_does_not_retry_mixed_graphql_errors(monkeypatch):
+    page_sizes = []
+
+    def fake_graphql_request(_query, variables):
+        page_sizes.append(variables["repositoryPageSize"])
+        raise api.GitHubGraphQLError(
+            [
+                {"type": "FORBIDDEN", "message": "Access denied."},
+                {
+                    "type": "RESOURCE_LIMITS_EXCEEDED",
+                    "message": "Resource limits for this query exceeded.",
+                },
+            ]
+        )
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
+
+    with pytest.raises(api.GitHubGraphQLError):
+        api.get_github_prs("org", None)
+
+    assert page_sizes == [25]
+
+
+def _single_page_response(repos):
+    return {
+        "data": {
+            "repositoryOwner": {
+                "repositories": {
+                    "nodes": repos,
+                    "pageInfo": {"endCursor": None, "hasNextPage": False},
+                }
+            }
+        }
+    }
+
+
+def _single_page_graphql(pr_urls):
+    """Return a one-page GraphQL response with a single repo containing pr_urls."""
+    return {
+        "data": {
+            "repositoryOwner": {
+                "repositories": {
+                    "nodes": [
+                        {
+                            "name": "repo",
+                            "pullRequests": {"nodes": [{"url": u} for u in pr_urls]},
+                        }
+                    ],
+                    "pageInfo": {"endCursor": None, "hasNextPage": False},
+                }
+            }
+        }
+    }
+
+
 def test_get_github_prs_skips_null_repo_nodes(monkeypatch):
     response = {
         "data": {
-            "organization": {
+            "repositoryOwner": {
                 "repositories": {
                     "nodes": [
                         None,
@@ -223,6 +383,105 @@ def test_get_github_prs_skips_null_repo_nodes(monkeypatch):
     prs = api.get_github_prs("org", None)
 
     assert prs == ["https://example.com/valid-repo/1"]
+
+
+def test_get_github_prs_raises_owner_not_found_when_null(monkeypatch):
+    response = {"data": {"repositoryOwner": None}}
+    monkeypatch.setattr(api, "make_github_graphql_request", lambda _q, _v: response)
+    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+
+    with pytest.raises(api.OwnerNotFoundError) as exc_info:
+        api.get_github_prs("ghost-login", None)
+
+    assert "ghost-login" in str(exc_info.value)
+
+
+def test_match_exclude_repos_exact():
+    assert api._match_exclude_repos("old-service", ["old-service"]) is True
+    assert api._match_exclude_repos("app", ["old-service"]) is False
+
+
+def test_match_exclude_repos_glob():
+    assert api._match_exclude_repos("old-api", ["old-*"]) is True
+    assert api._match_exclude_repos("old-web", ["old-*"]) is True
+    assert api._match_exclude_repos("app", ["old-*"]) is False
+
+
+def test_match_exclude_repos_multiple_patterns():
+    assert api._match_exclude_repos("infra-prod", ["old-*", "infra-*"]) is True
+    assert api._match_exclude_repos("app", ["old-*", "infra-*"]) is False
+
+
+def test_match_exclude_repos_empty():
+    assert api._match_exclude_repos("anything", []) is False
+    assert api._match_exclude_repos("anything", None) is False
+
+
+def test_get_github_prs_fetch_state_open_uses_open_enum(monkeypatch):
+    captured = []
+
+    def fake_graphql(query, _variables):
+        captured.append(query)
+        return _single_page_graphql(["https://github.com/org/repo/pull/1"])
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
+    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+
+    api.get_github_prs("org", "", "open")
+
+    assert "OPEN" in captured[0]
+    assert "CLOSED" not in captured[0]
+    assert "MERGED" not in captured[0]
+
+
+def test_get_github_prs_fetch_state_closed_uses_closed_enum(monkeypatch):
+    captured = []
+
+    def fake_graphql(query, _variables):
+        captured.append(query)
+        return _single_page_graphql([])
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
+    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+
+    api.get_github_prs("org", "", "closed")
+
+    assert "CLOSED" in captured[0]
+    assert "OPEN" not in captured[0]
+
+
+def test_get_github_prs_fetch_state_all_includes_all_enums(monkeypatch):
+    captured = []
+
+    def fake_graphql(query, _variables):
+        captured.append(query)
+        return _single_page_graphql([])
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
+    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+
+    api.get_github_prs("org", "", "all")
+
+    assert "OPEN" in captured[0]
+    assert "CLOSED" in captured[0]
+    assert "MERGED" in captured[0]
+
+
+def test_get_github_prs_fetch_state_merged(monkeypatch):
+    captured = []
+
+    def fake_graphql(query, _variables):
+        captured.append(query)
+        return _single_page_graphql([])
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
+    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+
+    api.get_github_prs("org", "", "merged")
+
+    assert "MERGED" in captured[0]
+    assert "OPEN" not in captured[0]
+    assert "CLOSED" not in captured[0]
 
 
 def test_get_authenticated_user_login(monkeypatch):
@@ -723,6 +982,59 @@ def test_make_github_graphql_request_retries_on_chunked_encoding_error(monkeypat
     assert len(attempts) == 3
 
 
+def test_make_github_graphql_request_bounds_repeated_resource_errors(
+    monkeypatch, requests_mock, caplog
+):
+    errors = [
+        {
+            "type": "RESOURCE_LIMITS_EXCEEDED",
+            "path": ["repositoryOwner", "repositories", "nodes", index, "url"],
+            "message": "Resource limits for this query exceeded.",
+        }
+        for index in range(500)
+    ]
+    requests_mock.post(
+        api.GITHUB_GRAPHQL_URL,
+        json={"data": {"repositoryOwner": {"repositories": None}}, "errors": errors},
+    )
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    caplog.set_level("WARNING")
+
+    with pytest.raises(api.GitHubGraphQLResourceLimitError) as exc_info:
+        api.make_github_graphql_request("{ viewer { login } }")
+
+    exc = exc_info.value
+    assert exc.error_count == 500
+    assert len(exc.errors) == 10
+    assert "RESOURCE_LIMITS_EXCEEDED=500" in str(exc)
+    assert "repositories', 'nodes'" not in str(exc)
+    assert len(str(exc)) < 250
+    assert "error_count=500" in caplog.text
+    assert caplog.text.count("RESOURCE_LIMITS_EXCEEDED") == 1
+    assert len(caplog.text) < 500
+
+
+def test_make_github_graphql_request_does_not_mask_mixed_errors(
+    monkeypatch, requests_mock
+):
+    errors = [
+        {"type": "FORBIDDEN", "message": "Access denied."},
+        {
+            "type": "RESOURCE_LIMITS_EXCEEDED",
+            "message": "Resource limits for this query exceeded.",
+        },
+    ]
+    requests_mock.post(api.GITHUB_GRAPHQL_URL, json={"data": {}, "errors": errors})
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+
+    with pytest.raises(api.GitHubGraphQLError) as exc_info:
+        api.make_github_graphql_request("{ viewer { login } }")
+
+    assert type(exc_info.value) is api.GitHubGraphQLError
+    assert "FORBIDDEN=1" in exc_info.value.summary
+    assert "RESOURCE_LIMITS_EXCEEDED=1" in exc_info.value.summary
+
+
 def test_make_github_api_request_retries_on_chunked_encoding_error(monkeypatch):
     """Premature chunked REST response is retried and eventually succeeds."""
     attempts = []
@@ -862,51 +1174,65 @@ def test_get_graphql_rate_limit_returns_none_on_error(monkeypatch):
 
 
 def test_match_repo_filter_empty_matches_all():
-    assert api._match_repo_filter("any-repo", "") is True
+    assert api._match_repo_filter("any-repo", []) is True
 
 
 def test_match_repo_filter_substring_backward_compat():
     """Plain strings use substring matching for backward compatibility."""
-    assert api._match_repo_filter("platform-api", "platform") is True
-    assert api._match_repo_filter("happyapp", "app") is True
-    assert api._match_repo_filter("mapper", "app") is True
+    assert api._match_repo_filter("platform-api", ["platform"]) is True
+    assert api._match_repo_filter("happyapp", ["app"]) is True
+    assert api._match_repo_filter("mapper", ["app"]) is True
 
 
 def test_match_repo_filter_substring_no_match():
-    assert api._match_repo_filter("platform-api", "frontend") is False
+    assert api._match_repo_filter("platform-api", ["frontend"]) is False
 
 
 def test_match_repo_filter_glob_star_prefix():
     """app-* matches repos starting with 'app-' only."""
-    assert api._match_repo_filter("app-one", "app-*") is True
-    assert api._match_repo_filter("app-two", "app-*") is True
-    assert api._match_repo_filter("happyapp", "app-*") is False
-    assert api._match_repo_filter("mapper", "app-*") is False
+    assert api._match_repo_filter("app-one", ["app-*"]) is True
+    assert api._match_repo_filter("app-two", ["app-*"]) is True
+    assert api._match_repo_filter("happyapp", ["app-*"]) is False
+    assert api._match_repo_filter("mapper", ["app-*"]) is False
 
 
 def test_match_repo_filter_glob_question_mark():
     """? matches exactly one character."""
-    assert api._match_repo_filter("service-a", "service-?") is True
-    assert api._match_repo_filter("service-ab", "service-?") is False
+    assert api._match_repo_filter("service-a", ["service-?"]) is True
+    assert api._match_repo_filter("service-ab", ["service-?"]) is False
 
 
 def test_match_repo_filter_glob_bracket():
     """[abc] matches a single character from the set."""
-    assert api._match_repo_filter("service-a", "service-[abc]") is True
-    assert api._match_repo_filter("service-z", "service-[abc]") is False
+    assert api._match_repo_filter("service-a", ["service-[abc]"]) is True
+    assert api._match_repo_filter("service-z", ["service-[abc]"]) is False
 
 
 def test_match_repo_filter_glob_exact_match():
     """Glob without wildcards requires exact match."""
     # fnmatch treats a bare pattern with no wildcards as exact match
-    assert api._match_repo_filter("app", "app") is True
+    assert api._match_repo_filter("app", ["app"]) is True
+
+
+def test_match_repo_filter_multiple_or_logic():
+    """Multiple filters: repo matches if it satisfies any one filter."""
+    assert api._match_repo_filter("api-gateway", ["api", "platform"]) is True
+    assert api._match_repo_filter("platform-web", ["api", "platform"]) is True
+    assert api._match_repo_filter("auth-service", ["api", "platform"]) is False
+
+
+def test_match_repo_filter_multiple_with_glob():
+    """Multiple filters support mixing substring and glob patterns."""
+    assert api._match_repo_filter("service-a", ["api", "service-?"]) is True
+    assert api._match_repo_filter("service-ab", ["api", "service-?"]) is False
+    assert api._match_repo_filter("api-gw", ["api", "service-?"]) is True
 
 
 def test_match_repo_filter_glob_no_partial_match():
     """Glob pattern without trailing * does not match mid-string."""
-    assert api._match_repo_filter("app-one", "app") is True  # substring fallback
+    assert api._match_repo_filter("app-one", ["app"]) is True  # substring fallback
     # But if user adds glob chars, fnmatch is used (no partial match)
-    assert api._match_repo_filter("app-one", "app?") is False  # 'app-one' != 'app?'
+    assert api._match_repo_filter("app-one", ["app?"]) is False  # 'app-one' != 'app?'
 
 
 # ---------------------------------------------------------------------------
@@ -1043,3 +1369,72 @@ def test_get_check_status_all_completed_with_none_filtered(monkeypatch):
 
     monkeypatch.setattr(api, "make_github_api_request", fake_api)
     assert api.get_check_status("org", "repo", "abc123") == "pass"
+
+
+def test_make_github_api_request_asserts_timeout(monkeypatch):
+    """Verifies that make_github_api_request passes the correct timeout kwarg."""
+    timeout_passed = []
+
+    class DummyResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"ok": True}
+
+    def fake_get(url, headers, timeout=None):
+        timeout_passed.append(timeout)
+        return DummyResponse()
+
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.requests, "get", fake_get)
+
+    result = api.make_github_api_request("/repos/org/repo")
+    assert result == {"ok": True}
+    assert timeout_passed == [(5, 30)]
+
+
+def test_make_github_graphql_request_asserts_timeout(monkeypatch):
+    """Verifies that make_github_graphql_request passes the correct timeout kwarg."""
+    timeout_passed = []
+
+    class DummyResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"data": {"ok": True}}
+
+    def fake_post(url, json, headers, timeout=None):
+        timeout_passed.append(timeout)
+        return DummyResponse()
+
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.requests, "post", fake_post)
+
+    result = api.make_github_graphql_request("{ viewer { login } }")
+    assert result == {"data": {"ok": True}}
+    assert timeout_passed == [(5, 30)]
+
+
+def test_make_github_api_request_retries_on_timeout_and_propagates(monkeypatch):
+    """Verifies that a Timeout is retried _MAX_RETRIES times and then raises."""
+    attempts = []
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+
+    def fake_get(url, headers, timeout=None):
+        attempts.append(1)
+        raise requests.exceptions.Timeout("timed out")
+
+    monkeypatch.setattr(api.requests, "get", fake_get)
+
+    with pytest.raises(requests.exceptions.Timeout):
+        api.make_github_api_request("/repos/org/repo")
+
+    # 1 initial attempt + 3 retries = 4 attempts total
+    assert len(attempts) == 4

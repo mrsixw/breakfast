@@ -29,12 +29,14 @@ Thanks for your interest in contributing to **breakfast**! This guide covers set
 
 - `src/breakfast/` — package source code
   - `cli.py` — Click command definition and entry point
+  - `renderers.py` — Output formatters and table fitting
   - `api.py` — GitHub API interaction logic
   - `config.py` — TOML configuration and filtering
   - `ui.py` — Terminal formatting and progress emojis
   - `updater.py` — Version checking and caching
 - `tests/` — module-specific pytest suite
 - `pyproject.toml` — project metadata, dependencies, tool config
+- `VERSION` — static file containing the current version string
 - `Makefile` — build, test, lint, and format targets
 - `utils/` — shell and python scripts for release management
 - `mkver.conf` — version bump configuration
@@ -158,3 +160,40 @@ All four files convey the same project rules. **When updating project convention
 
 - Do **not** run `git mkver patch` on feature branches — it mutates the version file.
 - Version bumps happen when preparing a release, not during regular development.
+
+## Releases
+
+Releases are created automatically by CI on every push to `main` (excluding version-bump commits). The workflow runs:
+
+```bash
+gh release create vX.Y.Z --generate-notes
+```
+
+GitHub auto-generates release notes from merged PR titles, formatted as:
+
+```markdown
+## What's Changed
+* #N: PR title by @author in https://github.com/.../pull/N
+
+**Full Changelog**: https://github.com/.../compare/vX...vY
+```
+
+### Release notes and `update-summary`
+
+The `update-summary` config option lets users opt in to seeing a short digest of the release body when a new version is available. It works by:
+
+1. Picking the first three bullet-point lines (`-`, `*`, or `•` prefixes)
+2. Stripping Markdown headers and bare URLs
+3. Capping the result at 200 characters
+
+The auto-generated `--generate-notes` format is compatible (the `## What's Changed` header is stripped, bullet lines are picked up, and the Full Changelog URL is stripped). However, the output includes `by @author in` tails left after URL removal, which can look awkward.
+
+**If you edit release notes manually** (e.g. via the GitHub UI after the release is created), use clean bullet points for the best `update-summary` output:
+
+```markdown
+- Add --sort option for custom PR ordering
+- Fix --checks with per-repo cache hits
+- New --exclude-label filter
+```
+
+Avoid opening with prose paragraphs — without bullet points, `update-summary` falls back to the first non-empty line of the body, which is usually a poor summary.

@@ -139,11 +139,16 @@ def write_graphql_cache(org: str, repo_filter: str, urls: list) -> None:
         )
 
 
-def read_pr_cache(org: str, repo_filter: str, ttl: int) -> dict | None:
+def read_pr_cache(
+    org: str, repo_filter: str, ttl: int, ignore_ttl: bool = False
+) -> dict | None:
     """Return cached data if present and within TTL, else None.
+
+    If ignore_ttl is True, expired cache data will still be returned on a hit.
 
     On a hit, returns a dict with keys:
       "prs"              – list of PR detail dicts
+      "fetched_at"       - ISO string of when cache was fetched
       "check_statuses"   – dict[int, str] or None (absent from older caches)
       "approval_statuses"– dict[int, str] or None (absent from older caches)
       "approval_details" – dict[int, dict] or None (absent from older caches)
@@ -158,7 +163,7 @@ def read_pr_cache(org: str, repo_filter: str, ttl: int) -> dict | None:
         data = json.loads(path.read_text())
         fetched_at = datetime.fromisoformat(data["fetched_at"])
         age = (datetime.now(timezone.utc) - fetched_at).total_seconds()
-        if age > ttl:
+        if not ignore_ttl and age > ttl:
             logger.debug(
                 "cache_miss layer=pr_detail path=%s reason=expired age=%.0fs ttl=%ss",
                 path,
@@ -179,6 +184,7 @@ def read_pr_cache(org: str, repo_filter: str, ttl: int) -> dict | None:
         )
         return {
             "prs": data["prs"],
+            "fetched_at": data["fetched_at"],
             "check_statuses": (
                 {int(k): v for k, v in raw_checks.items()}
                 if raw_checks is not None
@@ -204,6 +210,137 @@ def read_pr_cache(org: str, repo_filter: str, ttl: int) -> dict | None:
             err=True,
         )
         return None
+
+
+def repo_pr_cache_path(org: str, repo_name: str) -> Path:
+    raw = f"{org.lower()}:{repo_name.lower()}"
+    key = hashlib.sha256(raw.encode()).hexdigest()[:16]
+    return _CACHE_DIR / f"pr_repo_{key}.json"
+
+
+def read_repo_pr_cache(org: str, repo_name: str, ttl: int) -> dict | None:
+    """Return cached PR details for a single repo, or None on miss/expiry."""
+    path = repo_pr_cache_path(org, repo_name)
+    try:
+        if not path.exists():
+            logger.debug("cache_miss layer=repo_pr path=%s reason=file_not_found", path)
+            return None
+        data = json.loads(path.read_text())
+        fetched_at = datetime.fromisoformat(data["fetched_at"])
+        age = (datetime.now(timezone.utc) - fetched_at).total_seconds()
+        if age > ttl:
+            logger.debug(
+                "cache_miss layer=repo_pr path=%s reason=expired age=%.0fs ttl=%ss",
+                path,
+                age,
+                ttl,
+            )
+            return None
+        raw_checks = data.get("check_statuses")
+        raw_approvals = data.get("approval_statuses")
+        raw_approval_details = data.get("approval_details")
+        logger.debug(
+            "cache_hit layer=repo_pr path=%s age=%.0fs pr_count=%d",
+            path,
+            age,
+            len(data["prs"]),
+        )
+        return {
+            "prs": data["prs"],
+            "check_statuses": (
+                {int(k): v for k, v in raw_checks.items()}
+                if raw_checks is not None
+                else None
+            ),
+            "approval_statuses": (
+                {int(k): v for k, v in raw_approvals.items()}
+                if raw_approvals is not None
+                else None
+            ),
+            "approval_details": (
+                {int(k): v for k, v in raw_approval_details.items()}
+                if raw_approval_details is not None
+                else None
+            ),
+        }
+    except (OSError, json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
+        logger.warning(
+            "cache_read_error layer=repo_pr path=%s error=%r", path, str(exc)
+        )
+        click.echo(
+            click.style(f"Warning: failed to read repo PR cache: {exc}", fg="yellow"),
+            err=True,
+        )
+        return None
+
+
+def write_repo_pr_cache(
+    org: str,
+    repo_name: str,
+    pr_details: list,
+    check_statuses: dict | None = None,
+    approval_statuses: dict | None = None,
+    approval_details: dict | None = None,
+) -> None:
+    """Write PR details for a single repo to disk cache."""
+    try:
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path = repo_pr_cache_path(org, repo_name)
+        payload = {
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "organization": org,
+            "repo": repo_name,
+            "pr_count": len(pr_details),
+            "prs": pr_details,
+        }
+        if check_statuses is not None:
+            payload["check_statuses"] = {str(k): v for k, v in check_statuses.items()}
+        if approval_statuses is not None:
+            payload["approval_statuses"] = {
+                str(k): v for k, v in approval_statuses.items()
+            }
+        if approval_details is not None:
+            payload["approval_details"] = {
+                str(k): v for k, v in approval_details.items()
+            }
+        _atomic_write_text(path, json.dumps(payload))
+        logger.debug(
+            "cache_write layer=repo_pr path=%s pr_count=%d", path, len(pr_details)
+        )
+    except OSError as exc:
+        logger.warning(
+            "cache_write_error layer=repo_pr path=%s error=%r",
+            repo_pr_cache_path(org, repo_name),
+            str(exc),
+        )
+        click.echo(
+            click.style(f"Warning: failed to write repo PR cache: {exc}", fg="yellow"),
+            err=True,
+        )
+
+
+def read_cached_user_login() -> str | None:
+    """Return the GitHub login persisted from a previous online run, or None."""
+    path = _CACHE_DIR / "user.json"
+    try:
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text())
+        return data.get("login") or None
+    except (OSError, json.JSONDecodeError, KeyError) as exc:
+        logger.warning("cache_read_error layer=user_login error=%r", str(exc))
+        return None
+
+
+def write_cached_user_login(login: str) -> None:
+    """Persist *login* to the cache directory for offline use."""
+    try:
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path = _CACHE_DIR / "user.json"
+        _atomic_write_text(path, json.dumps({"login": login}))
+        logger.debug("cache_write layer=user_login login=%s", login)
+    except OSError as exc:
+        logger.warning("cache_write_error layer=user_login error=%r", str(exc))
 
 
 def write_pr_cache(

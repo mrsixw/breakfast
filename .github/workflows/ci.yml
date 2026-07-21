@@ -19,7 +19,7 @@ jobs:
           python-version: "3.11"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
 
@@ -38,7 +38,7 @@ jobs:
           python-version: "3.11"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
 
@@ -58,7 +58,7 @@ jobs:
           python-version: "3.11"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
 
@@ -75,7 +75,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Check spelling
-        uses: crate-ci/typos@master
+        uses: crate-ci/typos@v1.42.2
 
   docs-lint:
     runs-on: ubuntu-latest
@@ -99,7 +99,7 @@ jobs:
           python-version: "3.11"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
 
@@ -124,7 +124,7 @@ jobs:
           python-version: "3.11"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
 
@@ -142,6 +142,12 @@ jobs:
           source completions/breakfast.bash && complete -p breakfast
           zsh -i -c "autoload -Uz compinit && compinit -u && source completions/_breakfast && echo 'zsh ok'"
           fish -c "source completions/breakfast.fish && echo 'fish ok'"
+
+      - name: Verify --completion flag works for all shells
+        run: |
+          uv run python -m breakfast.cli --completion bash | grep -q "_BREAKFAST_COMPLETE"
+          uv run python -m breakfast.cli --completion zsh | grep -q "_BREAKFAST_COMPLETE"
+          uv run python -m breakfast.cli --completion fish | grep -q "_BREAKFAST_COMPLETE"
 
   release:
     if: "github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore: bump version')"
@@ -162,7 +168,7 @@ jobs:
           python-version: "3.11"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
 

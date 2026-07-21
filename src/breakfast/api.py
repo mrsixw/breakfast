@@ -17,6 +17,65 @@ GITHUB_API_URL = "https://api.github.com"
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 SECRET_GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", None)
 
+_MAX_GRAPHQL_ERROR_TYPES = 3
+_MAX_GRAPHQL_ERROR_MESSAGE_LENGTH = 120
+_MAX_STORED_GRAPHQL_ERRORS = 10
+
+
+def _summarize_graphql_errors(errors):
+    """Return a bounded summary of GraphQL errors grouped by type.
+
+    Args:
+        errors: GraphQL error objects returned by GitHub.
+
+    Returns:
+        str: Error counts and one representative message per error type.
+    """
+    counts = {}
+    first_messages = {}
+    for error in errors:
+        if isinstance(error, dict):
+            error_type = str(error.get("type") or "UNKNOWN")
+            message = str(error.get("message") or "No message provided")
+        else:
+            error_type = "UNKNOWN"
+            message = str(error)
+        counts[error_type] = counts.get(error_type, 0) + 1
+        first_messages.setdefault(error_type, " ".join(message.split()))
+
+    summaries = []
+    error_types = sorted(counts, key=lambda item: (-counts[item], item))
+    for error_type in error_types[:_MAX_GRAPHQL_ERROR_TYPES]:
+        message = first_messages[error_type]
+        if len(message) > _MAX_GRAPHQL_ERROR_MESSAGE_LENGTH:
+            message = f"{message[: _MAX_GRAPHQL_ERROR_MESSAGE_LENGTH - 3]}..."
+        summaries.append(f"{error_type}={counts[error_type]}: {message}")
+
+    omitted_types = len(counts) - len(summaries)
+    if omitted_types > 0:
+        summaries.append(f"{omitted_types} additional error type(s)")
+    return "; ".join(summaries) or "no error details"
+
+
+class GitHubGraphQLError(ValueError):
+    """Raised when GitHub returns fatal GraphQL errors.
+
+    Attributes:
+        error_count: Total number of errors in the response.
+        errors: Bounded tuple of representative original error objects.
+        summary: Bounded error summary grouped by type.
+    """
+
+    def __init__(self, errors):
+        self.error_count = len(errors)
+        self.errors = tuple(errors[:_MAX_STORED_GRAPHQL_ERRORS])
+        self.summary = _summarize_graphql_errors(errors)
+        super().__init__(f"GraphQL request failed: {self.summary}")
+
+
+class GitHubGraphQLResourceLimitError(GitHubGraphQLError):
+    """Raised when any GitHub GraphQL error reports exhausted resources."""
+
 
 class GitHubRateLimitError(Exception):
     """Raised when the GitHub REST API rate limit is exhausted.
@@ -35,8 +94,21 @@ class GitHubRateLimitError(Exception):
             super().__init__("GitHub API rate limit exceeded.")
 
 
+class OwnerNotFoundError(Exception):
+    """Raised when a GitHub owner (org or user) cannot be resolved."""
+
+    def __init__(self, login):
+        self.login = login
+        super().__init__(
+            f"Could not resolve a GitHub organization or user with the login '{login}'."
+            " Check that the owner name is correct and your token has access."
+        )
+
+
 _MAX_RETRIES = 3
 _RETRY_STATUSES = {502, 503, 504}
+_REQUEST_TIMEOUT = (5, 30)
+_GRAPHQL_REPOSITORY_PAGE_SIZE = 25
 
 _api_stats_lock = threading.Lock()
 _api_stats = {
@@ -83,7 +155,7 @@ def make_github_api_request(query_string):
             time.sleep(2 ** (attempt - 1) + random.uniform(0, 0.5))
         try:
             t0 = time.monotonic()
-            req = requests.get(url, headers=headers)
+            req = requests.get(url, headers=headers, timeout=_REQUEST_TIMEOUT)
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             if req.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES:
                 logger.debug(
@@ -189,7 +261,12 @@ def make_github_graphql_request(query, variables=None):
             time.sleep(2 ** (attempt - 1) + random.uniform(0, 0.5))
         try:
             t0 = time.monotonic()
-            response = requests.post(GITHUB_GRAPHQL_URL, json=payload, headers=headers)
+            response = requests.post(
+                GITHUB_GRAPHQL_URL,
+                json=payload,
+                headers=headers,
+                timeout=_REQUEST_TIMEOUT,
+            )
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             if response.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES:
                 logger.debug(
@@ -202,13 +279,24 @@ def make_github_graphql_request(query, variables=None):
             response.raise_for_status()
             resp_json = response.json()
             if "errors" in resp_json:
+                errors = resp_json["errors"]
+                summary = _summarize_graphql_errors(errors)
                 logger.warning(
-                    "api_call type=graphql status=%d elapsed_ms=%d errors=%r",
+                    "api_call type=graphql status=%d elapsed_ms=%d"
+                    " error_count=%d errors=%s",
                     response.status_code,
                     elapsed_ms,
-                    resp_json["errors"],
+                    len(errors),
+                    summary,
                 )
-                raise ValueError(f"GraphQL request failed: {resp_json['errors']}")
+                error_types = {
+                    error.get("type") if isinstance(error, dict) else None
+                    for error in errors
+                }
+                error_class = GitHubGraphQLError
+                if error_types == {"RESOURCE_LIMITS_EXCEEDED"}:
+                    error_class = GitHubGraphQLResourceLimitError
+                raise error_class(errors)
             logger.debug(
                 "api_call type=graphql status=%d elapsed_ms=%d",
                 response.status_code,
@@ -235,62 +323,147 @@ def make_github_graphql_request(query, variables=None):
 _GLOB_CHARS = frozenset("*?[")
 
 
-def _match_repo_filter(repo_name, repo_filter):
-    """Match a repo name against a filter pattern.
+def _match_repo_filter(repo_name, repo_filters):
+    """Match a repo name against one or more filter patterns (OR logic).
 
-    If the pattern contains glob characters (``*``, ``?``, ``[``), uses
-    ``fnmatch`` for precise glob matching. Otherwise falls back to
-    substring matching for backwards compatibility.
+    Each filter uses glob matching when it contains ``*``, ``?``, or ``[``,
+    otherwise falls back to substring matching for backwards compatibility.
+    An empty list matches all repos.
     """
-    if not repo_filter:
+    if not repo_filters:
         return True
+    return any(_match_single_filter(repo_name, f) for f in repo_filters)
+
+
+def _match_single_filter(repo_name, repo_filter):
     if any(c in repo_filter for c in _GLOB_CHARS):
         return fnmatch.fnmatch(repo_name, repo_filter)
     return repo_filter in repo_name
 
 
-def get_github_prs(organization, repo_filter):
-    base_query = """
-    query($organization: String!, $cursor: String){
-      organization(login: $organization){
-        repositories(after: $cursor, first:100){
-          nodes{
+def _match_exclude_repos(repo_name, exclude_repos):
+    """Return True if repo_name matches any exclusion pattern (glob or substring)."""
+    if not exclude_repos:
+        return False
+    for pattern in exclude_repos:
+        if any(c in pattern for c in _GLOB_CHARS):
+            if fnmatch.fnmatch(repo_name, pattern):
+                return True
+        elif pattern in repo_name:
+            return True
+    return False
+
+
+_FETCH_STATE_MAP = {
+    "open": ["OPEN"],
+    "closed": ["CLOSED"],
+    "merged": ["MERGED"],
+    "all": ["OPEN", "CLOSED", "MERGED"],
+}
+
+
+def _request_github_repository_page(query, owner, cursor, page_size):
+    """Request one repository page, reducing its size on resource failures.
+
+    Args:
+        query: GraphQL repository and pull-request query.
+        owner: GitHub organization or user login.
+        cursor: Repository pagination cursor, or ``None`` for the first page.
+        page_size: Number of repositories to request in the first attempt.
+
+    Returns:
+        tuple: Successful GraphQL response and the page size that succeeded.
+
+    Raises:
+        GitHubGraphQLError: If GitHub returns any non-resource GraphQL error.
+        GitHubGraphQLResourceLimitError: If a single-repository page still
+            exceeds GitHub's resource limits.
+        requests.exceptions.RequestException: If the request fails after its
+            configured network retries.
+    """
+    current_page_size = page_size
+    while True:
+        variables = {
+            "owner": owner,
+            "cursor": cursor,
+            "repositoryPageSize": current_page_size,
+        }
+        try:
+            return make_github_graphql_request(query, variables), current_page_size
+        except GitHubGraphQLResourceLimitError as exc:
+            if current_page_size == 1:
+                raise
+            next_page_size = max(1, current_page_size // 2)
+            logger.warning(
+                "graphql_resource_limit owner=%s cursor=%r error_count=%d"
+                " repository_page_size=%d retry_page_size=%d",
+                owner,
+                cursor,
+                exc.error_count,
+                current_page_size,
+                next_page_size,
+            )
+            current_page_size = next_page_size
+
+
+def get_github_prs(owner, repo_filters, fetch_state="open"):
+    """Return pull-request URLs for an owner using bounded repository pages.
+
+    Args:
+        owner: GitHub organization or user login.
+        repo_filters: Repository name filters, or an empty value for all repos.
+        fetch_state: Pull-request state selector.
+
+    Returns:
+        list[str]: Matching pull-request URLs.
+    """
+    states_list = _FETCH_STATE_MAP.get(fetch_state.lower(), ["OPEN"])
+    states_gql = ", ".join(states_list)
+    base_query = f"""
+    query($owner: String!, $cursor: String, $repositoryPageSize: Int!){{
+      repositoryOwner(login: $owner){{
+        repositories(after: $cursor, first: $repositoryPageSize){{
+          nodes{{
             name
-            pullRequests(first:100,states: [OPEN]){
-                nodes{
+            pullRequests(first:100,states: [{states_gql}]){{
+                nodes{{
                     url
-                 }
-            }
-          }
-          pageInfo {
+                 }}
+            }}
+          }}
+          pageInfo {{
             endCursor
             hasNextPage
-          }
-        }
-      }
-    }
+          }}
+        }}
+      }}
+    }}
         """
-    variables = {"organization": organization}
-
+    cursor = None
+    page_size = _GRAPHQL_REPOSITORY_PAGE_SIZE
     gql_responses = []
 
-    click.echo(f"Fetching {organization} PRs...", nl=False, err=True)
+    click.echo(f"Fetching {owner} PRs...", nl=False, err=True)
     while True:
-        response = make_github_graphql_request(base_query, variables)
+        response, page_size = _request_github_repository_page(
+            base_query, owner, cursor, page_size
+        )
+        if response["data"]["repositoryOwner"] is None:
+            raise OwnerNotFoundError(owner)
         gql_responses.append(response)
-        page_info = response["data"]["organization"]["repositories"]["pageInfo"]
+        page_info = response["data"]["repositoryOwner"]["repositories"]["pageInfo"]
         if not page_info["hasNextPage"]:
             break
-        variables["cursor"] = page_info["endCursor"]
+        cursor = page_info["endCursor"]
         click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
     click.echo("...Done", err=True)
 
     prs = []
     for response in gql_responses:
-        for repo in response["data"]["organization"]["repositories"]["nodes"]:
+        for repo in response["data"]["repositoryOwner"]["repositories"]["nodes"]:
             if repo is None:
                 continue
-            if _match_repo_filter(repo["name"], repo_filter):
+            if _match_repo_filter(repo["name"], repo_filters):
                 for pr in repo["pullRequests"]["nodes"]:
                     prs.append(pr["url"])
     return prs
@@ -517,3 +690,28 @@ def get_check_status(owner, repo, sha):
         return "fail"
 
     return "pass"
+
+
+def _pr_days_since(timestamp_str, now=None):
+    """Return the number of days since the given ISO 8601 timestamp, or 0 on error."""
+    if not timestamp_str:
+        return 0
+    try:
+        dt = datetime.datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    if now is None:
+        now = datetime.datetime.now(datetime.timezone.utc)
+    return max((now - dt).days, 0)
+
+
+def get_pr_age_days(pr_detail, now=None):
+    """Return the age in days of a PR since it was created."""
+    return _pr_days_since(pr_detail.get("created_at"), now=now)
+
+
+def get_pr_inactive_days(pr_detail, now=None):
+    """Return the number of days since a PR was last updated."""
+    return _pr_days_since(pr_detail.get("updated_at"), now=now)

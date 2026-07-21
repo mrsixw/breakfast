@@ -2,7 +2,7 @@
 
 ## Basic usage
 
-Fetch and display open PRs for an organization, filtered by repo name:
+Fetch and display open PRs for an owner (organization or personal account), filtered by repo name:
 
 ```bash
 breakfast -o my-org -r my-app
@@ -41,6 +41,14 @@ Filter out automated PRs from bots:
 breakfast -o my-org -r my-app \
   --ignore-author dependabot[bot] \
   --ignore-author renovate[bot]
+```
+
+### Morning triage: PRs waiting on you
+
+The most actionable morning view — show only PRs where you are a requested reviewer, sorted oldest-first so the most overdue appear at the top:
+
+```bash
+breakfast -o my-org --needs-my-review --checks --age --sort age --reverse
 ```
 
 ### Show only your own PRs
@@ -95,6 +103,25 @@ Combine with `--head-branch` for the full picture:
 ```bash
 breakfast -o my-org -r platform --head-branch --base-branch
 ```
+
+### Customise your table layout
+
+The `columns` config key lets you choose which columns appear, in what order, with custom headers and alignment. Add it to your config file (`~/.config/breakfast/config.toml`):
+
+```toml
+columns = [
+  {name = "repo"},
+  {name = "title",     header = "Pull Request"},
+  {name = "author"},
+  {name = "age",       align = "right"},
+  {name = "approvals", header = "Reviews"},
+  {name = "link"},
+]
+```
+
+Optional columns (`age`, `checks`, `approvals`, `head-branch`, `base-branch`) are auto-enabled when listed — no extra flags needed.
+
+See the [`columns` option reference](options.md#columns-config-only) for the full column list, alignment options, and more examples.
 
 ### Get machine-readable output
 
@@ -188,8 +215,8 @@ breakfast -o my-org -r platform --cache-ttl 10m   # cache for 10 minutes
 
 ## How it works
 
-1. **Check cache** - Looks for a recent on-disk cache for the `(organization, repo-filter)` pair; if found and within the TTL, skips steps 2–3 entirely
-2. **Fetch repositories** - Uses the GitHub GraphQL API to paginate through all repositories in the organization
+1. **Check cache** - Looks for a recent on-disk cache for the `(owner, repo-filter)` pair; if found and within the TTL, skips steps 2–3 entirely
+2. **Fetch repositories** - Uses the GitHub GraphQL API to paginate through all repositories for the owner (organization or personal account)
 3. **Filter repos** - Keeps only repos whose name contains the `--repo-filter` substring
 4. **Fetch PR details** - Uses the GitHub REST API to fetch full details for each open PR (parallelized for speed); writes results to disk cache
 5. **Filter PRs** - Applies author filters (`--ignore-author`, `--mine-only`), title search (`--search`), and other filters

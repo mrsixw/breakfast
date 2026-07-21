@@ -2,29 +2,94 @@
 
 ## Required options
 
-### `--organization`, `-o`
+### `--owner`, `-o`
 
-The GitHub organization to query for pull requests.
+The GitHub owner (organization or personal account) to query for pull requests.
+Repeat the flag to query multiple owners at once — their PRs are combined and deduplicated.
+
+You can optionally append a **scoped repo filter** to any owner using a colon separator:
+
+| Flag form | Behaviour |
+| --- | --- |
+| `-o my-org` | Use the global `-r` filter (or all repos if no `-r`) |
+| `-o my-org:api` | Override: only repos matching `api` for this owner |
+| `-o my-org:` | Override: all repos for this owner, ignoring any global `-r` |
 
 ```bash
-breakfast -o my-org -r my-app
+breakfast -o my-org -r my-app                           # global filter
+breakfast -o my-org -o another-org                      # two owners, no filter
+breakfast -o my-org -o another-org -r platform          # global filter for both owners
+breakfast -o my-org:api -o another-org:platform         # per-owner filters
+breakfast -o my-org:api -o another-org -r platform      # scoped for my-org, global for another-org
+breakfast -o my-org: -o another-org -r platform         # all repos for my-org; filtered for another-org
 ```
+
+Config key supports both a single string and a list, with optional scoped filters:
+
+```toml
+# Single owner
+owner = "my-org"
+
+# Multiple owners
+owner = ["my-org", "another-org"]
+
+# Per-owner scoped filters
+owner = ["my-org:api", "another-org:platform"]
+
+# Mixed: scoped for one, global -r for the other
+owner = ["my-org:api", "another-org"]
+```
+
+> **Deprecated aliases:** `--org` and `--organization` still work but print a deprecation
+> warning to stderr. The config key `organization` is also accepted but deprecated —
+> rename it to `owner`. Both deprecated forms will be removed in a future release.
 
 ### `--repo-filter`, `-r`
 
-Filter repositories by name. Supports both substring matching and glob patterns.
+Filter repositories by name. Repeat the flag to include multiple repos — a PR is included
+if its repo matches **any** of the supplied filters (OR logic).
+
+Each filter supports both substring matching and glob patterns:
 
 - **Plain string** (no glob characters): substring match — `platform` matches `"platform-api"`, `"my-platform"`, `"happyplatform"`.
 - **Glob pattern** (contains `*`, `?`, or `[`): uses shell-style glob matching via `fnmatch`.
 
 ```bash
-breakfast -o my-org -r platform        # substring: matches "platform-api", "my-platform"
-breakfast -o my-org -r "platform-*"    # glob: matches "platform-api", "platform-web" but not "my-platform"
-breakfast -o my-org -r "service-?"     # glob: matches "service-a" but not "service-ab"
-breakfast -o my-org -r "app"           # substring: matches "app", "app-one", "happyapp"
+breakfast -o my-org -r platform              # substring: matches "platform-api", "my-platform"
+breakfast -o my-org -r "platform-*"          # glob: matches "platform-api", "platform-web"
+breakfast -o my-org -r api -r platform       # two filters: matches either
+breakfast -o my-org -r api -r "service-?"   # mix of substring and glob
 ```
 
-Glob matching is case-sensitive and uses Python's `fnmatch` semantics. To match all repos, omit `-r` entirely or pass an empty string.
+Config key supports both a single string and a list:
+
+```toml
+# Single filter
+repo-filter = "platform"
+
+# Multiple filters
+repo-filter = ["api", "platform", "service-*"]
+```
+
+Glob matching is case-sensitive and uses Python's `fnmatch` semantics. To match all repos, omit `-r` entirely.
+
+### `--exclude-repo`
+
+Exclude repositories matching a pattern from the results. Supports the same glob syntax as `--repo-filter`. Repeat the flag to exclude multiple patterns (OR logic).
+
+```bash
+breakfast -o my-org --exclude-repo "old-*"                      # exclude repos starting with "old-"
+breakfast -o my-org --exclude-repo "infra-*" --exclude-repo "archived-*"
+breakfast -o my-org -r "platform" --exclude-repo "platform-legacy"
+```
+
+Can also be set persistently in the config file:
+
+```toml
+exclude-repos = ["old-*", "infra-*"]
+```
+
+When used with `--repo-filter`, the include filter is applied first, then exclusions are removed from the resulting set.
 
 ## Filtering options
 
@@ -61,16 +126,39 @@ With `--ignore-author dependabot[bot]`, the bot PR is excluded:
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
 ```
 
+### `--fetch-state`
+
+Control which PR states are **fetched** from GitHub. By default only open PRs are
+retrieved. Use this flag to include closed or merged PRs in your results.
+
+Accepted values: `open` (default), `closed`, `merged`, `all`.
+
+```bash
+breakfast -o my-org -r platform --fetch-state closed    # closed PRs only
+breakfast -o my-org -r platform --fetch-state merged    # merged PRs only
+breakfast -o my-org -r platform --fetch-state all       # every state
+```
+
+> **Note:** Fetching closed or merged PRs can be significantly slower since
+> there are usually many more of them. Combine with `--limit` to keep output
+> manageable.
+
+Config key: `fetch-state = "open"`
+
 ### `--filter-state`
 
 Only show PRs with a specific state. Accepted values: `open`, `closed`, `draft`. Repeat the flag to match multiple states.
 
-`draft` matches PRs where `draft=true`. It can be combined with other states:
+`open` matches PRs that are open and ready for review, excluding drafts. `closed`
+matches all closed PRs, including PRs closed while still drafts. `draft` matches
+PRs where `draft=true`. Values use OR logic, so combine `open` and `draft` when
+you want all open work:
 
 ```bash
-breakfast -o my-org -r my-app --filter-state open                        # open PRs only (includes drafts)
-breakfast -o my-org -r my-app --filter-state draft                       # only draft PRs
-breakfast -o my-org -r my-app --filter-state closed --filter-state draft # closed or draft
+breakfast -o my-org -r my-app --filter-state open                       # ready, open PRs only
+breakfast -o my-org -r my-app --filter-state draft                      # only draft PRs
+breakfast -o my-org -r my-app --filter-state open --filter-state draft  # ready and draft PRs
+breakfast -o my-org -r my-app --filter-state closed                     # all closed PRs
 ```
 
 ### `--filter-check`
@@ -93,6 +181,63 @@ breakfast -o my-org -r my-app --filter-approval pending --filter-approval change
 ```
 
 > **Note:** Review and check statuses are cached alongside PR details, so repeated runs with these flags skip redundant API calls.
+
+### `--filter-mergeable`
+
+Only show PRs with a specific mergeable status. Accepted values: `clean` (no conflicts), `conflict` (needs a rebase), `unknown` (GitHub is still computing mergeability). Repeat the flag to match multiple statuses (OR logic).
+
+```bash
+breakfast -o my-org --filter-mergeable conflict                                           # needs a rebase
+breakfast -o my-org --filter-mergeable clean --filter-approval approved                   # ready to merge
+breakfast -o my-org --filter-mergeable conflict --filter-mergeable unknown                # needs attention
+```
+
+> **Note:** GitHub computes mergeability lazily — a PR may briefly appear as `unknown` immediately after a push while GitHub catches up. See [Troubleshooting](troubleshooting.md#mergeable-status-shows-unknown-unexpectedly) for details.
+
+### `--filter-reviewer`
+
+Only show PRs that have a specific user listed as a requested reviewer. Matching is **case-insensitive**. Repeat the flag to include any of the given reviewers (OR logic).
+
+```bash
+breakfast -o my-org --filter-reviewer alice              # PRs requesting review from alice
+breakfast -o my-org --filter-reviewer alice --filter-reviewer bob
+```
+
+### `--label`
+
+Only show PRs that have a specific label. Matching is **case-insensitive**. Repeat the flag to require any of the given labels (OR logic).
+
+```bash
+breakfast -o my-org --label bug                          # only PRs labelled "bug"
+breakfast -o my-org --label bug --label enhancement      # PRs with "bug" OR "enhancement"
+```
+
+### `--exclude-label`
+
+Exclude PRs that have a specific label. Matching is **case-insensitive**. Repeat to exclude any of the given labels.
+
+```bash
+breakfast -o my-org --exclude-label wip                  # hide WIP PRs
+breakfast -o my-org --exclude-label wip --exclude-label blocked
+```
+
+### `--filter-stale`
+
+Only show PRs that have been open for more than N days (based on creation date). Pairs naturally with `--age` to see the age column.
+
+```bash
+breakfast -o my-org --filter-stale 14         # PRs open for more than 14 days
+breakfast -o my-org --filter-stale 30 --age   # stale PRs with age column visible
+```
+
+### `--filter-inactive`
+
+Only show PRs that have not been updated in the last N days. Useful for surfacing PRs that need a nudge.
+
+```bash
+breakfast -o my-org --filter-inactive 7       # not updated in the last 7 days
+breakfast -o my-org --filter-stale 14 --filter-inactive 3
+```
 
 ### `--search`, `-s`
 
@@ -130,6 +275,25 @@ Processing platform PRs...🍳...Done
 |       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | ✅ (clean)   | PR-142 |
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
 ```
+
+### `--needs-my-review`
+
+Show only PRs where the authenticated GitHub user (determined from `GITHUB_TOKEN`) is a requested reviewer. Ideal for the morning triage: skip everything that isn't waiting on you.
+
+```bash
+breakfast -o my-org --needs-my-review
+breakfast -o my-org --needs-my-review --checks --age --sort age --reverse
+```
+
+Can also be set in the config file:
+
+```toml
+needs-my-review = true
+```
+
+Composable with all other filters, including `--mine-only` (the intersection of PRs you authored and PRs awaiting your review is usually empty, but breakfast won't error).
+
+Config key: `needs-my-review = false`
 
 ### `--no-drafts`
 
@@ -176,12 +340,13 @@ Processing platform PRs...🍩🧇...Done
 
 ### `--format`
 
-Choose the output format. Accepted values: `table` (default), `json`, `markdown`, `csv`.
+Choose the output format. Accepted values: `table` (default), `json`, `markdown`, `csv`, `template`.
 
 ```text
 breakfast -o my-org -r platform --format markdown
 breakfast -o my-org -r platform --format json
 breakfast -o my-org -r platform --format csv
+breakfast -o my-org -r platform --format template --template "{repo}: {title}"
 ```
 
 You can also set a persistent default in your config file:
@@ -191,6 +356,42 @@ format = "csv"
 ```
 
 See [Output Formats](output-formats.md) for full details on each format.
+
+### `--template`
+
+A Python format string used to print custom per-PR output. One line is printed per PR with the template fields substituted.
+
+> [!NOTE]
+> Specifying `--template <value>` automatically implies `--format template` unless an explicit overriding `--format` (or `--json`/`--markdown`) is also specified.
+
+Available fields:
+
+| Field                    | Description                          |
+|--------------------------|--------------------------------------|
+| `{repo}`                 | Repository name                      |
+| `{title}`                | PR title                             |
+| `{author}`               | Author GitHub login                  |
+| `{url}`                  | PR URL                               |
+| `{state}`                | PR state (`open`, `closed`)          |
+| `{number}`               | PR number                            |
+| `{created_at}`           | ISO 8601 creation timestamp          |
+| `{updated_at}`           | ISO 8601 last-updated timestamp      |
+| `{additions}`            | Lines added                          |
+| `{deletions}`            | Lines deleted                        |
+| `{changed_files}`        | Files changed                        |
+| `{commits}`              | Commit count                         |
+| `{review_comments}`      | Review comment count                 |
+| `{labels}`               | Pipe-separated label names           |
+| `{requested_reviewers}`  | Pipe-separated reviewer logins       |
+
+```bash
+breakfast -o my-org --format template --template "{repo}: {title} by {author} — {url}"
+breakfast -o my-org --format template --template "{number}\t{title}\t{url}"
+```
+
+If an unknown field is used, breakfast exits with an error message.
+
+Config keys: `format = "template"` and `template = "{repo}: {title} ({url})"`
 
 ### `--markdown`
 
@@ -385,6 +586,52 @@ Both flags can be combined to show the full branch path at a glance:
 breakfast -o my-org -r platform --head-branch --base-branch
 ```
 
+### `--reviewers`
+
+Add a "Reviewers" column showing the requested reviewers for each PR. Shows up to 2 logins, then `+N` overflow (e.g. `alice, bob +1`). Off by default.
+
+```text
+$ breakfast -o my-org -r platform --reviewers
+Fetching my-org PRs...🥐...Done
+Processing platform PRs...🍩🧇...Done
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------------+--------------+--------+
+|         | Repo           | PR Title        | Author | State   | Files | Commits |    +/-     | Comments | Reviewers          | Mergeable?   | Link   |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------------+--------------+--------+
+|       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | dave, ellen        | ✅ (clean)   | PR-142 |
+|       1 | platform-api   | Fix login bug   | bob    | open    |   1   |    1    |  +5/-2     |    3     | frank, grace +1    | ✅ (clean)   | PR-138 |
+|       2 | platform-ui    | Update nav bar  | carol  | open    |  12   |    4    |  +280/-95  |    1     | -                  | ❌ (dirty)   | PR-87  |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------------+--------------+--------+
+```
+
+Enable in config:
+
+```toml
+reviewers = true
+```
+
+### `--show-labels`
+
+Add a "Labels" column showing the labels applied to each PR. Shows up to 2 labels, then `+N` overflow (e.g. `bug, enhancement +1`). Off by default.
+
+```text
+$ breakfast -o my-org -r platform --show-labels
+Fetching my-org PRs...🥐...Done
+Processing platform PRs...🍩🧇...Done
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------------+--------------+--------+
+|         | Repo           | PR Title        | Author | State   | Files | Commits |    +/-     | Comments | Labels             | Mergeable?   | Link   |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------------+--------------+--------+
+|       0 | platform-api   | Add user search | alice  | open    |   3   |    1    |  +42/-10   |    0     | bug, urgent        | ✅ (clean)   | PR-142 |
+|       1 | platform-api   | Fix login bug   | bob    | open    |   1   |    1    |  +5/-2     |    3     | feat               | ✅ (clean)   | PR-138 |
+|       2 | platform-ui    | Update nav bar  | carol  | open    |  12   |    4    |  +280/-95  |    1     | docs, chore +3     | ❌ (dirty)   | PR-87  |
++---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------------+--------------+--------+
+```
+
+Enable in config:
+
+```toml
+show-labels = true
+```
+
 ### `--status-style`
 
 Choose how the `Checks`, `Approved`, and `Mergeable?` columns are rendered in table output.
@@ -501,6 +748,134 @@ Can also be set in the config file to apply to all runs:
 max-title-length = 72
 ```
 
+### `columns` (config only)
+
+Control which columns appear in the table, their order, custom headers, and per-column alignment. Set this in your config file (`~/.config/breakfast/config.toml` or `.breakfast.toml` in the current directory).
+
+When `columns` is **not set**, breakfast uses its built-in default layout:
+
+```text
+Repo | PR Title | Author | State | Files | Commits | +/- | Comments | Mergeable? | Link
+```
+
+plus any optional columns you've enabled via their individual flags (`--age`, `--checks`, etc.).
+
+When `columns` **is set**, only the columns you list are shown, in the order you list them. You are in full control.
+
+#### Entry format
+
+Each entry in the list is an inline TOML table with a required `name` key and two optional keys:
+
+| Key | Type | Description |
+| --- | --- | --- |
+| `name` | string (required) | Internal column identifier. See the reference table below. |
+| `header` | string (optional) | Override the column header text shown in the table. |
+| `align` | string (optional) | Cell alignment: `left`, `center`, or `right`. Defaults to `left`. |
+
+#### Column reference
+
+| Name | Default header | Always shown | Description |
+| --- | --- | --- | --- |
+| `org` | `Org` | Only with multiple `-o` flags | GitHub organisation name, hyperlinked. |
+| `repo` | `Repo` | Yes | Repository name, hyperlinked to the repo on GitHub. |
+| `title` | `PR Title` | Yes | PR title, hyperlinked. Seasonal colours apply. |
+| `author` | `Author` | Yes | PR author login, hyperlinked to their GitHub profile. |
+| `state` | `State` | Yes | `open`, `draft`, or `closed`. Colour-coded green/grey/red. |
+| `files` | `Files` | Yes | Number of changed files. Colour-graded by magnitude. |
+| `commits` | `Commits` | Yes | Number of commits. Colour-graded by magnitude. |
+| `diff` | `+/-` | Yes | Additions and deletions, e.g. `+42/-10`. |
+| `comments` | `Comments` | Yes | Number of review comments. Colour-graded by magnitude. |
+| `age` | `Age` | **Optional** (off by default) | Days since the PR was opened. Colour-graded: green < 10d, yellow < 20d, orange < 50d, red 50d+. |
+| `checks` | `Checks` | **Optional** (off by default) | CI check result: ✅ pass, ❌ fail, ⚠️ pending, ➖ none. Requires an extra API call per PR. |
+| `approvals` | `Approved` | **Optional** (off by default) | Review approval status: ✅ approved, ❌ changes, ⏳ pending. Requires an extra API call per PR. |
+| `head-branch` | `Head Branch` | **Optional** (off by default) | Source branch the PR was raised from, hyperlinked. |
+| `base-branch` | `Base Branch` | **Optional** (off by default) | Target branch the PR merges into, hyperlinked. |
+| `reviewers` | `Reviewers` | **Optional** (off by default) | Requested reviewers for the PR, up to 2 logins, then `+N` overflow. |
+| `labels` | `Labels` | **Optional** (off by default) | Labels applied to the PR, up to 2 labels, then `+N` overflow. |
+| `mergeable` | `Mergeable?` | Yes | GitHub's mergeability status: ✅ (clean), ❌ (dirty), ⚠️ (behind), ⏳ computing. |
+| `link` | `Link` | Yes | Clickable `PR-N` hyperlink to the PR on GitHub. |
+
+#### Auto-enabling optional columns
+
+Optional columns (`age`, `checks`, `approvals`, `head-branch`, `base-branch`, `reviewers`, `labels`) are **automatically enabled** when they appear in your `columns` list. You do not need to also set `age = true` or pass `--age` on every run.
+
+#### Worked examples
+
+**Minimal morning view** — just what you need at a glance:
+
+```toml
+columns = [
+  {name = "repo"},
+  {name = "title"},
+  {name = "author"},
+  {name = "age",   align = "right"},
+  {name = "link"},
+]
+```
+
+**Review-focused view** — hide noise, surface approval and CI state:
+
+```toml
+columns = [
+  {name = "repo"},
+  {name = "title",     header = "Pull Request"},
+  {name = "author"},
+  {name = "checks"},
+  {name = "approvals", header = "Reviews"},
+  {name = "link"},
+]
+```
+
+**Compact view** — useful on narrower terminals:
+
+```toml
+columns = [
+  {name = "repo"},
+  {name = "title", header = "PR"},
+  {name = "link"},
+]
+```
+
+**Stacked-PR view** — see where each PR targets:
+
+```toml
+columns = [
+  {name = "repo"},
+  {name = "title"},
+  {name = "head-branch", header = "From"},
+  {name = "base-branch", header = "Into"},
+  {name = "mergeable"},
+  {name = "link"},
+]
+```
+
+**Full custom view** — everything with numeric columns right-aligned:
+
+```toml
+columns = [
+  {name = "repo"},
+  {name = "title",       header = "Pull Request"},
+  {name = "author"},
+  {name = "state"},
+  {name = "age",         align = "right"},
+  {name = "checks",      header = "CI"},
+  {name = "approvals",   header = "Reviews"},
+  {name = "diff",        align = "right"},
+  {name = "comments",    align = "right"},
+  {name = "mergeable",   header = "Merge?"},
+  {name = "link"},
+]
+```
+
+#### Interaction with CLI flags
+
+When `columns` is set in config, it controls the table layout for all runs. CLI flags still override individual behaviours:
+
+- `--no-age` will suppress age data even if `age` is in `columns` (the column will be absent).
+- If an optional column flag is passed on the CLI (e.g. `--age`, `--reviewers`, `--show-labels`, `--head-branch`, `--base-branch`), but that column is **not** in your custom `columns` list, it will be automatically appended to the end of the displayed columns. This allows easily toggling optional columns for a one-off run without modifying your configuration file.
+
+> **Note:** The `org` column is only shown when multiple organisations are queried (`-o org1 -o org2`). Listing it in `columns` while querying a single org is a no-op.
+
 ### `--workers`
 
 Number of parallel workers used to fetch PR details, check statuses, and approval statuses. Defaults to `64`. Lower values reduce API concurrency (useful if you're hitting rate limits); higher values may speed things up on very large organisations.
@@ -565,6 +940,31 @@ Re-fetch PR details (comments, CI status, merge state) using the cached repo lis
 breakfast -o my-org -r my-app --cache --refresh-prs
 ```
 
+### `--offline`
+
+Force offline mode using the most recent cached data (even if it has expired beyond the configured TTL).
+
+If internet connectivity is absent or weak, breakfast will also automatically fall back to the most recent disk cache (even if older than the TTL) and display a clear offline banner.
+
+When offline mode is active (either forced via `--offline` or via automatic fallback):
+
+- It reads from the cache regardless of the TTL expiration.
+- It bypasses all update checks, check status fetches, and approval fetches.
+- It does not write any refreshed data back to the cache, preventing corrupted timestamps.
+- If `--mine-only` or `--needs-my-review` is used, breakfast reads your GitHub login from a small `user.json` file in the cache directory (written automatically on the first successful online run). If no cached login exists yet, a warning is printed to `stderr` and the filter is skipped — run once online to prime the cache.
+
+If `--offline` is enabled but no cached data is found on disk, the application exits with an error.
+
+```bash
+breakfast -o my-org -r my-app --offline
+```
+
+Can also be set in the config file:
+
+```toml
+offline = true
+```
+
 | Flag | Cache active? | GraphQL cache | PR detail cache |
 | --- | --- | --- | --- |
 | *(none)* | no | skip | skip |
@@ -572,6 +972,7 @@ breakfast -o my-org -r my-app --cache --refresh-prs
 | `--cache --refresh-prs` | yes | read | skip, write fresh |
 | `--cache --refresh` | yes | skip, write fresh | skip, write fresh |
 | `--no-cache` | no (override) | skip | skip |
+| `--offline` | yes | read (ignore TTL) | read (ignore TTL, no write) |
 
 ## Update notifications
 
@@ -582,6 +983,23 @@ breakfast automatically checks for new versions once per day (cached for 24 hour
 ```
 
 The check is non-blocking and non-fatal — network failures are silently ignored. The notification is sent to stderr so it won't interfere with `--json` output piping.
+
+### `update-summary` (config only)
+
+When set to `true`, appends a short summary of what's new (pulled from the GitHub release notes) below the update banner:
+
+```text
+🍳 A fresh breakfast is ready! v0.10.0 → v0.11.0 — update at ...
+  📋 - Add --sort option for custom PR ordering
+      - Fix --checks with per-repo cache hits
+      - New --exclude-label filter
+```
+
+Enable in `~/.config/breakfast/config.toml`:
+
+```toml
+update-summary = true
+```
 
 To disable the update check:
 
@@ -615,6 +1033,29 @@ Can also be set persistently in config:
 ```toml
 no-colour = true
 ```
+
+### `seasonal-calendar` (config only)
+
+Choose which cultural holiday calendar drives the seasonal colour effects in the PR table. Set in config — there is no CLI flag.
+
+| Value | Description |
+| --- | --- |
+| `"east-asian"` | East/Southeast Asian: Lunar New Year 🧧 (red), Mid-Autumn Festival 🎑 (yellow), Songkran 💦 (blue), Hanami 🌸 (pink) |
+| `"hindu"` | Diwali 🪔 (gold), Holi 🎨 (rainbow) |
+| `"islamic"` | Eid al-Fitr 🌙 (green), Eid al-Adha 🐑 (green) |
+| `"jewish"` | Hanukkah 🕎 (blue), Rosh Hashanah 🍎 (gold), Passover 🪬 (spring green), Sukkot 🌿 (orange) |
+| `"rainbow"` | Permanent Pride 🌈 cycle, every day of the year — no holiday detection |
+| `"sikh"` | Vaisakhi 🌾 (spring green), Bandi Chhor Divas 🪔 (gold) |
+| `"western"` | Gregorian calendar: Christmas 🎄, Easter 🐣, Pride Month 🌈, Halloween 🎃, Valentine's Day 💕, Lunar New Year 🧧 (default) |
+| `"off"` | Disable seasonal colours entirely |
+
+```toml
+seasonal-calendar = "east-asian"
+```
+
+Note: `seasonal-colours = false` is a backward-compatible alias for `seasonal-calendar = "off"`.
+
+Note: every other calendar defers to purple in January; `"rainbow"` is the one exception and keeps cycling through the Pride colours all year, including January.
 
 ### `--colour-diagnostics` / `--color-diagnostics`
 
@@ -668,6 +1109,18 @@ Can also be enabled persistently via config:
 api-stats = true
 ```
 
+### `--completion SHELL`
+
+Print the tab-completion script for `SHELL` to stdout and exit. `SHELL` must be one of `bash`, `zsh`, or `fish`.
+
+```bash
+breakfast --completion zsh   # print zsh completion script
+breakfast --completion bash  # print bash completion script
+breakfast --completion fish  # print fish completion script
+```
+
+This flag short-circuits before any GitHub token or `--owner` validation, so it works without any configuration. See [Installation → Shell completions](installation.md#shell-completions) for setup instructions.
+
 ## Summary views
 
 ### `--summarise-user-prs` / `--summarize-user-prs`
@@ -713,6 +1166,44 @@ Config key: `summarise-repo-prs = true`
 > exclusive. All standard filter flags (`--author`, `--repo-filter`,
 > `--filter-state`, etc.) apply before the summary is computed.
 
+## Sorting
+
+### `--sort`
+
+Sort the PR list by a named field. By default PRs are grouped by repository
+(`repo`). Available choices:
+
+| Value      | Sorts by                                      |
+|------------|-----------------------------------------------|
+| `repo`     | Repository name (default)                     |
+| `age`      | Days since the PR was opened (oldest first)   |
+| `updated`  | Last-updated timestamp (most-recently first)  |
+| `author`   | PR author login (alphabetical)                |
+| `comments` | Total comment count (issue + review comments) |
+| `reviews`  | Review comment count only                     |
+| `size`     | Total lines changed (additions + deletions)   |
+| `files`    | Number of files modified                      |
+
+```bash
+breakfast -o my-org --sort age          # oldest PRs first
+breakfast -o my-org --sort comments     # most commented first
+breakfast -o my-org --sort size         # smallest diffs first
+breakfast -o my-org --sort size --reverse  # chonkers first
+```
+
+Config key: `sort = "repo"`
+
+### `--reverse`
+
+Reverse the sort order imposed by `--sort`.
+
+```bash
+breakfast -o my-org --sort age --reverse    # newest PRs first
+breakfast -o my-org --sort author --reverse # Z→A author order
+```
+
+Config key: `sort-reverse = false`
+
 ## Other options
 
 ### `--version`
@@ -732,7 +1223,7 @@ Options:
   --config TEXT                   Path to config file.
   --show-config                   Print the resolved config and exit.
   --init-config                   Generate a default config file and exit.
-  -o, --organization TEXT         One or multiple organizations to report on
+  -o, --owner TEXT                One or multiple owners (org or user) to report on
   -r, --repo-filter TEXT          Filter for specific repo(s)
   --ignore-author TEXT            Ignore PRs raised by one or more authors
                                   (case-insensitive). Repeat for multiple
@@ -763,6 +1254,8 @@ Options:
   --max-title-length INTEGER      Truncate PR titles to this many characters.
                                   Unset means no truncation.
   --no-update-check               Disable the automatic update check.
+  --offline                       Force offline mode using the most recent
+                                  cached data (even if expired).
   --cache / --no-cache            Enable disk cache for PR results. Off by
                                   default; use --cache or set cache = true in
                                   config.

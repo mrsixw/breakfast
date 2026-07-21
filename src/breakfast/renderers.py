@@ -131,6 +131,21 @@ def _visible_width(s):
     return w if w >= 0 else len(plain)
 
 
+def _slice_by_width(s: str, max_width: int) -> str:
+    """Return the longest prefix of *s* whose display width is <= *max_width*.
+
+    Uses per-character wcwidth so CJK (width-2) and emoji are handled correctly.
+    """
+    out, used = [], 0
+    for ch in s:
+        w = max(wcwidth.wcwidth(ch), 0)
+        if used + w > max_width:
+            break
+        out.append(ch)
+        used += w
+    return "".join(out)
+
+
 def _osc8_to_markdown(s):
     """Convert OSC 8 hyperlinks and ANSI codes in *s* to Markdown link syntax."""
     result = _OSC8_ANY_RE.sub(
@@ -153,7 +168,7 @@ def _truncate_formatted_text(value, limit):
     if _visible_width(plain) <= limit:
         return value
 
-    truncated = plain[: limit - 1] + "…"
+    truncated = _slice_by_width(plain, limit - 1) + "…"
     osc_match = _OSC8_FULL_RE.match(str(value))
     if osc_match:
         return (

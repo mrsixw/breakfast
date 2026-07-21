@@ -655,6 +655,33 @@ def filter_pr_details(
     filter_stale=None,
     filter_inactive=None,
 ):
+    """Apply configured filters to pull request details.
+
+    Args:
+        pr_details: Pull request detail mappings to filter.
+        ignore_authors: Author logins to exclude.
+        mine_only: Whether to include only PRs authored by the current user.
+        current_user_login: Authenticated GitHub login used by ``mine_only``.
+        no_drafts: Whether to exclude draft PRs.
+        drafts_only: Whether to include only draft PRs.
+        filter_state: Accepted PR state labels. ``open`` excludes drafts,
+            ``closed`` includes closed drafts, and ``draft`` is matched
+            independently using OR semantics.
+        filter_check: Accepted CI check states.
+        filter_approval: Accepted review approval states.
+        filter_mergeable: Accepted mergeability states.
+        check_statuses: CI check states keyed by PR ID.
+        approval_statuses: Approval states keyed by PR ID.
+        search_title: Case-insensitive title regular expression.
+        filter_reviewer: Requested reviewer logins to include.
+        filter_label: PR labels to include.
+        exclude_label: PR labels to exclude.
+        filter_stale: Minimum PR age in days.
+        filter_inactive: Minimum PR inactivity in days.
+
+    Returns:
+        list: Pull request details matching every configured filter.
+    """
     ignore_set = normalize_ignore_authors(ignore_authors)
     current_user_login_normalized = (
         current_user_login.lower()
@@ -684,7 +711,9 @@ def filter_pr_details(
             include_drafts = "draft" in filter_state_lower
             is_draft = pr_detail.get("draft", False)
             pr_state = pr_detail.get("state", "").lower()
-            state_match = bool(regular_states) and pr_state in regular_states
+            state_match = pr_state in regular_states and not (
+                pr_state == "open" and is_draft
+            )
             draft_match = include_drafts and is_draft
             if not (state_match or draft_match):
                 continue

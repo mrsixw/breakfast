@@ -35,15 +35,51 @@ The run exits successfully when cached output is available. If no matching full 
 
 With `--api-stats`, exhausted limits are shown as `exhausted (0 requests remaining)` or `exhausted (0 points remaining)`, alongside the captured reset time and `Data source: local cache (...)`. The debug summary does not make another GitHub request.
 
-`--mine-only` and `--needs-my-review` use a token-specific cached login during fallback. If the active token has not completed an online identity lookup before, breakfast warns that the filter could not be applied and displays all locally cached PRs.
+`--mine-only` and `--needs-my-review` use the cached login (see below) during fallback. If no login has been cached yet, breakfast warns that the filter is skipped and displays all locally cached PRs.
 
 If you know you are offline or have weak connectivity, you can force breakfast to use the local cache immediately without making any network requests by passing `--offline`.
+
+### `--mine-only` and `--needs-my-review` in offline mode
+
+breakfast caches your GitHub login in `user.json` inside the cache directory after the first successful online run. In offline mode (either `--offline` or automatic fallback), it reads this cached login so `--mine-only` and `--needs-my-review` work correctly.
+
+If you see the warning:
+
+```text
+⚠️  Offline mode: no cached login found — --mine-only / --needs-my-review skipped.
+```
+
+Run breakfast once without `--offline` while connected, then the cached login will be available for future offline runs.
 
 If errors persist and no cached data exists:
 
 - Check [GitHub Status](https://www.githubstatus.com/) for ongoing incidents
 - Verify your token hasn't been revoked
 - Check your [API rate limit](https://docs.github.com/en/rest/rate-limit): `curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/rate_limit`
+
+## GitHub GraphQL resource limits
+
+GitHub may reject a query that asks it to process too many repositories and
+pull requests at once. breakfast automatically uses bounded repository pages
+and retries the same page with progressively fewer repositories when GitHub
+reports `RESOURCE_LIMITS_EXCEEDED`.
+
+If even a single-repository page cannot be served, breakfast exits cleanly
+without a Python traceback and prints:
+
+```text
+🥞 GitHub couldn't return the PR list because the GraphQL query exceeded resource limits. Try again or narrow the requested repositories.
+```
+
+Retry the command later or use owner-scoped repository filters to reduce the
+query, for example:
+
+```bash
+breakfast -o my-org:api -o my-org:web
+```
+
+The error is written to stderr, so redirected JSON, CSV, Markdown, and template
+output on stdout is not contaminated by diagnostics.
 
 ## Slow performance
 

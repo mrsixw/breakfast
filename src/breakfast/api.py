@@ -18,6 +18,65 @@ GITHUB_API_URL = "https://api.github.com"
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 SECRET_GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", None)
 
+_MAX_GRAPHQL_ERROR_TYPES = 3
+_MAX_GRAPHQL_ERROR_MESSAGE_LENGTH = 120
+_MAX_STORED_GRAPHQL_ERRORS = 10
+
+
+def _summarize_graphql_errors(errors):
+    """Return a bounded summary of GraphQL errors grouped by type.
+
+    Args:
+        errors: GraphQL error objects returned by GitHub.
+
+    Returns:
+        str: Error counts and one representative message per error type.
+    """
+    counts = {}
+    first_messages = {}
+    for error in errors:
+        if isinstance(error, dict):
+            error_type = str(error.get("type") or "UNKNOWN")
+            message = str(error.get("message") or "No message provided")
+        else:
+            error_type = "UNKNOWN"
+            message = str(error)
+        counts[error_type] = counts.get(error_type, 0) + 1
+        first_messages.setdefault(error_type, " ".join(message.split()))
+
+    summaries = []
+    error_types = sorted(counts, key=lambda item: (-counts[item], item))
+    for error_type in error_types[:_MAX_GRAPHQL_ERROR_TYPES]:
+        message = first_messages[error_type]
+        if len(message) > _MAX_GRAPHQL_ERROR_MESSAGE_LENGTH:
+            message = f"{message[: _MAX_GRAPHQL_ERROR_MESSAGE_LENGTH - 3]}..."
+        summaries.append(f"{error_type}={counts[error_type]}: {message}")
+
+    omitted_types = len(counts) - len(summaries)
+    if omitted_types > 0:
+        summaries.append(f"{omitted_types} additional error type(s)")
+    return "; ".join(summaries) or "no error details"
+
+
+class GitHubGraphQLError(ValueError):
+    """Raised when GitHub returns fatal GraphQL errors.
+
+    Attributes:
+        error_count: Total number of errors in the response.
+        errors: Bounded tuple of representative original error objects.
+        summary: Bounded error summary grouped by type.
+    """
+
+    def __init__(self, errors):
+        self.error_count = len(errors)
+        self.errors = tuple(errors[:_MAX_STORED_GRAPHQL_ERRORS])
+        self.summary = _summarize_graphql_errors(errors)
+        super().__init__(f"GraphQL request failed: {self.summary}")
+
+
+class GitHubGraphQLResourceLimitError(GitHubGraphQLError):
+    """Raised when any GitHub GraphQL error reports exhausted resources."""
+
 
 class GitHubRateLimitError(Exception):
     """Raised when a GitHub API rate limit is exhausted.
@@ -66,6 +125,7 @@ class OwnerNotFoundError(Exception):
 _MAX_RETRIES = 3
 _RETRY_STATUSES = {502, 503, 504}
 _REQUEST_TIMEOUT = (5, 30)
+_GRAPHQL_REPOSITORY_PAGE_SIZE = 25
 
 _api_stats_lock = threading.Lock()
 _API_STATS_DEFAULTS = {
@@ -412,13 +472,24 @@ def make_github_graphql_request(query, variables=None):
                 )
                 raise rate_limit_error
             if "errors" in resp_json:
+                errors = resp_json["errors"]
+                summary = _summarize_graphql_errors(errors)
                 logger.warning(
-                    "api_call type=graphql status=%d elapsed_ms=%d errors=%r",
+                    "api_call type=graphql status=%d elapsed_ms=%d"
+                    " error_count=%d errors=%s",
                     response.status_code,
                     elapsed_ms,
-                    resp_json["errors"],
+                    len(errors),
+                    summary,
                 )
-                raise ValueError(f"GraphQL request failed: {resp_json['errors']}")
+                error_types = {
+                    error.get("type") if isinstance(error, dict) else None
+                    for error in errors
+                }
+                error_class = GitHubGraphQLError
+                if error_types == {"RESOURCE_LIMITS_EXCEEDED"}:
+                    error_class = GitHubGraphQLResourceLimitError
+                raise error_class(errors)
             logger.debug(
                 "api_call type=graphql status=%d elapsed_ms=%d",
                 response.status_code,
@@ -482,13 +553,67 @@ _FETCH_STATE_MAP = {
 }
 
 
+def _request_github_repository_page(query, owner, cursor, page_size):
+    """Request one repository page, reducing its size on resource failures.
+
+    Args:
+        query: GraphQL repository and pull-request query.
+        owner: GitHub organization or user login.
+        cursor: Repository pagination cursor, or ``None`` for the first page.
+        page_size: Number of repositories to request in the first attempt.
+
+    Returns:
+        tuple: Successful GraphQL response and the page size that succeeded.
+
+    Raises:
+        GitHubGraphQLError: If GitHub returns any non-resource GraphQL error.
+        GitHubGraphQLResourceLimitError: If a single-repository page still
+            exceeds GitHub's resource limits.
+        requests.exceptions.RequestException: If the request fails after its
+            configured network retries.
+    """
+    current_page_size = page_size
+    while True:
+        variables = {
+            "owner": owner,
+            "cursor": cursor,
+            "repositoryPageSize": current_page_size,
+        }
+        try:
+            return make_github_graphql_request(query, variables), current_page_size
+        except GitHubGraphQLResourceLimitError as exc:
+            if current_page_size == 1:
+                raise
+            next_page_size = max(1, current_page_size // 2)
+            logger.warning(
+                "graphql_resource_limit owner=%s cursor=%r error_count=%d"
+                " repository_page_size=%d retry_page_size=%d",
+                owner,
+                cursor,
+                exc.error_count,
+                current_page_size,
+                next_page_size,
+            )
+            current_page_size = next_page_size
+
+
 def get_github_prs(owner, repo_filters, fetch_state="open"):
+    """Return pull-request URLs for an owner using bounded repository pages.
+
+    Args:
+        owner: GitHub organization or user login.
+        repo_filters: Repository name filters, or an empty value for all repos.
+        fetch_state: Pull-request state selector.
+
+    Returns:
+        list[str]: Matching pull-request URLs.
+    """
     states_list = _FETCH_STATE_MAP.get(fetch_state.lower(), ["OPEN"])
     states_gql = ", ".join(states_list)
     base_query = f"""
-    query($owner: String!, $cursor: String){{
+    query($owner: String!, $cursor: String, $repositoryPageSize: Int!){{
       repositoryOwner(login: $owner){{
-        repositories(after: $cursor, first:100){{
+        repositories(after: $cursor, first: $repositoryPageSize){{
           nodes{{
             name
             pullRequests(first:100,states: [{states_gql}]){{
@@ -505,20 +630,22 @@ def get_github_prs(owner, repo_filters, fetch_state="open"):
       }}
     }}
         """
-    variables = {"owner": owner}
-
+    cursor = None
+    page_size = _GRAPHQL_REPOSITORY_PAGE_SIZE
     gql_responses = []
 
     click.echo(f"Fetching {owner} PRs...", nl=False, err=True)
     while True:
-        response = make_github_graphql_request(base_query, variables)
+        response, page_size = _request_github_repository_page(
+            base_query, owner, cursor, page_size
+        )
         if response["data"]["repositoryOwner"] is None:
             raise OwnerNotFoundError(owner)
         gql_responses.append(response)
         page_info = response["data"]["repositoryOwner"]["repositories"]["pageInfo"]
         if not page_info["hasNextPage"]:
             break
-        variables["cursor"] = page_info["endCursor"]
+        cursor = page_info["endCursor"]
         click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
     click.echo("...Done", err=True)
 

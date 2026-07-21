@@ -218,7 +218,7 @@ If GitHub exhausts a REST or GraphQL rate limit, a cache-enabled run automatical
 ## How it works
 
 1. **Check cache** - Looks for a recent full on-disk cache for the `(owner, repo-filter)` pair before making avoidable GitHub requests
-2. **Resolve identity** - Uses the token-specific cached login for identity-dependent filters, or fetches and caches it when needed
+2. **Resolve identity** - Uses the cached login for identity-dependent filters, or fetches and caches it when needed
 3. **Fetch repositories** - Uses the GitHub GraphQL API to paginate through all repositories for the owner (organization or personal account)
 4. **Filter repos** - Keeps only repos matching the active repository filters
 5. **Fetch PR details** - Uses the GitHub REST API to fetch full details for each open PR (parallelized for speed); writes complete results to disk cache

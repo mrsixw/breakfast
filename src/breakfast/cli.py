@@ -12,6 +12,8 @@ import requests
 
 from .api import (
     SECRET_GITHUB_TOKEN,
+    GitHubGraphQLError,
+    GitHubGraphQLResourceLimitError,
     GitHubRateLimitError,
     OwnerNotFoundError,
     _fetch_pr_detail,
@@ -1358,12 +1360,11 @@ def breakfast(
     current_user_login = None
     if mine_only or needs_my_review:
         if cache_enabled:
-            current_user_login = read_cached_user_login(SECRET_GITHUB_TOKEN)
+            current_user_login = read_cached_user_login()
         if current_user_login is None and not offline:
             try:
                 current_user_login = get_authenticated_user_login()
-                if cache_enabled:
-                    write_cached_user_login(SECRET_GITHUB_TOKEN, current_user_login)
+                write_cached_user_login(current_user_login)
             except GitHubRateLimitError as exc:
                 fallback_result = cache_result or _read_degraded_cache(
                     org_cache_key,
@@ -1648,6 +1649,31 @@ def breakfast(
                 refresh_requested=refresh or refresh_prs,
                 colour=colour,
             )
+        except GitHubGraphQLResourceLimitError as exc:
+            logger.warning(
+                "graphql_resource_limit_unrecoverable error_count=%d errors=%s",
+                exc.error_count,
+                exc.summary,
+            )
+            # End the active fetch progress line before showing the error.
+            click.echo("", err=True)
+            msg = (
+                "🥞 GitHub couldn't return the PR list because the GraphQL query "
+                "exceeded resource limits. Try again or narrow the requested "
+                "repositories."
+            )
+            click.echo(click.style(msg, fg="red", bold=True), err=True, color=colour)
+            sys.exit(1)
+        except GitHubGraphQLError as exc:
+            logger.warning(
+                "graphql_request_failed error_count=%d errors=%s",
+                exc.error_count,
+                exc.summary,
+            )
+            click.echo("", err=True)
+            msg = f"🥞 GitHub couldn't complete the GraphQL request: {exc.summary}"
+            click.echo(click.style(msg, fg="red", bold=True), err=True, color=colour)
+            sys.exit(1)
         except (
             requests.exceptions.ConnectionError,
             requests.exceptions.Timeout,
@@ -1890,18 +1916,11 @@ def breakfast(
             click.echo("🔄 Cache refreshed.", err=True)
 
     if (mine_only or needs_my_review) and offline_mode and current_user_login is None:
-        identity_filters = " and ".join(
-            flag
-            for enabled, flag in (
-                (mine_only, "--mine-only"),
-                (needs_my_review, "--needs-my-review"),
-            )
-            if enabled
-        )
         click.echo(
             click.style(
-                f"⚠️  {identity_filters} could not be applied because the current "
-                "user login is not cached; displaying all locally cached PRs.",
+                "⚠️  Offline mode: no cached login found — "
+                "--mine-only / --needs-my-review skipped. "
+                "Run online once to cache your login.",
                 fg="yellow",
             ),
             err=True,

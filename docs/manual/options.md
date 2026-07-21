@@ -149,12 +149,16 @@ Config key: `fetch-state = "open"`
 
 Only show PRs with a specific state. Accepted values: `open`, `closed`, `draft`. Repeat the flag to match multiple states.
 
-`draft` matches PRs where `draft=true`. It can be combined with other states:
+`open` matches PRs that are open and ready for review, excluding drafts. `closed`
+matches all closed PRs, including PRs closed while still drafts. `draft` matches
+PRs where `draft=true`. Values use OR logic, so combine `open` and `draft` when
+you want all open work:
 
 ```bash
-breakfast -o my-org -r my-app --filter-state open                        # open PRs only (includes drafts)
-breakfast -o my-org -r my-app --filter-state draft                       # only draft PRs
-breakfast -o my-org -r my-app --filter-state closed --filter-state draft # closed or draft
+breakfast -o my-org -r my-app --filter-state open                       # ready, open PRs only
+breakfast -o my-org -r my-app --filter-state draft                      # only draft PRs
+breakfast -o my-org -r my-app --filter-state open --filter-state draft  # ready and draft PRs
+breakfast -o my-org -r my-app --filter-state closed                     # all closed PRs
 ```
 
 ### `--filter-check`
@@ -951,8 +955,7 @@ When offline mode is active (either forced via `--offline` or via automatic fall
 - It reads from the cache regardless of the TTL expiration.
 - It bypasses all update checks, check status fetches, and approval fetches.
 - It does not write any refreshed data back to the cache, preventing corrupted timestamps.
-- Successful online identity lookups are cached by a SHA-256-derived, token-specific key; the token itself is never written to disk.
-- `--mine-only` and `--needs-my-review` use that cached login. If no login has been cached for the active token, a warning is printed to `stderr` stating that the identity-dependent filter was not applied and all cached PRs are shown.
+- If `--mine-only` or `--needs-my-review` is used, breakfast reads your GitHub login from a small `user.json` file in the cache directory (written automatically on the first successful online run). If no cached login exists yet, a warning is printed to `stderr` and the filter is skipped — run once online to prime the cache.
 
 If `--offline` is enabled but no cached data is found on disk, the application exits with an error.
 

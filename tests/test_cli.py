@@ -4748,3 +4748,15 @@ def test_cli_auto_appends_optional_columns_missing_from_custom_columns_config(
     result_with = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--age"])
     assert result_with.exit_code == 0
     assert "Age" in result_with.stdout
+
+
+# ---------------------------------------------------------------------------
+# --help credit (#365)
+# ---------------------------------------------------------------------------
+
+
+def test_help_shows_credit_line():
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--help"])
+    assert result.exit_code == 0
+    assert "Made with ❤️ in the UK" in result.stdout

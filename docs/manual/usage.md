@@ -199,25 +199,29 @@ breakfast -o my-org -r platform --legendary-only
 
 ### Speed up repeated runs with caching
 
-PR results are cached to disk for 5 minutes by default. The second run is near-instant:
+PR results can be cached to disk. The second cache-enabled run is near-instant:
 
 ```bash
-breakfast -o my-org -r platform          # fetches from API, writes cache
-breakfast -o my-org -r platform          # served from cache (~instant)
+breakfast -o my-org -r platform --cache      # fetches from API, writes cache
+breakfast -o my-org -r platform --cache      # served from cache (~instant)
 breakfast -o my-org -r platform --no-cache   # always fetches fresh
 ```
 
 Adjust the TTL with `--cache-ttl`:
 
 ```bash
-breakfast -o my-org -r platform --cache-ttl 10m   # cache for 10 minutes
+breakfast -o my-org -r platform --cache --cache-ttl 10m
 ```
+
+If GitHub exhausts a REST or GraphQL rate limit, a cache-enabled run automatically displays the latest coherent full cache, even if its TTL has expired. The warning on `stderr` names the exhausted resource, cache age, and reset time. `--api-stats` also marks the resource as exhausted and identifies the local cache as the data source without making another API request.
 
 ## How it works
 
-1. **Check cache** - Looks for a recent on-disk cache for the `(owner, repo-filter)` pair; if found and within the TTL, skips steps 2–3 entirely
-2. **Fetch repositories** - Uses the GitHub GraphQL API to paginate through all repositories for the owner (organization or personal account)
-3. **Filter repos** - Keeps only repos whose name contains the `--repo-filter` substring
-4. **Fetch PR details** - Uses the GitHub REST API to fetch full details for each open PR (parallelized for speed); writes results to disk cache
-5. **Filter PRs** - Applies author filters (`--ignore-author`, `--mine-only`), title search (`--search`), and other filters
-6. **Display** - Renders results as a terminal table or JSON
+1. **Check cache** - Looks for a recent full on-disk cache for the `(owner, repo-filter)` pair before making avoidable GitHub requests
+2. **Resolve identity** - Uses the cached login for identity-dependent filters, or fetches and caches it when needed
+3. **Fetch repositories** - Uses the GitHub GraphQL API to paginate through all repositories for the owner (organization or personal account)
+4. **Filter repos** - Keeps only repos matching the active repository filters
+5. **Fetch PR details** - Uses the GitHub REST API to fetch full details for each open PR (parallelized for speed); writes complete results to disk cache
+6. **Fall back safely** - If a rate limit or connection failure interrupts acquisition, discards partial results and reads the latest coherent full cache
+7. **Filter PRs** - Applies author filters (`--ignore-author`, `--mine-only`), title search (`--search`), and other filters
+8. **Display** - Renders results as a terminal table or JSON

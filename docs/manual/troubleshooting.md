@@ -17,13 +17,25 @@ The token needs `repo` scope to access pull request data. Generate one at [githu
 - If using `--mine-only`, ensure the token belongs to the user whose PRs you want to see
 - If using `--ignore-author`, check you haven't accidentally filtered out the authors you want
 
-## API errors (502, 503, 504), timeouts, and network loss
+## API errors, rate limits, timeouts, and network loss
 
 breakfast automatically retries REST and GraphQL API requests on transient server errors and network timeouts with exponential backoff (up to 3 retries).
 
 To prevent the CLI from hanging indefinitely on stalled or flaky connections (e.g. captive portals or misconfigured VPNs), an explicit timeout is set on all API requests: a connection timeout of 5 seconds and a read timeout of 30 seconds.
 
-If you lose internet connectivity, a request times out, or GitHub is experiencing outages, breakfast will automatically fall back to the most recent cached results on disk, even if expired, and print an offline mode banner.
+If you lose internet connectivity, a request times out, GitHub is experiencing outages, or a REST/GraphQL rate limit is exhausted, a cache-enabled run automatically falls back to the most recent full cached results on disk, even if expired. Partial live results are discarded and never overwrite that coherent snapshot.
+
+Rate-limit fallback prints a `stderr` message such as:
+
+```text
+🥞 GitHub REST API rate limit exceeded; displaying local cached data from 12 minutes ago. Live GitHub data should be available after 2026-07-13 11:19:37 UTC.
+```
+
+The run exits successfully when cached output is available. If no matching full cache exists, it exits non-zero with empty `stdout` and states that no local cached data is available. Explicit `--refresh` and `--refresh-prs` requests also fall back, but their warning clearly says the requested refresh could not be completed and the old cache is not rewritten.
+
+With `--api-stats`, exhausted limits are shown as `exhausted (0 requests remaining)` or `exhausted (0 points remaining)`, alongside the captured reset time and `Data source: local cache (...)`. The debug summary does not make another GitHub request.
+
+`--mine-only` and `--needs-my-review` use the cached login (see below) during fallback. If no login has been cached yet, breakfast warns that the filter is skipped and displays all locally cached PRs.
 
 If you know you are offline or have weak connectivity, you can force breakfast to use the local cache immediately without making any network requests by passing `--offline`.
 

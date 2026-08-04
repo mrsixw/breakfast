@@ -6,7 +6,7 @@ Thanks for your interest in contributing to **breakfast**! This guide covers set
 
 - Python >= 3.11
 - [uv](https://docs.astral.sh/uv/) package manager (not pip). If you do not already have it, install it with `python -m pip install --user uv`.
-- A `GITHUB_TOKEN` environment variable for running the tool
+- A `GH_TOKEN` environment variable for running the tool (falls back to `GITHUB_TOKEN` if `GH_TOKEN` is not set)
 
 ## Getting Started
 

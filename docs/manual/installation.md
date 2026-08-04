@@ -67,11 +67,13 @@ make uninstall PREFIX=$HOME/.local
 
 ## Set up your GitHub token
 
-breakfast requires a `GITHUB_TOKEN` environment variable:
+breakfast requires a GitHub token, read from `GH_TOKEN` (preferred, matching the [`gh` CLI](https://cli.github.com/) convention) or `GITHUB_TOKEN` as a fallback:
 
 ```bash
-export GITHUB_TOKEN="ghp_your_token_here"
+export GH_TOKEN="ghp_your_token_here"
 ```
+
+If `GH_TOKEN` is already set in your environment (e.g. by CI or tooling built around the `gh` CLI), breakfast will use it automatically — no need to set `GITHUB_TOKEN` too.
 
 Add this to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.) to make it persistent.
 

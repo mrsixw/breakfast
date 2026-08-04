@@ -15,7 +15,14 @@ from .ui import BREAKFAST_ITEMS
 
 GITHUB_API_URL = "https://api.github.com"
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
-SECRET_GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", None)
+
+
+def _resolve_github_token():
+    """Resolve the GitHub auth token, preferring GH_TOKEN (gh CLI convention)."""
+    return os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN")
+
+
+SECRET_GITHUB_TOKEN = _resolve_github_token()
 
 _MAX_GRAPHQL_ERROR_TYPES = 3
 _MAX_GRAPHQL_ERROR_MESSAGE_LENGTH = 120

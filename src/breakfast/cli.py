@@ -1170,7 +1170,7 @@ def breakfast(
         sys.exit(1)
 
     if SECRET_GITHUB_TOKEN is None:
-        message = "GITHUB_TOKEN not set in environment - exiting..."
+        message = "GH_TOKEN or GITHUB_TOKEN not set in environment - exiting..."
         click.echo(click.style(message, fg="red", bold=True), err=True, color=colour)
         sys.exit(1)
     current_user_login = None

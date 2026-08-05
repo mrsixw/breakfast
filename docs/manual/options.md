@@ -263,7 +263,7 @@ Error: --search pattern is not valid regex: unterminated character set at positi
 
 ### `--mine-only`
 
-Show only PRs authored by the currently authenticated GitHub user (determined from `GITHUB_TOKEN`).
+Show only PRs authored by the currently authenticated GitHub user (determined from `GH_TOKEN`, or `GITHUB_TOKEN` as a fallback).
 
 ```text
 $ breakfast -o my-org -r platform --mine-only
@@ -278,7 +278,7 @@ Processing platform PRs...🍳...Done
 
 ### `--needs-my-review`
 
-Show only PRs where the authenticated GitHub user (determined from `GITHUB_TOKEN`) is a requested reviewer. Ideal for the morning triage: skip everything that isn't waiting on you.
+Show only PRs where the authenticated GitHub user (determined from `GH_TOKEN`, or `GITHUB_TOKEN` as a fallback) is a requested reviewer. Ideal for the morning triage: skip everything that isn't waiting on you.
 
 ```bash
 breakfast -o my-org --needs-my-review

@@ -1438,3 +1438,31 @@ def test_make_github_api_request_retries_on_timeout_and_propagates(monkeypatch):
 
     # 1 initial attempt + 3 retries = 4 attempts total
     assert len(attempts) == 4
+
+
+def test_resolve_github_token_uses_gh_token_when_only_it_is_set(monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setenv("GH_TOKEN", "gh-cli-token-value")
+
+    assert api._resolve_github_token() == "gh-cli-token-value"
+
+
+def test_resolve_github_token_falls_back_to_github_token(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-token-value")
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+
+    assert api._resolve_github_token() == "gh-token-value"
+
+
+def test_resolve_github_token_prefers_gh_token_over_github_token(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-token-value")
+    monkeypatch.setenv("GH_TOKEN", "gh-cli-token-value")
+
+    assert api._resolve_github_token() == "gh-cli-token-value"
+
+
+def test_resolve_github_token_none_when_neither_set(monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+
+    assert api._resolve_github_token() is None

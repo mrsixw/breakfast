@@ -61,7 +61,7 @@ def test_cli_exits_when_token_missing(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
 
     assert result.exit_code == 1
-    assert "GITHUB_TOKEN not set" in result.stderr
+    assert "GH_TOKEN or GITHUB_TOKEN not set" in result.stderr
 
 
 def test_cli_outputs_table(monkeypatch):

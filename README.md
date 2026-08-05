@@ -17,9 +17,11 @@ curl -sSL https://raw.githubusercontent.com/mrsixw/breakfast/main/install.sh | b
 ## Quick start
 
 ```bash
-export GITHUB_TOKEN="ghp_your_token_here"
+export GH_TOKEN="ghp_your_token_here"
 breakfast -o my-org -r my-app
 ```
+
+breakfast reads `GH_TOKEN` first (matching the `gh` CLI convention), falling back to `GITHUB_TOKEN` if `GH_TOKEN` isn't set.
 
 ## Usage
 

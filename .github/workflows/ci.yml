@@ -173,6 +173,8 @@ jobs:
           version: "latest"
 
       - name: Install git-mkver
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: utils/install_git_mkver.sh
 
       - name: Fetch tags

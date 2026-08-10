@@ -1,9 +1,12 @@
+import os
 import random
 import re
+import shutil
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from enum import StrEnum, auto
 from urllib.parse import urlparse
 
 import click
@@ -58,7 +61,39 @@ from .ui import (
     render_colour_diagnostics,
     render_pr_summary,
 )
-from .updater import check_for_update
+from .updater import UpdateStatus, check_for_update, perform_update
+
+
+class Shell(StrEnum):
+    """A shell that ``completions`` can emit a completion script for.
+
+    ``StrEnum`` + ``auto()`` yields the lowercase member name as the value, so
+    members pass straight into Click's completion machinery and into f-strings
+    without a trail of ``.value``.
+    """
+
+    BASH = auto()
+    ZSH = auto()
+    FISH = auto()
+
+
+# Click matches enum choices on member *names*, so click.Choice(Shell) would
+# demand "BASH" rather than "bash" — pass the values explicitly instead.
+_SHELL_CHOICES = [shell.value for shell in Shell]
+
+
+def _emit_completion_script(shell):
+    """Print the Click-generated completion script for *shell* to stdout."""
+    from click.shell_completion import get_completion_class
+
+    comp_cls = get_completion_class(Shell(shell))
+    comp = comp_cls(
+        cli=breakfast,
+        ctx_args={},
+        prog_name="breakfast",
+        complete_var="_BREAKFAST_COMPLETE",
+    )
+    click.echo(comp.source(), nl=False)
 
 
 def format_cache_age(age_seconds: float) -> str:
@@ -334,15 +369,17 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     return pr_detail, check_status, approval_detail
 
 
-@click.command(epilog="Made with ❤️ in the UK")
+@click.group(invoke_without_command=True, epilog="Made with ❤️ in the UK")
+@click.pass_context
 @click.option(
     "--completion",
     "completion_shell",
-    type=click.Choice(["bash", "zsh", "fish"]),
+    type=click.Choice(_SHELL_CHOICES),
     default=None,
     is_eager=True,
     expose_value=True,
-    help="Print shell completion script for SHELL and exit. Eval in your shell config.",
+    hidden=True,
+    help="Deprecated: use 'breakfast completions SHELL' instead.",
 )
 @click.option("--config", help="Path to config file.")
 @click.option("--show-config", is_flag=True, help="Print the resolved config and exit.")
@@ -761,6 +798,7 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
 )
 @click.version_option(package_name="breakfast")
 def breakfast(
+    ctx,
     completion_shell,
     config,
     show_config,
@@ -822,17 +860,25 @@ def breakfast(
     t0_total = time.monotonic()
     configure_logging()
 
-    if completion_shell:
-        from click.shell_completion import get_completion_class
+    # This callback body *is* the program — without this guard, `breakfast
+    # completions bash` would go and fetch pull requests from GitHub before
+    # dispatching. Subcommands must also stay usable with no config file and no
+    # GITHUB_TOKEN, so return before any of the validation below.
+    if ctx.invoked_subcommand is not None:
+        return
 
-        comp_cls = get_completion_class(completion_shell)
-        comp = comp_cls(
-            cli=breakfast,
-            ctx_args={},
-            prog_name="breakfast",
-            complete_var="_BREAKFAST_COMPLETE",
+    if completion_shell:
+        click.echo(
+            click.style(
+                "⚠️  --completion is deprecated; use 'breakfast completions "
+                f"{completion_shell}' instead.",
+                fg="yellow",
+            ),
+            # stderr, always: this command's stdout gets eval'd by the user's
+            # shell, so a notice on stdout becomes a shell startup syntax error.
+            err=True,
         )
-        click.echo(comp.source(), nl=False)
+        _emit_completion_script(completion_shell)
         sys.exit(0)
 
     if colour_diagnostics:
@@ -1805,6 +1851,70 @@ def breakfast(
         show_update_summary=show_update_summary,
         api_stats=api_stats,
         colour=colour,
+    )
+
+
+# ── Shell completions ───────────────────────────────────────────────────────
+
+
+@breakfast.command()
+@click.argument("shell", type=click.Choice(_SHELL_CHOICES))
+def completions(shell):
+    """Print the shell completion script for SHELL.
+
+    Eval it in your shell config, e.g. ``eval "$(breakfast completions bash)"``.
+    """
+    _emit_completion_script(shell)
+
+
+# ── Self-update ─────────────────────────────────────────────────────────────
+
+
+def _current_executable_path():
+    """Resolve the absolute path of the running breakfast executable.
+
+    ``sys.argv[0]`` can be relative (``./breakfast``), and perform_update()
+    derives its temp file from this path — left relative, the replacement would
+    land next to the working directory rather than the real install location.
+    ``abspath`` rather than ``resolve`` so a symlinked install has its link
+    replaced, not the file it points at.
+    """
+    return os.path.abspath(shutil.which("breakfast") or sys.argv[0])
+
+
+@breakfast.command()
+def update():
+    """Fetch the latest breakfast release and serve it over this executable."""
+    click.echo(
+        click.style("🍳 Checking the kitchen for a fresher batch...", fg="cyan"),
+        err=True,
+    )
+    status, current, detail = perform_update(_current_executable_path())
+
+    if status is UpdateStatus.UNKNOWN:
+        raise click.ClickException("Could not reach GitHub to check for a new release.")
+    if status is UpdateStatus.ERROR:
+        raise click.ClickException(f"Update failed: {detail}")
+    if status is UpdateStatus.UP_TO_DATE:
+        click.echo(
+            click.style(
+                f"🥞 Already serving the freshest batch, v{current}.", fg="green"
+            ),
+            err=True,
+        )
+        return
+
+    click.echo(
+        click.style(f"🥞 A fresh batch is served — v{detail}.", fg="green"), err=True
+    )
+    # The completion scripts re-invoke the binary, so they track it for free.
+    # The man page is a static file and may sit somewhere needing privileges,
+    # so point at the installer rather than trying to rewrite it here.
+    click.echo(
+        click.style(
+            "   Re-run install.sh if you also want a refreshed man page.", fg="cyan"
+        ),
+        err=True,
     )
 
 

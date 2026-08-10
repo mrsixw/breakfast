@@ -1109,17 +1109,44 @@ Can also be enabled persistently via config:
 api-stats = true
 ```
 
-### `--completion SHELL`
+## Commands
+
+Alongside the options above, breakfast has two subcommands. Both run before any
+GitHub token or `--owner` validation, so they work with no configuration at all.
+
+### `completions SHELL`
 
 Print the tab-completion script for `SHELL` to stdout and exit. `SHELL` must be one of `bash`, `zsh`, or `fish`.
 
 ```bash
-breakfast --completion zsh   # print zsh completion script
-breakfast --completion bash  # print bash completion script
-breakfast --completion fish  # print fish completion script
+breakfast completions zsh   # print zsh completion script
+breakfast completions bash  # print bash completion script
+breakfast completions fish  # print fish completion script
 ```
 
-This flag short-circuits before any GitHub token or `--owner` validation, so it works without any configuration. See [Installation → Shell completions](installation.md#shell-completions) for setup instructions.
+See [Installation → Shell completions](installation.md#shell-completions) for setup instructions.
+
+The older `--completion SHELL` flag is deprecated and hidden from `--help`. It
+still prints the same script to stdout, with a deprecation notice on stderr, and
+will be removed in a future release.
+
+### `update`
+
+Download the latest release and replace the running executable with it.
+
+```bash
+breakfast update
+```
+
+The replacement is atomic, so an interrupted download leaves the working binary
+in place. Nothing is written unless a newer release actually exists.
+
+The man page is not refreshed — re-run `install.sh` for that. Completion scripts
+need no refresh: they call back into the binary, so they follow it automatically.
+
+Not to be confused with `--update-config`, which merges new keys into your config
+file, or `--no-update-check`, which silences the passive "a new version exists"
+notice.
 
 ## Summary views
 

@@ -1870,16 +1870,22 @@ def completions(shell):
 # ── Self-update ─────────────────────────────────────────────────────────────
 
 
-def _current_executable_path():
+def _current_executable_path() -> str:
     """Resolve the absolute path of the running breakfast executable.
 
-    ``sys.argv[0]`` can be relative (``./breakfast``), and perform_update()
-    derives its temp file from this path — left relative, the replacement would
-    land next to the working directory rather than the real install location.
+    ``sys.argv[0]`` is what the user actually invoked, so prefer it whenever it
+    names a real file: ``./breakfast update`` must update *that* copy, not a
+    different one that happens to sit earlier on PATH. Fall back to a PATH
+    lookup for the usual case, where argv[0] is the bare console-script name.
+
     ``abspath`` rather than ``resolve`` so a symlinked install has its link
-    replaced, not the file it points at.
+    replaced and not the file it points at, and so a relative argv[0] cannot
+    send ``os.replace()`` to the current working directory.
     """
-    return os.path.abspath(shutil.which("breakfast") or sys.argv[0])
+    invoked = sys.argv[0]
+    if os.sep in invoked and os.path.isfile(invoked):
+        return os.path.abspath(invoked)
+    return os.path.abspath(shutil.which("breakfast") or invoked)
 
 
 @breakfast.command()

@@ -202,6 +202,17 @@ def perform_update(executable_path) -> tuple[UpdateStatus, str, str | None]:
       - ERROR: the download or install failed; detail carries the error message.
     """
     current = pkg_version(_PACKAGE_NAME)
+    executable_path = Path(executable_path)
+    if executable_path.suffix == ".py":
+        # Invoked from a source checkout (python -m <pkg>.cli), not an installed
+        # release. Writing a downloaded binary here would destroy the source.
+        return (
+            UpdateStatus.ERROR,
+            current,
+            f"{executable_path} is a source file, not an installed binary — "
+            "install a release before updating.",
+        )
+
     latest = get_latest_version()
     if not latest:
         return UpdateStatus.UNKNOWN, current, None
@@ -213,18 +224,21 @@ def perform_update(executable_path) -> tuple[UpdateStatus, str, str | None]:
     # Download to a sibling and os.replace() it into position: the rename is
     # atomic within a filesystem, so an interrupted download can never leave a
     # half-written binary where the working one used to be.
-    executable_path = Path(executable_path)
     tmp_path = executable_path.with_name(executable_path.name + ".new")
     try:
-        resp = requests.get(_RELEASE_ASSET_URL, timeout=30, stream=True)
-        resp.raise_for_status()
-        with open(tmp_path, "wb") as fh:
-            for chunk in resp.iter_content(chunk_size=65536):
-                fh.write(chunk)
+        with requests.get(_RELEASE_ASSET_URL, timeout=30, stream=True) as resp:
+            resp.raise_for_status()
+            with open(tmp_path, "wb") as fh:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    fh.write(chunk)
         tmp_path.chmod(0o755)
         os.replace(tmp_path, executable_path)
     except (OSError, requests.exceptions.RequestException) as exc:
         logger.debug("perform_update_failed error=%r", str(exc))
-        tmp_path.unlink(missing_ok=True)
         return UpdateStatus.ERROR, current, str(exc)
+    finally:
+        # Also covers KeyboardInterrupt mid-download, which the except above
+        # deliberately does not catch. A successful os.replace leaves nothing
+        # to remove, so this is a no-op on the happy path.
+        tmp_path.unlink(missing_ok=True)
     return UpdateStatus.UPDATED, current, latest

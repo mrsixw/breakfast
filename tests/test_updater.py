@@ -348,3 +348,39 @@ def test_perform_update_permission_denied_reports_detail(installed_exe, monkeypa
         assert installed_exe.read_bytes() == b"old binary"
     finally:
         installed_exe.parent.chmod(0o755)
+
+
+def test_perform_update_refuses_to_overwrite_a_source_file(tmp_path, monkeypatch):
+    """`python -m breakfast.cli update` must not write a binary over cli.py."""
+    _pin_versions(monkeypatch, current="1.0.0", latest="2.0.0")
+    source = tmp_path / "cli.py"
+    source.write_text("# the actual source\n")
+    status, _current, detail = updater.perform_update(source)
+    assert status is UpdateStatus.ERROR
+    assert "source file" in detail
+    assert source.read_text() == "# the actual source\n"
+
+
+def test_perform_update_cleans_up_after_a_keyboard_interrupt(
+    installed_exe, monkeypatch
+):
+    """Ctrl-C mid-download must not strand a temp file next to the binary."""
+    _pin_versions(monkeypatch, current="1.0.0", latest="2.0.0")
+
+    class _Interrupting:
+        def __iter__(self):
+            yield b"partial"
+            raise KeyboardInterrupt
+
+    with req_mock.Mocker() as m:
+        m.get(updater._RELEASE_ASSET_URL, content=b"ignored")
+        # The 3-arg form, not the dotted-string form: breakfast wraps
+        # monkeypatch.setattr in an autouse fixture that only accepts it.
+        monkeypatch.setattr(
+            requests.Response, "iter_content", lambda self, **_kw: _Interrupting()
+        )
+        with pytest.raises(KeyboardInterrupt):
+            updater.perform_update(installed_exe)
+
+    assert installed_exe.read_bytes() == b"old binary"
+    assert [f.name for f in installed_exe.parent.iterdir()] == ["breakfast"]

@@ -880,7 +880,7 @@ When `columns` is set in config, it controls the table layout for all runs. CLI 
 
 Number of parallel workers used to fetch PR details, check statuses, and approval statuses. Defaults to `64`. Lower values reduce API concurrency (useful if you're hitting rate limits); higher values may speed things up on very large organisations.
 
-Must be `1` or greater. A value of `0` or less is rejected up front with a clear error, whether it comes from the CLI flag or the `workers` config key.
+Must be a whole number of `1` or greater. Anything else — `0`, a negative, or a fractional value like `3.5` — is rejected up front with a clear error, whether it comes from the CLI flag or the `workers` config key.
 
 ```bash
 breakfast -o my-org -r my-app --workers 16

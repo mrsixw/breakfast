@@ -137,6 +137,8 @@ def _require_positive_int(value, key, colour):
     """
     if isinstance(value, bool):
         parsed = None  # TOML booleans coerce to 0/1; that is never intentional here.
+    elif isinstance(value, float) and not value.is_integer():
+        parsed = None  # Reject 3.5 rather than silently running with 3.
     else:
         try:
             parsed = int(value)

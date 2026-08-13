@@ -4979,3 +4979,34 @@ def test_config_workers_default_is_used_when_unset(monkeypatch):
 
     assert result.exit_code == 0
     assert "workers: 64" in result.stdout
+
+
+@pytest.mark.parametrize("bad_value", [3.5, -0.5, "3.5"])
+def test_config_workers_rejects_non_integral_values(monkeypatch, bad_value):
+    """workers = 3.5 must not be silently truncated to 3."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "load_config", lambda _: {"workers": bad_value})
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 1
+    assert "workers" in result.stderr
+    assert "Traceback" not in result.output
+
+
+def test_config_workers_accepts_an_integral_string(monkeypatch):
+    """A quoted whole number in TOML keeps working — no gratuitous breakage."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "load_config", lambda _: {"workers": "8"})
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--show-config"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "workers: 8" in result.stdout

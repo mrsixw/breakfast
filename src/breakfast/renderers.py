@@ -3,6 +3,7 @@ import io
 import json
 import re
 import shutil
+import string
 import sys
 import time
 
@@ -677,6 +678,81 @@ def render_csv(
     )
 
 
+def _template_fields(pr_detail):
+    """Build the substitution map exposed to --template for one PR."""
+    return {
+        "repo": pr_detail["base"]["repo"]["name"],
+        "title": pr_detail.get("title", ""),
+        "author": pr_detail.get("user", {}).get("login", ""),
+        "url": pr_detail.get("html_url", ""),
+        "state": pr_detail.get("state", ""),
+        "number": pr_detail.get("number", ""),
+        "created_at": pr_detail.get("created_at", ""),
+        "updated_at": pr_detail.get("updated_at", ""),
+        "additions": pr_detail.get("additions", 0),
+        "deletions": pr_detail.get("deletions", 0),
+        "changed_files": pr_detail.get("changed_files", 0),
+        "commits": pr_detail.get("commits", 0),
+        "review_comments": pr_detail.get("review_comments", 0),
+        "labels": "|".join(lb["name"] for lb in pr_detail.get("labels", [])),
+        "requested_reviewers": "|".join(
+            r["login"] for r in pr_detail.get("requested_reviewers", [])
+        ),
+    }
+
+
+# Representative values used to dry-run a template before any row is printed.
+# The *types* matter as much as the keys: "{title:d}" is only detectable as
+# invalid when title is a str, and "{additions:>5}" only when additions is int.
+_TEMPLATE_PROBE_FIELDS = {
+    "repo": "repo",
+    "title": "title",
+    "author": "author",
+    "url": "url",
+    "state": "open",
+    "number": 1,
+    "created_at": "2024-01-01T00:00:00Z",
+    "updated_at": "2024-01-01T00:00:00Z",
+    "additions": 0,
+    "deletions": 0,
+    "changed_files": 0,
+    "commits": 0,
+    "review_comments": 0,
+    "labels": "",
+    "requested_reviewers": "",
+}
+
+
+def _template_has_positional_fields(template_str):
+    """Report whether a template uses positional fields like {} or {0}.
+
+    format_map reports these as a bare "Format string contains positional
+    fields" ValueError, which does not tell the user what to do about it.
+    Detecting them here earns a message that names the fix.
+
+    Args:
+        template_str: The template to inspect.
+
+    Returns:
+        True if any replacement field is positional rather than named.
+    """
+    try:
+        parsed = list(string.Formatter().parse(template_str))
+    except ValueError:
+        return False  # Malformed braces; the probe below reports it properly.
+    return any(
+        name is not None and (name == "" or name.split(".")[0].split("[")[0].isdigit())
+        for _literal, name, _spec, _conv in parsed
+    )
+
+
+def _template_error_message(exc):
+    """Turn a str.format_map failure into a message aimed at the user."""
+    if isinstance(exc, KeyError):
+        return f"Error: unknown template field {exc}. See --help for available fields."
+    return f"Error: invalid template syntax: {exc}"
+
+
 def render_template(pr_details, template_str, colour):
     from .logger import logger
 
@@ -693,40 +769,44 @@ def render_template(pr_details, template_str, colour):
             color=colour,
         )
         sys.exit(1)
-    for pr_detail in pr_details:
-        fields = {
-            "repo": pr_detail["base"]["repo"]["name"],
-            "title": pr_detail.get("title", ""),
-            "author": pr_detail.get("user", {}).get("login", ""),
-            "url": pr_detail.get("html_url", ""),
-            "state": pr_detail.get("state", ""),
-            "number": pr_detail.get("number", ""),
-            "created_at": pr_detail.get("created_at", ""),
-            "updated_at": pr_detail.get("updated_at", ""),
-            "additions": pr_detail.get("additions", 0),
-            "deletions": pr_detail.get("deletions", 0),
-            "changed_files": pr_detail.get("changed_files", 0),
-            "commits": pr_detail.get("commits", 0),
-            "review_comments": pr_detail.get("review_comments", 0),
-            "labels": "|".join(lb["name"] for lb in pr_detail.get("labels", [])),
-            "requested_reviewers": "|".join(
-                r["login"] for r in pr_detail.get("requested_reviewers", [])
+
+    def fail(exc):
+        logger.error("invalid_template template=%r error=%s", template_str, exc)
+        click.echo(
+            click.style(_template_error_message(exc), fg="red", bold=True),
+            err=True,
+            color=colour,
+        )
+        sys.exit(1)
+
+    # Validate once, before printing anything. Formatting per row and failing
+    # part-way would leave a partial result set on stdout for whatever script
+    # is consuming it, followed by an error it cannot un-read.
+    if _template_has_positional_fields(template_str):
+        click.echo(
+            click.style(
+                "Error: invalid template: positional fields like {0} are not"
+                " supported. Use named fields, e.g. {title}."
+                " See --help for available fields.",
+                fg="red",
+                bold=True,
             ),
-        }
+            err=True,
+            color=colour,
+        )
+        sys.exit(1)
+    try:
+        template_str.format_map(_TEMPLATE_PROBE_FIELDS)
+    except (KeyError, ValueError, IndexError, TypeError) as exc:
+        fail(exc)
+
+    for pr_detail in pr_details:
         try:
-            click.echo(template_str.format_map(fields))
-        except KeyError as e:
-            click.echo(
-                click.style(
-                    f"Error: unknown template field {e}. "
-                    "See --help for available fields.",
-                    fg="red",
-                    bold=True,
-                ),
-                err=True,
-                color=colour,
-            )
-            sys.exit(1)
+            click.echo(template_str.format_map(_template_fields(pr_detail)))
+        except (KeyError, ValueError, IndexError, TypeError) as exc:
+            # The probe above catches malformed templates; this catches a row
+            # whose data defeats an otherwise valid one.
+            fail(exc)
     logger.info(
         "render_complete elapsed_ms=%d", int((time.monotonic() - t_render) * 1000)
     )

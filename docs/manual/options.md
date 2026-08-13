@@ -1013,6 +1013,8 @@ breakfast -o my-org -r my-app --no-update-check
 export BREAKFAST_NO_UPDATE_CHECK=1
 ```
 
+Like `NO_COLOR`, `BREAKFAST_NO_UPDATE_CHECK` is resolved by presence: any non-empty value disables the update check, and only unset or empty leaves it enabled.
+
 ## Colour control
 
 ### `--no-colour` / `--no-color`
@@ -1028,6 +1030,13 @@ The `NO_COLOR` environment variable is also honoured (see [no-color.org](https:/
 
 ```bash
 NO_COLOR=1 breakfast -o my-org -r my-app
+```
+
+Following the spec, `NO_COLOR` is resolved by **presence, not value**: any non-empty value disables colour, whatever it says. `NO_COLOR=0`, `NO_COLOR=false` and `NO_COLOR=nonsense` all disable colour just as `NO_COLOR=1` does — the variable's content is deliberately ignored. Only leaving it unset, or setting it to the empty string, keeps colour on:
+
+```bash
+NO_COLOR= breakfast -o my-org -r my-app     # empty: colour stays enabled
+unset NO_COLOR                              # unset: colour stays enabled
 ```
 
 Can also be set persistently in config:

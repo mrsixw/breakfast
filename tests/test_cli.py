@@ -5010,3 +5010,103 @@ def test_config_workers_accepts_an_integral_string(monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert "workers: 8" in result.stdout
+
+
+# --- NO_COLOR / BREAKFAST_NO_UPDATE_CHECK presence semantics (issue #386) ----
+
+
+def _colour_probe(monkeypatch):
+    """Stub out a minimal run and report the resolved colour setting."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "load_config", lambda _: {})
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+
+
+@pytest.mark.parametrize(
+    "value", ["nonsense", "1", "false", "0", "no", "off", "please"]
+)
+def test_no_color_any_non_empty_value_disables_colour(monkeypatch, value):
+    """no-color.org: any non-empty value disables colour, and never errors."""
+    _colour_probe(monkeypatch)
+    monkeypatch.setenv("NO_COLOR", value)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--show-config"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "no-colour: True" in result.stdout
+
+
+def test_no_color_empty_value_leaves_colour_enabled(monkeypatch):
+    """An empty NO_COLOR is explicitly *not* a request to disable colour."""
+    _colour_probe(monkeypatch)
+    monkeypatch.setenv("NO_COLOR", "")
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--show-config"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "no-colour: False" in result.stdout
+
+
+def test_no_color_unset_leaves_colour_enabled(monkeypatch):
+    _colour_probe(monkeypatch)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--show-config"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "no-colour: False" in result.stdout
+
+
+def test_no_colour_flag_still_disables_colour(monkeypatch):
+    """The explicit flag keeps working with no environment variable set."""
+    _colour_probe(monkeypatch)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--no-colour", "--show-config"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "no-colour: True" in result.stdout
+
+
+@pytest.mark.parametrize("value", ["anything", "1", "false", "off", "please"])
+def test_no_update_check_env_any_non_empty_value_disables_check(monkeypatch, value):
+    """BREAKFAST_NO_UPDATE_CHECK follows the same presence-based semantics."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "load_config", lambda _: {})
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+    monkeypatch.setenv("BREAKFAST_NO_UPDATE_CHECK", value)
+
+    checked = []
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: checked.append(1))
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0, result.output
+    assert checked == [], f"NO_UPDATE_CHECK={value!r} should suppress the check"
+
+
+def test_no_update_check_env_empty_leaves_check_enabled(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "load_config", lambda _: {})
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+    monkeypatch.setenv("BREAKFAST_NO_UPDATE_CHECK", "")
+
+    checked = []
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: checked.append(1))
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0, result.output
+    assert checked == [1], "an empty value must not suppress the update check"

@@ -118,6 +118,43 @@ def _stdout_is_tty():
     return sys.stdout.isatty()
 
 
+def _require_positive_int(value, key, colour):
+    """Validate a config-sourced integer that must be 1 or greater.
+
+    Click's IntRange guards the command-line flags, but config keys are read
+    straight from TOML and bypass it entirely, so they need the same check.
+
+    Args:
+        value: The raw value read from the config file.
+        key: The config key name, used in the error message.
+        colour: Whether to colourise the error output.
+
+    Returns:
+        The value as an int.
+
+    Raises:
+        SystemExit: If the value is not an integer of 1 or greater.
+    """
+    if isinstance(value, bool):
+        parsed = None  # TOML booleans coerce to 0/1; that is never intentional here.
+    elif isinstance(value, float) and not value.is_integer():
+        parsed = None  # Reject 3.5 rather than silently running with 3.
+    else:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = None
+    if parsed is None or parsed < 1:
+        logger.error("invalid_config_value key=%s value=%r", key, value)
+        msg = (
+            f"Error: invalid {key} value in config: {value!r}."
+            " Must be a whole number of 1 or greater."
+        )
+        click.echo(click.style(msg, fg="red", bold=True), err=True, color=colour)
+        sys.exit(1)
+    return parsed
+
+
 def _handle_rate_limit(exc, json_output=False):
     """Print a friendly rate-limit message and exit non-zero."""
     click.echo(
@@ -554,19 +591,19 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
 )
 @click.option(
     "--limit",
-    type=int,
+    type=click.IntRange(min=1),
     default=None,
     help="Cap the number of PRs shown. Unset means show all results.",
 )
 @click.option(
     "--workers",
-    type=int,
+    type=click.IntRange(min=1),
     default=None,
     help="Number of parallel workers for fetching PR data. Default: 64.",
 )
 @click.option(
     "--max-title-length",
-    type=int,
+    type=click.IntRange(min=1),
     default=None,
     help="Truncate PR titles to this many characters. Unset means no truncation.",
 )
@@ -685,13 +722,13 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
 )
 @click.option(
     "--filter-stale",
-    type=int,
+    type=click.IntRange(min=0),
     default=None,
     help="Only show PRs older than N days (by creation date).",
 )
 @click.option(
     "--filter-inactive",
-    type=int,
+    type=click.IntRange(min=0),
     default=None,
     help="Only show PRs not updated in the last N days.",
 )
@@ -1065,6 +1102,15 @@ def breakfast(
     api_stats = api_stats or cfg.get("api-stats", False)
     no_colour = no_colour or cfg.get("no-colour", False)
     colour = not no_colour
+
+    # Click's IntRange has already vetted any command-line values; these config
+    # keys bypass Click, so validate them before they reach ThreadPoolExecutor
+    # and the title truncation maths.
+    workers = _require_positive_int(workers, "workers", colour)
+    if max_title_length is not None:
+        max_title_length = _require_positive_int(
+            max_title_length, "max-title-length", colour
+        )
     seasonal_colours = cfg.get("seasonal-colours", True)
     seasonal_calendar = cfg.get("seasonal-calendar", "western")
     if not seasonal_colours:

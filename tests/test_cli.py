@@ -4860,3 +4860,153 @@ def test_current_executable_path_is_absolute(monkeypatch):
     monkeypatch.setattr(cli.shutil, "which", lambda _name: None)
     monkeypatch.setattr(cli.sys, "argv", ["./breakfast"])
     assert cli._current_executable_path().startswith("/")
+
+
+# --- Numeric option validation (issue #387) ---------------------------------
+
+
+@pytest.mark.parametrize(
+    "flag,value",
+    [
+        ("--workers", "0"),
+        ("--workers", "-4"),
+        ("--limit", "0"),
+        ("--limit", "-1"),
+        ("--max-title-length", "0"),
+        ("--max-title-length", "-20"),
+        ("--filter-stale", "-1"),
+        ("--filter-inactive", "-7"),
+    ],
+)
+def test_out_of_range_numeric_options_are_rejected(monkeypatch, flag, value):
+    """Out-of-range integers fail as usage errors, never as tracebacks."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+
+    def explode(*_args, **_kwargs):
+        raise AssertionError("validation must reject the value before fetching")
+
+    monkeypatch.setattr(cli, "get_github_prs", explode)
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo", flag, value])
+
+    assert result.exit_code == 2
+    assert "Traceback" not in result.output
+    assert flag in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("bad_value", [0, -1, "many", True])
+def test_config_workers_out_of_range_is_rejected(monkeypatch, bad_value):
+    """The workers config key bypasses Click, so it needs its own guard."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "load_config", lambda _: {"workers": bad_value})
+
+    def explode(*_args, **_kwargs):
+        raise AssertionError("validation must reject the value before fetching")
+
+    monkeypatch.setattr(cli, "get_github_prs", explode)
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert "workers" in result.stderr
+    assert result.stdout == ""
+
+
+def test_config_max_title_length_out_of_range_is_rejected(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "load_config", lambda _: {"max-title-length": -5})
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 1
+    assert "max-title-length" in result.stderr
+    assert "Traceback" not in result.output
+
+
+def test_valid_numeric_options_still_work(monkeypatch):
+    """The happy path is untouched: in-range values behave exactly as before."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "load_config", lambda _: {})
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda *a: ["https://api.github.com/repos/org/repo/pulls/1"],
+    )
+    monkeypatch.setattr(
+        cli, "_fetch_pr_bundle", lambda *a, **kw: (_make_pr_detail(1), None, None)
+    )
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        [
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--workers",
+            "1",
+            "--limit",
+            "1",
+            "--max-title-length",
+            "10",
+            "--filter-stale",
+            "0",
+        ],
+    )
+
+    assert result.exit_code == 0
+
+
+def test_config_workers_default_is_used_when_unset(monkeypatch):
+    """An absent workers key must still resolve to the documented default."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "load_config", lambda _: {})
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--show-config"]
+    )
+
+    assert result.exit_code == 0
+    assert "workers: 64" in result.stdout
+
+
+@pytest.mark.parametrize("bad_value", [3.5, -0.5, "3.5"])
+def test_config_workers_rejects_non_integral_values(monkeypatch, bad_value):
+    """workers = 3.5 must not be silently truncated to 3."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "load_config", lambda _: {"workers": bad_value})
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 1
+    assert "workers" in result.stderr
+    assert "Traceback" not in result.output
+
+
+def test_config_workers_accepts_an_integral_string(monkeypatch):
+    """A quoted whole number in TOML keeps working — no gratuitous breakage."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "load_config", lambda _: {"workers": "8"})
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--show-config"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "workers: 8" in result.stdout

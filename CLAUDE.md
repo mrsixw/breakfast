@@ -50,6 +50,8 @@ When updating project rules, update **all four files** to keep them consistent.
 ## Testing
 - Tests use `pytest` with `monkeypatch` for mocking and `click.testing.CliRunner` for CLI tests.
 - Run `make test` before committing.
+- **Test-driven development (red, green, refactor):** When adding tests for a bug fix or new feature, write the failing test **first**, run it and confirm it goes red, then write the code to make it green, then refactor. A test that has never been seen to fail proves nothing — it may assert behaviour that was already correct, or be miswired and pass regardless. Report the red run, not just the green one.
+- If a fix was written before its tests (e.g. rule discovered mid-task), prove the tests red retroactively: `git stash push <source file>`, run the suite, confirm the failures, then `git stash pop`.
 - **Testing with Cache:** Since caching is implemented, all manual testing must be performed both *with* the cache enabled and *without* the cache (e.g., clearing the cache or disabling it).
 - **Real App Testing:** Always perform a real, end-to-end test of the CLI application in the terminal, not just unit tests.
 

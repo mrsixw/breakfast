@@ -397,6 +397,7 @@ Templates are validated **before any row is printed**, so a broken template neve
 - unbalanced or stray braces — `{title`, `title}` (use `{{` and `}}` for literal braces)
 - positional fields — `{0}`; only the named fields above are supported
 - format specs that do not apply to the field's type — `{title:d}`
+- field widths above 10,000 — `{title:>99999999999}`. Padding is capped because a large enough width builds a multi-gigabyte string before anything can report an error.
 
 The same validation applies whether the template comes from `--template` or the `template` config key.
 

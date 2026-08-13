@@ -5246,3 +5246,36 @@ def test_template_probe_and_row_fields_stay_in_lockstep():
     probe_keys = set(renderers._template_fields(renderers._TEMPLATE_PROBE_PR))
     row_keys = set(renderers._template_fields(_make_pr_detail(1)))
     assert probe_keys == row_keys
+
+
+@pytest.mark.parametrize(
+    "bad_template",
+    ["{title:>999999999999999}", "{title:>99999999999}"],
+    ids=["raises_memoryerror", "allocates_100gb"],
+)
+def test_absurd_template_field_width_is_rejected(monkeypatch, bad_template):
+    """Huge field widths must be refused before anything is allocated.
+
+    A width of 10^15 raises MemoryError, which escaped the caught tuple as a
+    traceback. A width of 10^11 is worse: it *succeeds*, quietly building a
+    ~100GB string. Both are rejected up front by inspecting the format spec,
+    so neither allocation is ever attempted.
+    """
+    result = _template_run(
+        monkeypatch, ["--format", "template", "--template", bad_template]
+    )
+
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert "width" in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("good_template", ["{title:>30}", "{title:>10000}"])
+def test_reasonable_template_field_widths_still_render(monkeypatch, good_template):
+    """Padding within the cap is untouched."""
+    result = _template_run(
+        monkeypatch, ["--format", "template", "--template", good_template]
+    )
+
+    assert result.exit_code == 0, result.output

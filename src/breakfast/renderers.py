@@ -727,6 +727,48 @@ _TEMPLATE_PROBE_PR = {
 }
 
 
+# Generous ceiling on a template's field width. Real padding is terminal-sized;
+# anything past this is a mistake or a hostile config, and the cost is paid in
+# allocation before any error can be raised.
+_MAX_TEMPLATE_FIELD_WIDTH = 10_000
+
+# Width sits between the optional fill/align/sign/#/0 prefix and an optional
+# ,/_ grouping, .precision and type suffix.
+_FORMAT_SPEC_WIDTH_RE = re.compile(
+    r"^(?:.?[<>=^])?[-+ ]?#?0?(?P<width>\d+)?(?:[,_])?(?:\.\d+)?[bcdeEfFgGnosxX%]?$"
+)
+
+
+def _template_field_width_over_limit(template_str):
+    """Return the first field width exceeding the cap, or None.
+
+    A width of 10^15 raises MemoryError — which is not something to catch after
+    the fact, since by then the allocation has already been attempted. Worse, a
+    width of 10^11 *succeeds*, quietly building a ~100GB string. Both are
+    refused here, before format_map ever runs.
+
+    Args:
+        template_str: The template to inspect.
+
+    Returns:
+        The offending width as an int, or None if every width is acceptable.
+    """
+    try:
+        parsed = list(string.Formatter().parse(template_str))
+    except ValueError:
+        return None  # Malformed braces; the probe reports that properly.
+    for _literal, name, spec, _conv in parsed:
+        if name is None or not spec or "{" in spec:
+            continue  # No field, no spec, or a nested spec we cannot read statically.
+        match = _FORMAT_SPEC_WIDTH_RE.match(spec)
+        if not match or not match.group("width"):
+            continue
+        width = int(match.group("width"))
+        if width > _MAX_TEMPLATE_FIELD_WIDTH:
+            return width
+    return None
+
+
 def _template_has_positional_fields(template_str):
     """Report whether a template uses positional fields like {} or {0}.
 
@@ -792,6 +834,19 @@ def render_template(pr_details, template_str, colour):
                 "Error: invalid template: positional fields like {0} are not"
                 " supported. Use named fields, e.g. {title}."
                 " See --help for available fields.",
+                fg="red",
+                bold=True,
+            ),
+            err=True,
+            color=colour,
+        )
+        sys.exit(1)
+    oversized_width = _template_field_width_over_limit(template_str)
+    if oversized_width is not None:
+        click.echo(
+            click.style(
+                f"Error: invalid template: field width {oversized_width} exceeds"
+                f" the maximum of {_MAX_TEMPLATE_FIELD_WIDTH}.",
                 fg="red",
                 bold=True,
             ),

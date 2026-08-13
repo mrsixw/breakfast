@@ -686,7 +686,9 @@ def _template_fields(pr_detail):
         "author": pr_detail.get("user", {}).get("login", ""),
         "url": pr_detail.get("html_url", ""),
         "state": pr_detail.get("state", ""),
-        "number": pr_detail.get("number", ""),
+        # 0, not "": a str default would pass the int-typed probe and then
+        # crash on "{number:d}" for the one PR that happens to lack a number.
+        "number": pr_detail.get("number", 0),
         "created_at": pr_detail.get("created_at", ""),
         "updated_at": pr_detail.get("updated_at", ""),
         "additions": pr_detail.get("additions", 0),
@@ -701,14 +703,16 @@ def _template_fields(pr_detail):
     }
 
 
-# Representative values used to dry-run a template before any row is printed.
-# The *types* matter as much as the keys: "{title:d}" is only detectable as
-# invalid when title is a str, and "{additions:>5}" only when additions is int.
-_TEMPLATE_PROBE_FIELDS = {
-    "repo": "repo",
+# A synthetic PR used to dry-run a template before any row is printed. It is
+# deliberately fed through _template_fields rather than hand-listing the field
+# names: that keeps the probe's keys *and value types* in lockstep with real
+# rows, so a field added above can never be missing here. Types matter as much
+# as keys — "{title:d}" is only detectable as invalid when title is a str.
+_TEMPLATE_PROBE_PR = {
+    "base": {"repo": {"name": "repo"}},
     "title": "title",
-    "author": "author",
-    "url": "url",
+    "user": {"login": "author"},
+    "html_url": "https://github.com/org/repo/pull/1",
     "state": "open",
     "number": 1,
     "created_at": "2024-01-01T00:00:00Z",
@@ -718,8 +722,8 @@ _TEMPLATE_PROBE_FIELDS = {
     "changed_files": 0,
     "commits": 0,
     "review_comments": 0,
-    "labels": "",
-    "requested_reviewers": "",
+    "labels": [],
+    "requested_reviewers": [],
 }
 
 
@@ -796,16 +800,32 @@ def render_template(pr_details, template_str, colour):
         )
         sys.exit(1)
     try:
-        template_str.format_map(_TEMPLATE_PROBE_FIELDS)
+        template_str.format_map(_template_fields(_TEMPLATE_PROBE_PR))
     except (KeyError, ValueError, IndexError, TypeError) as exc:
         fail(exc)
 
     for pr_detail in pr_details:
+        # Reading the PR apart from formatting it: a gap in GitHub's payload is
+        # not a fault in the user's template, and must not be reported as one.
         try:
-            click.echo(template_str.format_map(_template_fields(pr_detail)))
+            fields = _template_fields(pr_detail)
+        except (KeyError, TypeError) as exc:
+            logger.error("template_field_extraction_failed error=%s", exc)
+            click.echo(
+                click.style(
+                    f"Error: could not read PR data for the template: {exc}",
+                    fg="red",
+                    bold=True,
+                ),
+                err=True,
+                color=colour,
+            )
+            sys.exit(1)
+        try:
+            click.echo(template_str.format_map(fields))
         except (KeyError, ValueError, IndexError, TypeError) as exc:
             # The probe above catches malformed templates; this catches a row
-            # whose data defeats an otherwise valid one.
+            # whose data defeats an otherwise valid one (a null title, say).
             fail(exc)
     logger.info(
         "render_complete elapsed_ms=%d", int((time.monotonic() - t_render) * 1000)

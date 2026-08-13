@@ -5222,3 +5222,27 @@ def test_positional_template_fields_name_the_fix(monkeypatch, bad_template):
     assert "positional" in result.stderr
     assert "{title}" in result.stderr
     assert result.stdout == ""
+
+
+def test_template_data_gap_is_not_reported_as_a_template_error(capsys):
+    """A gap in the PR payload must not be blamed on the user's template.
+
+    _template_fields raises KeyError when the PR detail is missing a nested
+    key. Reporting that as "unknown template field 'base'" sends the user off
+    to fix a template that is perfectly correct.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        renderers.render_template([{"title": "no base key"}], "{title}", colour=False)
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "unknown template field" not in captured.err
+    assert "PR data" in captured.err
+    assert captured.out == ""
+
+
+def test_template_probe_and_row_fields_stay_in_lockstep():
+    """The dry-run probe must expose exactly the fields a real row does."""
+    probe_keys = set(renderers._template_fields(renderers._TEMPLATE_PROBE_PR))
+    row_keys = set(renderers._template_fields(_make_pr_detail(1)))
+    assert probe_keys == row_keys

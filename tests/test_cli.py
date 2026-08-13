@@ -4602,48 +4602,69 @@ def test_cli_offline_respects_age_flag(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Shell completion (#350)
+# Shell completions (#350, #412)
 # ---------------------------------------------------------------------------
 
 
-def test_completion_zsh_exits_zero_and_outputs_script():
-    """--completion zsh prints a zsh script and exits 0 without needing a token."""
+def test_completions_zsh_exits_zero_and_outputs_script():
+    """completions zsh prints a zsh script and exits 0 without needing a token."""
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["--completion", "zsh"])
+    result = runner.invoke(cli.breakfast, ["completions", "zsh"])
     assert result.exit_code == 0
-    assert "_BREAKFAST_COMPLETE" in result.output
-    assert "breakfast" in result.output
+    assert "_BREAKFAST_COMPLETE" in result.stdout
+    assert "breakfast" in result.stdout
 
 
-def test_completion_bash_exits_zero_and_outputs_script():
+def test_completions_bash_exits_zero_and_outputs_script():
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["--completion", "bash"])
+    result = runner.invoke(cli.breakfast, ["completions", "bash"])
     assert result.exit_code == 0
-    assert "_BREAKFAST_COMPLETE" in result.output
-    assert "breakfast" in result.output
+    assert "_BREAKFAST_COMPLETE" in result.stdout
 
 
-def test_completion_fish_exits_zero_and_outputs_script():
+def test_completions_fish_exits_zero_and_outputs_script():
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["--completion", "fish"])
+    result = runner.invoke(cli.breakfast, ["completions", "fish"])
     assert result.exit_code == 0
-    assert "_BREAKFAST_COMPLETE" in result.output
-    assert "breakfast" in result.output
+    assert "_BREAKFAST_COMPLETE" in result.stdout
 
 
-def test_completion_requires_no_github_token(monkeypatch):
-    """--completion must work even with no GITHUB_TOKEN set."""
+def test_completions_requires_no_github_token(monkeypatch):
+    """completions must work even with no GITHUB_TOKEN set."""
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "")
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["--completion", "zsh"])
+    result = runner.invoke(cli.breakfast, ["completions", "zsh"])
     assert result.exit_code == 0
 
 
-def test_completion_rejects_unknown_shell():
+def test_completions_rejects_unknown_shell():
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["--completion", "powershell"])
+    result = runner.invoke(cli.breakfast, ["completions", "powershell"])
     assert result.exit_code != 0
+
+
+def test_shell_enum_members_are_their_lowercase_names():
+    assert [s.value for s in cli.Shell] == ["bash", "zsh", "fish"]
+    assert cli.Shell.BASH == "bash"
+
+
+def test_deprecated_completion_flag_keeps_stdout_evaluable():
+    """The notice must not land on stdout — the shell eval's it verbatim."""
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--completion", "bash"])
+    assert result.exit_code == 0
+    assert "_BREAKFAST_COMPLETE" in result.stdout
+    assert "deprecated" not in result.stdout
+    assert "deprecated" in result.stderr
+    assert "breakfast completions bash" in result.stderr
+
+
+def test_deprecated_completion_flag_is_hidden_from_help():
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--help"])
+    assert "--completion" not in result.stdout
+    assert "completions" in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -4760,3 +4781,82 @@ def test_help_shows_credit_line():
     result = runner.invoke(cli.breakfast, ["--help"])
     assert result.exit_code == 0
     assert "Made with ❤️ in the UK" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# update (#416)
+# ---------------------------------------------------------------------------
+
+
+def _stub_update(monkeypatch, status, current="1.0.0", detail="2.0.0"):
+    monkeypatch.setattr(cli, "perform_update", lambda _path: (status, current, detail))
+    monkeypatch.setattr(cli, "_current_executable_path", lambda: "/tmp/breakfast")
+
+
+def test_update_reports_success(monkeypatch):
+    _stub_update(monkeypatch, cli.UpdateStatus.UPDATED)
+    result = CliRunner().invoke(cli.breakfast, ["update"])
+    assert result.exit_code == 0
+    assert "fresh batch is served — v2.0.0" in result.stderr
+    assert "install.sh" in result.stderr
+
+
+def test_update_reports_already_current(monkeypatch):
+    _stub_update(monkeypatch, cli.UpdateStatus.UP_TO_DATE)
+    result = CliRunner().invoke(cli.breakfast, ["update"])
+    assert result.exit_code == 0
+    assert "freshest batch, v1.0.0" in result.stderr
+
+
+def test_update_unreachable_github_fails_cleanly(monkeypatch):
+    _stub_update(monkeypatch, cli.UpdateStatus.UNKNOWN, detail=None)
+    result = CliRunner().invoke(cli.breakfast, ["update"])
+    assert result.exit_code != 0
+    assert "Could not reach GitHub" in result.stderr
+    assert "Traceback" not in result.output
+
+
+def test_update_error_surfaces_detail(monkeypatch):
+    _stub_update(monkeypatch, cli.UpdateStatus.ERROR, detail="Permission denied")
+    result = CliRunner().invoke(cli.breakfast, ["update"])
+    assert result.exit_code != 0
+    assert "Permission denied" in result.stderr
+    assert "Traceback" not in result.output
+
+
+def test_update_needs_no_github_token(monkeypatch):
+    """The group callback must not demand a token before dispatching."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "")
+    _stub_update(monkeypatch, cli.UpdateStatus.UP_TO_DATE)
+    result = CliRunner().invoke(cli.breakfast, ["update"])
+    assert result.exit_code == 0
+
+
+def test_update_does_not_also_fetch_pull_requests(monkeypatch):
+    """The subcommand guard must short-circuit before any GitHub work."""
+
+    def explode(*_args, **_kwargs):
+        raise AssertionError("the group callback body ran for a subcommand")
+
+    monkeypatch.setattr(cli, "get_github_prs", explode)
+    monkeypatch.setattr(cli, "check_for_update", explode)
+    _stub_update(monkeypatch, cli.UpdateStatus.UP_TO_DATE)
+    result = CliRunner().invoke(cli.breakfast, ["update"])
+    assert result.exit_code == 0
+
+
+def test_completions_does_not_also_fetch_pull_requests(monkeypatch):
+    def explode(*_args, **_kwargs):
+        raise AssertionError("the group callback body ran for a subcommand")
+
+    monkeypatch.setattr(cli, "get_github_prs", explode)
+    monkeypatch.setattr(cli, "check_for_update", explode)
+    result = CliRunner().invoke(cli.breakfast, ["completions", "bash"])
+    assert result.exit_code == 0
+
+
+def test_current_executable_path_is_absolute(monkeypatch):
+    monkeypatch.setattr(cli.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(cli.sys, "argv", ["./breakfast"])
+    assert cli._current_executable_path().startswith("/")

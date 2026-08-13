@@ -89,31 +89,36 @@ uv run breakfast --version
 
 ## Shell completions
 
-breakfast ships built-in tab completion for bash, zsh, and fish via the `--completion` flag.
+breakfast ships built-in tab completion for bash, zsh, and fish via the `completions` subcommand.
 
 ### Quick setup
 
 **Zsh** — add to `~/.zshrc`:
 
 ```zsh
-eval "$(breakfast --completion zsh)"
+eval "$(breakfast completions zsh)"
 ```
 
 **Bash** — add to `~/.bashrc` (requires bash ≥ 4.4):
 
 ```bash
-eval "$(breakfast --completion bash)"
+eval "$(breakfast completions bash)"
 ```
 
 **Fish** — write once to the completions directory:
 
 ```fish
-breakfast --completion fish > ~/.config/fish/completions/breakfast.fish
+breakfast completions fish > ~/.config/fish/completions/breakfast.fish
 ```
 
 ### How it works
 
-`breakfast --completion SHELL` prints the eval-able completion script for the named shell to stdout and exits. This means no token or `--owner` is needed — it works before any GitHub configuration.
+`breakfast completions SHELL` prints the eval-able completion script for the named shell to stdout and exits. This means no token or `--owner` is needed — it works before any GitHub configuration.
+
+> The older `--completion SHELL` flag still works but is deprecated and hidden
+> from `--help`. It prints a notice to stderr and will be removed in a future
+> release. `eval "$(breakfast --completion bash)"` stays safe in the meantime:
+> the notice goes to stderr, so only the script itself reaches your shell.
 
 For advanced users, the underlying Click completion mechanism is also available directly via the `_BREAKFAST_COMPLETE` environment variable:
 
@@ -125,7 +130,9 @@ _BREAKFAST_COMPLETE=fish_source breakfast  # fish
 
 ### Installer-managed completions
 
-The installer (`install.sh`) automatically installs tab-completion scripts for bash, zsh, and fish. After installation, you may need to activate them for your shell:
+The installer (`install.sh`) automatically installs tab-completion scripts for bash, zsh, and fish. Dropping the files into place is only half the job, though — bash and zsh both need a line in your rc file before they will load them. The installer detects your shell from `$SHELL` and prints exactly the snippet you need, falling back to all three when it cannot tell. It only prints: it never edits your rc files, since it is normally run piped through curl.
+
+The snippets it prints are reproduced here for reference:
 
 **Bash** — source the script in your `~/.bashrc`:
 
@@ -149,6 +156,18 @@ To regenerate completions manually from source:
 ```bash
 make completions   # writes to completions/
 ```
+
+## Updating
+
+Once installed, breakfast can replace itself with the latest release:
+
+```bash
+breakfast update
+```
+
+The swap is atomic — an interrupted download leaves the working binary in place — and nothing is written unless a newer release actually exists.
+
+The man page is not refreshed by `update`, because it can live somewhere that needs elevated privileges. Re-run `install.sh` if you want a fresh one. Completion scripts need no refresh: they call back into the binary, so they follow it automatically.
 
 ## Man page
 

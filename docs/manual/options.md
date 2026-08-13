@@ -223,7 +223,7 @@ breakfast -o my-org --exclude-label wip --exclude-label blocked
 
 ### `--filter-stale`
 
-Only show PRs that have been open for more than N days (based on creation date). Pairs naturally with `--age` to see the age column.
+Only show PRs that have been open for more than N days (based on creation date). Pairs naturally with `--age` to see the age column. N must be `0` or greater.
 
 ```bash
 breakfast -o my-org --filter-stale 14         # PRs open for more than 14 days
@@ -232,7 +232,7 @@ breakfast -o my-org --filter-stale 30 --age   # stale PRs with age column visibl
 
 ### `--filter-inactive`
 
-Only show PRs that have not been updated in the last N days. Useful for surfacing PRs that need a nudge.
+Only show PRs that have not been updated in the last N days. Useful for surfacing PRs that need a nudge. N must be `0` or greater.
 
 ```bash
 breakfast -o my-org --filter-inactive 7       # not updated in the last 7 days
@@ -716,7 +716,7 @@ Auto-fit is a no-op when output is piped or redirected (not a TTY), so `--json` 
 
 ### `--limit`
 
-Cap the number of PRs displayed. Results are limited after all filtering is applied. There is no config file equivalent — this is intentionally a CLI-only flag.
+Cap the number of PRs displayed. Results are limited after all filtering is applied. Must be `1` or greater; zero and negative values are rejected with a usage error. There is no config file equivalent — this is intentionally a CLI-only flag.
 
 ```bash
 breakfast -o my-org -r my-app --limit 10
@@ -724,7 +724,7 @@ breakfast -o my-org -r my-app --limit 10
 
 ### `--max-title-length`
 
-Truncate PR titles to a maximum number of characters. Titles longer than the limit are cut and suffixed with `…`. When unset, titles are displayed in full.
+Truncate PR titles to a maximum number of characters. Titles longer than the limit are cut and suffixed with `…`. When unset, titles are displayed in full. Must be `1` or greater, whether set on the CLI or in the config file.
 
 ```bash
 breakfast -o my-org -r my-app --max-title-length 72
@@ -879,6 +879,8 @@ When `columns` is set in config, it controls the table layout for all runs. CLI 
 ### `--workers`
 
 Number of parallel workers used to fetch PR details, check statuses, and approval statuses. Defaults to `64`. Lower values reduce API concurrency (useful if you're hitting rate limits); higher values may speed things up on very large organisations.
+
+Must be `1` or greater. A value of `0` or less is rejected up front with a clear error, whether it comes from the CLI flag or the `workers` config key.
 
 ```bash
 breakfast -o my-org -r my-app --workers 16

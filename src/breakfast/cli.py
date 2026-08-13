@@ -118,6 +118,24 @@ def _stdout_is_tty():
     return sys.stdout.isatty()
 
 
+def _env_flag_is_set(name):
+    """Report whether an environment variable is set to any non-empty value.
+
+    This is the no-color.org convention: presence is the signal, and the value
+    is deliberately ignored, so `NO_COLOR=0` and `NO_COLOR=false` disable
+    colour just as `NO_COLOR=1` does. Click's `envvar=` on a boolean flag
+    cannot express this — it rejects unrecognised values outright and reads
+    `false` as "leave colour on", the opposite of the spec.
+
+    Args:
+        name: The environment variable to inspect.
+
+    Returns:
+        True if the variable is set to a non-empty value.
+    """
+    return bool(os.environ.get(name))
+
+
 def _require_positive_int(value, key, colour):
     """Validate a config-sourced integer that must be 1 or greater.
 
@@ -611,8 +629,14 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     "--no-update-check",
     is_flag=True,
     default=False,
-    envvar="BREAKFAST_NO_UPDATE_CHECK",
-    help="Disable the automatic update check.",
+    # No envvar= here: Click would route BREAKFAST_NO_UPDATE_CHECK through its
+    # BOOL converter, so unrecognised values abort the run. Resolved by
+    # presence in the callback instead — see _env_flag_is_set.
+    help=(
+        "Disable the automatic update check."
+        " Also honoured via the BREAKFAST_NO_UPDATE_CHECK environment"
+        " variable, set to any non-empty value."
+    ),
 )
 @click.option(
     "--offline",
@@ -793,10 +817,12 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     "no_colour",
     is_flag=True,
     default=False,
-    envvar="NO_COLOR",
+    # No envvar= here — see the note on --no-update-check. no-color.org
+    # requires presence semantics, which Click's BOOL conversion cannot express.
     help=(
         "Disable ANSI colour in all output."
-        " Also honoured via the NO_COLOR environment variable (no-color.org)."
+        " Also honoured via the NO_COLOR environment variable (no-color.org),"
+        " set to any non-empty value."
     ),
 )
 @click.option(
@@ -903,6 +929,12 @@ def breakfast(
     # GITHUB_TOKEN, so return before any of the validation below.
     if ctx.invoked_subcommand is not None:
         return
+
+    # Resolved by presence, not by parsing: see _env_flag_is_set. This runs
+    # before the first use of no_colour below, and composes with the config
+    # fallback further down.
+    no_colour = no_colour or _env_flag_is_set("NO_COLOR")
+    no_update_check = no_update_check or _env_flag_is_set("BREAKFAST_NO_UPDATE_CHECK")
 
     if completion_shell:
         click.echo(

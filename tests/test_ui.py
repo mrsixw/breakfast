@@ -658,3 +658,35 @@ def test_render_colour_diagnostics_shows_all_new_palettes_and_holi():
     assert "Lunar New Year" in result
     assert "Rosh / Diwali / Bandi" in result
     assert "Holi 🎨" in result
+
+
+# --- Shared error reporting (issue #389 follow-up, groundwork for #410) ------
+
+
+def test_error_exit_writes_red_message_to_stderr_and_exits(capsys):
+    """The shared helper owns the repo's error idiom: red, stderr, exit 1."""
+    with pytest.raises(SystemExit) as excinfo:
+        ui.error_exit("Error: something went wrong", colour=True)
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == "", "errors must never touch stdout"
+    assert "something went wrong" in captured.err
+    assert "\x1b[" in captured.err, "expected ANSI styling when colour is on"
+
+
+def test_error_exit_omits_colour_when_disabled(capsys):
+    with pytest.raises(SystemExit):
+        ui.error_exit("Error: plain", colour=False)
+
+    captured = capsys.readouterr()
+    assert "plain" in captured.err
+    assert "\x1b[" not in captured.err
+
+
+def test_error_exit_honours_a_custom_exit_code(capsys):
+    """Groundwork for the exit-code contract in #410."""
+    with pytest.raises(SystemExit) as excinfo:
+        ui.error_exit("Error: bad usage", colour=False, exit_code=2)
+
+    assert excinfo.value.code == 2

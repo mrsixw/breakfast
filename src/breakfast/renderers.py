@@ -15,6 +15,7 @@ from .api import get_pr_age_days
 from .ui import (
     apply_seasonal_colour,
     click_colour_grade_number,
+    error_exit,
     format_approval_status,
     format_check_status,
     format_mergeable_status,
@@ -799,65 +800,58 @@ def _template_error_message(exc):
     return f"Error: invalid template syntax: {exc}"
 
 
+def _fail_template(exc, template_str, colour):
+    """Report a template that format_map rejected, and stop.
+
+    Module level rather than a closure over render_template: it is reached
+    from both the up-front probe and the per-row loop, and being importable
+    means it can be tested directly.
+
+    Args:
+        exc: The exception str.format_map raised.
+        template_str: The offending template, for the log line.
+        colour: Whether to colourise the error output.
+
+    Raises:
+        SystemExit: Always.
+    """
+    from .logger import logger
+
+    logger.error("invalid_template template=%r error=%s", template_str, exc)
+    error_exit(_template_error_message(exc), colour)
+
+
 def render_template(pr_details, template_str, colour):
     from .logger import logger
 
     logger.info("render format=template row_count=%d", len(pr_details))
     t_render = time.monotonic()
     if not template_str:
-        click.echo(
-            click.style(
-                "Error: --template is required when using --format template.",
-                fg="red",
-                bold=True,
-            ),
-            err=True,
-            color=colour,
+        error_exit(
+            "Error: --template is required when using --format template.", colour
         )
-        sys.exit(1)
-
-    def fail(exc):
-        logger.error("invalid_template template=%r error=%s", template_str, exc)
-        click.echo(
-            click.style(_template_error_message(exc), fg="red", bold=True),
-            err=True,
-            color=colour,
-        )
-        sys.exit(1)
 
     # Validate once, before printing anything. Formatting per row and failing
     # part-way would leave a partial result set on stdout for whatever script
     # is consuming it, followed by an error it cannot un-read.
     if _template_has_positional_fields(template_str):
-        click.echo(
-            click.style(
-                "Error: invalid template: positional fields like {0} are not"
-                " supported. Use named fields, e.g. {title}."
-                " See --help for available fields.",
-                fg="red",
-                bold=True,
-            ),
-            err=True,
-            color=colour,
+        error_exit(
+            "Error: invalid template: positional fields like {0} are not"
+            " supported. Use named fields, e.g. {title}."
+            " See --help for available fields.",
+            colour,
         )
-        sys.exit(1)
     oversized_width = _template_field_width_over_limit(template_str)
     if oversized_width is not None:
-        click.echo(
-            click.style(
-                f"Error: invalid template: field width {oversized_width} exceeds"
-                f" the maximum of {_MAX_TEMPLATE_FIELD_WIDTH}.",
-                fg="red",
-                bold=True,
-            ),
-            err=True,
-            color=colour,
+        error_exit(
+            f"Error: invalid template: field width {oversized_width} exceeds"
+            f" the maximum of {_MAX_TEMPLATE_FIELD_WIDTH}.",
+            colour,
         )
-        sys.exit(1)
     try:
         template_str.format_map(_template_fields(_TEMPLATE_PROBE_PR))
     except (KeyError, ValueError, IndexError, TypeError) as exc:
-        fail(exc)
+        _fail_template(exc, template_str, colour)
 
     for pr_detail in pr_details:
         # Reading the PR apart from formatting it: a gap in GitHub's payload is
@@ -866,22 +860,13 @@ def render_template(pr_details, template_str, colour):
             fields = _template_fields(pr_detail)
         except (KeyError, TypeError) as exc:
             logger.error("template_field_extraction_failed error=%s", exc)
-            click.echo(
-                click.style(
-                    f"Error: could not read PR data for the template: {exc}",
-                    fg="red",
-                    bold=True,
-                ),
-                err=True,
-                color=colour,
-            )
-            sys.exit(1)
+            error_exit(f"Error: could not read PR data for the template: {exc}", colour)
         try:
             click.echo(template_str.format_map(fields))
         except (KeyError, ValueError, IndexError, TypeError) as exc:
             # The probe above catches malformed templates; this catches a row
             # whose data defeats an otherwise valid one (a null title, say).
-            fail(exc)
+            _fail_template(exc, template_str, colour)
     logger.info(
         "render_complete elapsed_ms=%d", int((time.monotonic() - t_render) * 1000)
     )

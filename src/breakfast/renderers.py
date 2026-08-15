@@ -3,6 +3,7 @@ import io
 import json
 import re
 import shutil
+import string
 import sys
 import time
 
@@ -14,6 +15,7 @@ from .api import get_pr_age_days
 from .ui import (
     apply_seasonal_colour,
     click_colour_grade_number,
+    error_exit,
     format_approval_status,
     format_check_status,
     format_mergeable_status,
@@ -677,56 +679,194 @@ def render_csv(
     )
 
 
+def _template_fields(pr_detail):
+    """Build the substitution map exposed to --template for one PR."""
+    return {
+        "repo": pr_detail["base"]["repo"]["name"],
+        "title": pr_detail.get("title", ""),
+        "author": pr_detail.get("user", {}).get("login", ""),
+        "url": pr_detail.get("html_url", ""),
+        "state": pr_detail.get("state", ""),
+        # 0, not "": a str default would pass the int-typed probe and then
+        # crash on "{number:d}" for the one PR that happens to lack a number.
+        "number": pr_detail.get("number", 0),
+        "created_at": pr_detail.get("created_at", ""),
+        "updated_at": pr_detail.get("updated_at", ""),
+        "additions": pr_detail.get("additions", 0),
+        "deletions": pr_detail.get("deletions", 0),
+        "changed_files": pr_detail.get("changed_files", 0),
+        "commits": pr_detail.get("commits", 0),
+        "review_comments": pr_detail.get("review_comments", 0),
+        "labels": "|".join(lb["name"] for lb in pr_detail.get("labels", [])),
+        "requested_reviewers": "|".join(
+            r["login"] for r in pr_detail.get("requested_reviewers", [])
+        ),
+    }
+
+
+# A synthetic PR used to dry-run a template before any row is printed. It is
+# deliberately fed through _template_fields rather than hand-listing the field
+# names: that keeps the probe's keys *and value types* in lockstep with real
+# rows, so a field added above can never be missing here. Types matter as much
+# as keys — "{title:d}" is only detectable as invalid when title is a str.
+_TEMPLATE_PROBE_PR = {
+    "base": {"repo": {"name": "repo"}},
+    "title": "title",
+    "user": {"login": "author"},
+    "html_url": "https://github.com/org/repo/pull/1",
+    "state": "open",
+    "number": 1,
+    "created_at": "2024-01-01T00:00:00Z",
+    "updated_at": "2024-01-01T00:00:00Z",
+    "additions": 0,
+    "deletions": 0,
+    "changed_files": 0,
+    "commits": 0,
+    "review_comments": 0,
+    "labels": [],
+    "requested_reviewers": [],
+}
+
+
+# Generous ceiling on a template's field width. Real padding is terminal-sized;
+# anything past this is a mistake or a hostile config, and the cost is paid in
+# allocation before any error can be raised.
+_MAX_TEMPLATE_FIELD_WIDTH = 10_000
+
+# Width sits between the optional fill/align/sign/#/0 prefix and an optional
+# ,/_ grouping, .precision and type suffix.
+_FORMAT_SPEC_WIDTH_RE = re.compile(
+    r"^(?:.?[<>=^])?[-+ ]?#?0?(?P<width>\d+)?(?:[,_])?(?:\.\d+)?[bcdeEfFgGnosxX%]?$"
+)
+
+
+def _template_field_width_over_limit(template_str):
+    """Return the first field width exceeding the cap, or None.
+
+    A width of 10^15 raises MemoryError — which is not something to catch after
+    the fact, since by then the allocation has already been attempted. Worse, a
+    width of 10^11 *succeeds*, quietly building a ~100GB string. Both are
+    refused here, before format_map ever runs.
+
+    Args:
+        template_str: The template to inspect.
+
+    Returns:
+        The offending width as an int, or None if every width is acceptable.
+    """
+    try:
+        parsed = list(string.Formatter().parse(template_str))
+    except ValueError:
+        return None  # Malformed braces; the probe reports that properly.
+    for _literal, name, spec, _conv in parsed:
+        if name is None or not spec or "{" in spec:
+            continue  # No field, no spec, or a nested spec we cannot read statically.
+        match = _FORMAT_SPEC_WIDTH_RE.match(spec)
+        if not match or not match.group("width"):
+            continue
+        width = int(match.group("width"))
+        if width > _MAX_TEMPLATE_FIELD_WIDTH:
+            return width
+    return None
+
+
+def _template_has_positional_fields(template_str):
+    """Report whether a template uses positional fields like {} or {0}.
+
+    format_map reports these as a bare "Format string contains positional
+    fields" ValueError, which does not tell the user what to do about it.
+    Detecting them here earns a message that names the fix.
+
+    Args:
+        template_str: The template to inspect.
+
+    Returns:
+        True if any replacement field is positional rather than named.
+    """
+    try:
+        parsed = list(string.Formatter().parse(template_str))
+    except ValueError:
+        return False  # Malformed braces; the probe below reports it properly.
+    return any(
+        name is not None and (name == "" or name.split(".")[0].split("[")[0].isdigit())
+        for _literal, name, _spec, _conv in parsed
+    )
+
+
+def _template_error_message(exc):
+    """Turn a str.format_map failure into a message aimed at the user."""
+    if isinstance(exc, KeyError):
+        return f"Error: unknown template field {exc}. See --help for available fields."
+    return f"Error: invalid template syntax: {exc}"
+
+
+def _fail_template(exc, template_str, colour):
+    """Report a template that format_map rejected, and stop.
+
+    Module level rather than a closure over render_template: it is reached
+    from both the up-front probe and the per-row loop, and being importable
+    means it can be tested directly.
+
+    Args:
+        exc: The exception str.format_map raised.
+        template_str: The offending template, for the log line.
+        colour: Whether to colourise the error output.
+
+    Raises:
+        SystemExit: Always.
+    """
+    from .logger import logger
+
+    logger.error("invalid_template template=%r error=%s", template_str, exc)
+    error_exit(_template_error_message(exc), colour)
+
+
 def render_template(pr_details, template_str, colour):
     from .logger import logger
 
     logger.info("render format=template row_count=%d", len(pr_details))
     t_render = time.monotonic()
     if not template_str:
-        click.echo(
-            click.style(
-                "Error: --template is required when using --format template.",
-                fg="red",
-                bold=True,
-            ),
-            err=True,
-            color=colour,
+        error_exit(
+            "Error: --template is required when using --format template.", colour
         )
-        sys.exit(1)
+
+    # Validate once, before printing anything. Formatting per row and failing
+    # part-way would leave a partial result set on stdout for whatever script
+    # is consuming it, followed by an error it cannot un-read.
+    if _template_has_positional_fields(template_str):
+        error_exit(
+            "Error: invalid template: positional fields like {0} are not"
+            " supported. Use named fields, e.g. {title}."
+            " See --help for available fields.",
+            colour,
+        )
+    oversized_width = _template_field_width_over_limit(template_str)
+    if oversized_width is not None:
+        error_exit(
+            f"Error: invalid template: field width {oversized_width} exceeds"
+            f" the maximum of {_MAX_TEMPLATE_FIELD_WIDTH}.",
+            colour,
+        )
+    try:
+        template_str.format_map(_template_fields(_TEMPLATE_PROBE_PR))
+    except (KeyError, ValueError, IndexError, TypeError) as exc:
+        _fail_template(exc, template_str, colour)
+
     for pr_detail in pr_details:
-        fields = {
-            "repo": pr_detail["base"]["repo"]["name"],
-            "title": pr_detail.get("title", ""),
-            "author": pr_detail.get("user", {}).get("login", ""),
-            "url": pr_detail.get("html_url", ""),
-            "state": pr_detail.get("state", ""),
-            "number": pr_detail.get("number", ""),
-            "created_at": pr_detail.get("created_at", ""),
-            "updated_at": pr_detail.get("updated_at", ""),
-            "additions": pr_detail.get("additions", 0),
-            "deletions": pr_detail.get("deletions", 0),
-            "changed_files": pr_detail.get("changed_files", 0),
-            "commits": pr_detail.get("commits", 0),
-            "review_comments": pr_detail.get("review_comments", 0),
-            "labels": "|".join(lb["name"] for lb in pr_detail.get("labels", [])),
-            "requested_reviewers": "|".join(
-                r["login"] for r in pr_detail.get("requested_reviewers", [])
-            ),
-        }
+        # Reading the PR apart from formatting it: a gap in GitHub's payload is
+        # not a fault in the user's template, and must not be reported as one.
+        try:
+            fields = _template_fields(pr_detail)
+        except (KeyError, TypeError) as exc:
+            logger.error("template_field_extraction_failed error=%s", exc)
+            error_exit(f"Error: could not read PR data for the template: {exc}", colour)
         try:
             click.echo(template_str.format_map(fields))
-        except KeyError as e:
-            click.echo(
-                click.style(
-                    f"Error: unknown template field {e}. "
-                    "See --help for available fields.",
-                    fg="red",
-                    bold=True,
-                ),
-                err=True,
-                color=colour,
-            )
-            sys.exit(1)
+        except (KeyError, ValueError, IndexError, TypeError) as exc:
+            # The probe above catches malformed templates; this catches a row
+            # whose data defeats an otherwise valid one (a null title, say).
+            _fail_template(exc, template_str, colour)
     logger.info(
         "render_complete elapsed_ms=%d", int((time.monotonic() - t_render) * 1000)
     )

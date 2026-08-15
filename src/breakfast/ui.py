@@ -1,10 +1,33 @@
 import datetime
 import math
+import sys
 import unicodedata
 from datetime import date as _real_date
 from datetime import timedelta as _real_timedelta
 
 import click
+
+
+def error_exit(message, colour=True, exit_code=1):
+    """Report a fatal error to the user and stop.
+
+    The red-bold-on-stderr-then-exit idiom is the project's house style for a
+    failure the user caused and can fix, and it is currently hand-written at
+    two dozen call sites. Owning it here keeps stdout clean by construction —
+    a data-carrying stream must never receive an error message — and gives
+    #410's exit-code contract a single place to land.
+
+    Args:
+        message: The full message, including its "Error: " prefix.
+        colour: Whether to emit ANSI colour.
+        exit_code: Process exit status. Defaults to 1, an operational failure.
+
+    Raises:
+        SystemExit: Always.
+    """
+    click.echo(click.style(message, fg="red", bold=True), err=True, color=colour)
+    sys.exit(exit_code)
+
 
 SEASONAL_PALETTES = {
     "green": "\033[32m",

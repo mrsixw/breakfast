@@ -389,7 +389,17 @@ breakfast -o my-org --format template --template "{repo}: {title} by {author} �
 breakfast -o my-org --format template --template "{number}\t{title}\t{url}"
 ```
 
-If an unknown field is used, breakfast exits with an error message.
+Standard Python format specs are supported, so `{title:>30}` and `{additions:05d}` work as you would expect.
+
+Templates are validated **before any row is printed**, so a broken template never leaves partial output on stdout for a script to misread. breakfast exits with code 1 and a message on stderr for:
+
+- unknown fields — `{nope}`
+- unbalanced or stray braces — `{title`, `title}` (use `{{` and `}}` for literal braces)
+- positional fields — `{0}`; only the named fields above are supported
+- format specs that do not apply to the field's type — `{title:d}`
+- field widths above 10,000 — `{title:>99999999999}`. Padding is capped because a large enough width builds a multi-gigabyte string before anything can report an error.
+
+The same validation applies whether the template comes from `--template` or the `template` config key.
 
 Config keys: `format = "template"` and `template = "{repo}: {title} ({url})"`
 

@@ -5110,3 +5110,172 @@ def test_no_update_check_env_empty_leaves_check_enabled(monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert checked == [1], "an empty value must not suppress the update check"
+
+
+# --- Malformed --template handling (issue #389) -----------------------------
+
+
+def _template_run(monkeypatch, args, pr_count=1):
+    """Invoke the CLI with a stubbed set of PRs and the given arguments."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda *_: [
+            f"https://github.com/org/repo/pull/{i}" for i in range(1, pr_count + 1)
+        ],
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+    return CliRunner().invoke(cli.breakfast, ["-o", "org", *args])
+
+
+@pytest.mark.parametrize(
+    "bad_template",
+    [
+        "{title",  # unbalanced opening brace -> ValueError
+        "title}",  # stray closing brace -> ValueError
+        "{0}",  # positional field -> IndexError
+        "{0}: {title}",  # positional mixed with named -> IndexError
+        "{title:d}",  # invalid format spec for a str -> ValueError
+        "{additions:%%}",  # nonsense format spec
+    ],
+)
+def test_malformed_template_exits_cleanly(monkeypatch, bad_template):
+    """Every malformed template fails friendly, with no traceback."""
+    result = _template_run(
+        monkeypatch, ["--format", "template", "--template", bad_template]
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "Traceback" not in result.output
+    assert "Error" in result.stderr
+
+
+@pytest.mark.parametrize("bad_template", ["{title", "{0}", "{title:d}"])
+def test_malformed_template_emits_no_partial_stdout(monkeypatch, bad_template):
+    """A broken template must not print rows before it fails.
+
+    The template is validated once up front, so scripts consuming stdout never
+    see a partial result set followed by an error.
+    """
+    result = _template_run(
+        monkeypatch,
+        ["--format", "template", "--template", bad_template],
+        pr_count=3,
+    )
+
+    assert result.exit_code == 1
+    assert result.stdout == "", f"leaked partial output: {result.stdout!r}"
+
+
+def test_malformed_template_from_config_exits_cleanly(monkeypatch):
+    """Config-sourced templates get the same handling as CLI-sourced ones."""
+    monkeypatch.setattr(cli, "load_config", lambda _: {"template": "{title"})
+
+    result = _template_run(monkeypatch, [])
+
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert "Error" in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize(
+    "good_template",
+    ["{title:>30}", "{repo}:{title}", "{additions:d}", "{{literal}} {title}"],
+)
+def test_valid_templates_still_render(monkeypatch, good_template):
+    """Valid templates, including format specs, are untouched by the guard."""
+    result = _template_run(
+        monkeypatch, ["--format", "template", "--template", good_template]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.strip() != ""
+
+
+def test_unknown_template_field_still_names_the_field(monkeypatch):
+    """The pre-existing unknown-field message must survive the new validation."""
+    result = _template_run(
+        monkeypatch, ["--format", "template", "--template", "{nope}"]
+    )
+
+    assert result.exit_code == 1
+    assert "nope" in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("bad_template", ["{0}", "{}", "{0}: {title}", "{} {title}"])
+def test_positional_template_fields_name_the_fix(monkeypatch, bad_template):
+    """Positional fields get a message that says what to use instead.
+
+    format_map reports all of these as a bare "Format string contains
+    positional fields" ValueError, which does not help the user.
+    """
+    result = _template_run(
+        monkeypatch, ["--format", "template", "--template", bad_template]
+    )
+
+    assert result.exit_code == 1
+    assert "positional" in result.stderr
+    assert "{title}" in result.stderr
+    assert result.stdout == ""
+
+
+def test_template_data_gap_is_not_reported_as_a_template_error(capsys):
+    """A gap in the PR payload must not be blamed on the user's template.
+
+    _template_fields raises KeyError when the PR detail is missing a nested
+    key. Reporting that as "unknown template field 'base'" sends the user off
+    to fix a template that is perfectly correct.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        renderers.render_template([{"title": "no base key"}], "{title}", colour=False)
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "unknown template field" not in captured.err
+    assert "PR data" in captured.err
+    assert captured.out == ""
+
+
+def test_template_probe_and_row_fields_stay_in_lockstep():
+    """The dry-run probe must expose exactly the fields a real row does."""
+    probe_keys = set(renderers._template_fields(renderers._TEMPLATE_PROBE_PR))
+    row_keys = set(renderers._template_fields(_make_pr_detail(1)))
+    assert probe_keys == row_keys
+
+
+@pytest.mark.parametrize(
+    "bad_template",
+    ["{title:>999999999999999}", "{title:>99999999999}"],
+    ids=["raises_memoryerror", "allocates_100gb"],
+)
+def test_absurd_template_field_width_is_rejected(monkeypatch, bad_template):
+    """Huge field widths must be refused before anything is allocated.
+
+    A width of 10^15 raises MemoryError, which escaped the caught tuple as a
+    traceback. A width of 10^11 is worse: it *succeeds*, quietly building a
+    ~100GB string. Both are rejected up front by inspecting the format spec,
+    so neither allocation is ever attempted.
+    """
+    result = _template_run(
+        monkeypatch, ["--format", "template", "--template", bad_template]
+    )
+
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert "width" in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("good_template", ["{title:>30}", "{title:>10000}"])
+def test_reasonable_template_field_widths_still_render(monkeypatch, good_template):
+    """Padding within the cap is untouched."""
+    result = _template_run(
+        monkeypatch, ["--format", "template", "--template", good_template]
+    )
+
+    assert result.exit_code == 0, result.output

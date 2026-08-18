@@ -59,7 +59,10 @@ from .renderers import (
 )
 from .ui import (
     BREAKFAST_ITEMS,
+    get_random_pizza_recipe,
+    is_steves_birthday,
     render_colour_diagnostics,
+    render_pizza_recipe,
     render_pr_summary,
 )
 from .updater import UpdateStatus, check_for_update, perform_update
@@ -230,6 +233,7 @@ def _finish_run(
     show_update_summary,
     api_stats,
     colour,
+    pizza=False,
 ):
     if not no_update_check:
         update_msg = check_for_update(show_summary=show_update_summary)
@@ -240,6 +244,14 @@ def _finish_run(
                 err=True,
                 color=colour,
             )
+    if pizza or (colour and is_steves_birthday()):
+        recipe = get_random_pizza_recipe()
+        is_birthday = is_steves_birthday() and (colour or not pizza)
+        click.echo(
+            render_pizza_recipe(recipe, is_birthday=is_birthday, colour=colour),
+            err=True,
+            color=colour,
+        )
     if api_stats:
         _print_debug_summary(
             t0_total, pr_count, get_api_stats(), get_graphql_rate_limit()
@@ -870,6 +882,13 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
         " PR count, oldest age, and total comments per repo."
     ),
 )
+@click.option(
+    "--pizza",
+    is_flag=True,
+    default=False,
+    hidden=True,
+    help="Secret pizza recipe easter egg.",
+)
 @click.version_option(package_name="breakfast")
 def breakfast(
     ctx,
@@ -930,6 +949,7 @@ def breakfast(
     summarise_repo_prs,
     sort_by,
     sort_reverse,
+    pizza,
 ):
     t0_total = time.monotonic()
     configure_logging()
@@ -1873,6 +1893,7 @@ def breakfast(
             show_update_summary=show_update_summary,
             api_stats=api_stats,
             colour=colour,
+            pizza=pizza,
         )
         return
 
@@ -1951,6 +1972,7 @@ def breakfast(
         show_update_summary=show_update_summary,
         api_stats=api_stats,
         colour=colour,
+        pizza=pizza,
     )
 
 

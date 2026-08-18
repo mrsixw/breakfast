@@ -5406,3 +5406,84 @@ def test_reasonable_template_field_widths_still_render(monkeypatch, good_templat
     )
 
     assert result.exit_code == 0, result.output
+
+
+# ── Pizza recipe easter egg (#432) ──────────────────────────────────────────
+
+
+def _pizza_run(monkeypatch, extra_args):
+
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda *_a, **_kw: ["https://github.com/org/repo/pull/1"],
+    )
+    monkeypatch.setattr(
+        cli,
+        "_fetch_pr_detail",
+        lambda *_a, **_kw: {
+            "id": 1,
+            "url": "https://github.com/org/repo/pull/1",
+            "html_url": "https://github.com/org/repo/pull/1",
+            "title": "Fix bug",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "additions": 1,
+            "deletions": 0,
+            "comments": 0,
+            "review_comments": 0,
+            "mergeable_state": "clean",
+            "draft": False,
+            "created_at": "2026-01-01T00:00:00Z",
+            "head": {"ref": "patch-1"},
+            "base": {"ref": "main", "repo": {"name": "repo"}},
+            "requested_reviewers": [],
+            "number": 1,
+        },
+    )
+    runner = CliRunner()
+    return runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", *extra_args])
+
+
+def test_cli_pizza_flag_outputs_recipe_to_stderr(monkeypatch):
+    result = _pizza_run(monkeypatch, ["--pizza"])
+    assert result.exit_code == 0
+    assert "🍕" in result.stderr
+    assert "Secret Pizza Recipe" in result.stderr
+    # Stdout must contain the table and not the pizza recipe
+    assert "Fix bug" in result.stdout
+    assert "Secret Pizza Recipe" not in result.stdout
+
+
+def test_cli_birthday_auto_pizza_with_colour(monkeypatch):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-01-08"):
+        result = _pizza_run(monkeypatch, [])
+        assert result.exit_code == 0
+        assert "🍕" in result.stderr
+        assert "Happy Birthday Steve" in result.stderr
+
+
+def test_cli_non_birthday_does_not_output_pizza_automatically(monkeypatch):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-05-15"):
+        result = _pizza_run(monkeypatch, [])
+        assert result.exit_code == 0
+        assert "🍕" not in result.stderr
+        assert "Happy Birthday Steve" not in result.stderr
+
+
+def test_cli_birthday_without_colour_does_not_output_pizza(monkeypatch):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-01-08"):
+        result = _pizza_run(monkeypatch, ["--no-colour"])
+        assert result.exit_code == 0
+        assert "🍕" not in result.stderr

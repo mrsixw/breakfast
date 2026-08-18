@@ -690,3 +690,47 @@ def test_error_exit_honours_a_custom_exit_code(capsys):
         ui.error_exit("Error: bad usage", colour=False, exit_code=2)
 
     assert excinfo.value.code == 2
+
+
+# --- Pizza recipe easter egg (#432) ----------------------------------------
+
+
+def test_pizza_recipes_structure():
+    assert len(ui.PIZZA_RECIPES) >= 3
+    for recipe in ui.PIZZA_RECIPES:
+        assert "title" in recipe
+        assert "style" in recipe
+        assert "dough" in recipe
+        assert "toppings" in recipe
+        assert "bake" in recipe
+        assert "tip" in recipe
+
+
+def test_get_random_pizza_recipe():
+    recipe = ui.get_random_pizza_recipe()
+    assert recipe in ui.PIZZA_RECIPES
+
+
+def test_render_pizza_recipe_formatting():
+    recipe = ui.PIZZA_RECIPES[0]
+    rendered = ui.render_pizza_recipe(recipe, is_birthday=False)
+    assert "🍕" in rendered
+    assert recipe["title"] in rendered
+    assert recipe["dough"] in rendered
+    assert recipe["bake"] in rendered
+
+
+def test_render_pizza_recipe_birthday_greeting():
+    recipe = ui.PIZZA_RECIPES[0]
+    rendered = ui.render_pizza_recipe(recipe, is_birthday=True)
+    assert "🎂" in rendered
+    assert "Happy Birthday Steve" in rendered
+
+
+def test_is_steves_birthday():
+    import datetime
+
+    assert ui.is_steves_birthday(datetime.date(2026, 1, 8)) is True
+    assert ui.is_steves_birthday(datetime.date(2026, 1, 7)) is False
+    assert ui.is_steves_birthday(datetime.date(2026, 1, 9)) is False
+    assert ui.is_steves_birthday(datetime.date(2026, 6, 15)) is False

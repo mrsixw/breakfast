@@ -12,6 +12,13 @@ import wcwidth
 from tabulate import tabulate
 
 from .api import get_pr_age_days
+from .constants import (
+    _COLUMN_DISPLAY_NAMES,
+    _DROPPABLE_COLUMNS,
+    _LEGENDARY_AGE_THRESHOLD_DAYS,
+    _LEGENDARY_COMMENT_THRESHOLD,
+    _LEGENDARY_EMOJI,
+)
 from .ui import (
     apply_seasonal_colour,
     click_colour_grade_number,
@@ -22,49 +29,6 @@ from .ui import (
     format_pr_state,
     generate_terminal_url_anchor,
 )
-
-# Constants for legendary PRs
-_LEGENDARY_COMMENT_THRESHOLD = 100
-_LEGENDARY_AGE_THRESHOLD_DAYS = 30
-_LEGENDARY_EMOJI = "⚔️"
-
-_COLUMN_DISPLAY_NAMES: dict[str, str] = {
-    "org": "Org",
-    "repo": "Repo",
-    "title": "PR Title",
-    "author": "Author",
-    "state": "State",
-    "files": "Files",
-    "commits": "Commits",
-    "diff": "+/-",
-    "comments": "Comments",
-    "age": "Age",
-    "checks": "Checks",
-    "approvals": "Approved",
-    "head-branch": "Head Branch",
-    "base-branch": "Base Branch",
-    "reviewers": "Reviewers",
-    "labels": "Labels",
-    "mergeable": "Mergeable?",
-    "link": "Link",
-}
-
-# Columns dropped as last resort (least important first)
-_DROPPABLE_COLUMNS = [
-    "State",
-    "Commits",
-    "Files",
-    "+/-",
-    "Cmt",
-    "Age",
-    "Checks",
-    "Apr",
-    "Reviewers",
-    "Labels",
-    "Head Branch",
-    "Base Branch",
-    "Mrg",
-]
 
 _ANSI_RE = re.compile(r"\x1b(?:\[[0-9;]*[a-zA-Z]|\]8;;.*?\x1b\\|\]8;;.*?\x07)")
 _ANSI_LEADING_RE = re.compile(r"^(?:\x1b\[[0-9;]*[a-zA-Z])*")

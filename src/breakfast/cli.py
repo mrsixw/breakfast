@@ -47,6 +47,7 @@ from .config import (
     parse_columns_config,
     update_config,
 )
+from .constants import BREAKFAST_ITEMS
 from .logger import configure as configure_logging
 from .logger import logger
 from .renderers import (
@@ -58,7 +59,6 @@ from .renderers import (
     render_template,
 )
 from .ui import (
-    BREAKFAST_ITEMS,
     get_random_pizza_recipe,
     is_steves_birthday,
     render_colour_diagnostics,

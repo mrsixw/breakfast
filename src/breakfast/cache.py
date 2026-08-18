@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 
+from .constants import _SUFFIX_MAP
 from .logger import logger
 from .xdg import get_cache_dir
 
@@ -21,8 +22,6 @@ def _atomic_write_text(path: Path, content: str) -> None:
 
 
 _CACHE_DIR = get_cache_dir()
-
-_SUFFIX_MAP = {"s": 1, "m": 60, "h": 3600}
 
 
 def parse_ttl(value: str | int) -> int:

@@ -1,10 +1,13 @@
 import datetime
+import json
 import math
+import os
 import random
 import sys
 import unicodedata
 from datetime import date as _real_date
 from datetime import timedelta as _real_timedelta
+from pathlib import Path
 
 import click
 
@@ -24,6 +27,8 @@ from .constants import (
     PRIDE_RAINBOW,
     SEASONAL_PALETTES,
 )
+from .logger import logger
+from .xdg import get_state_dir
 
 
 def error_exit(message, colour=True, exit_code=1):
@@ -827,3 +832,39 @@ def render_cake_recipe(
         click.style(f"   Tip:      💡 {recipe['tip']}", fg="bright_magenta"),
     ]
     return "\n".join(lines)
+
+
+def has_shown_birthday_gift(
+    today: datetime.date | None = None, state_dir: Path | None = None
+) -> bool:
+    """Return True if the birthday gift has been shown for this year."""
+    current_date = today or datetime.date.today()
+    target_dir = state_dir or get_state_dir()
+    state_file = target_dir / "birthday_gift.json"
+    try:
+        if not state_file.exists():
+            return False
+        data = json.loads(state_file.read_text())
+        return data.get("year") == current_date.year
+    except (OSError, json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
+        logger.debug("birthday_gift_state_read_error error=%r", str(exc))
+        return False
+
+
+def mark_birthday_gift_shown(
+    today: datetime.date | None = None, state_dir: Path | None = None
+) -> None:
+    """Record that the birthday gift was shown for this birthday year."""
+    current_date = today or datetime.date.today()
+    target_dir = state_dir or get_state_dir()
+    state_file = target_dir / "birthday_gift.json"
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(
+            {"year": current_date.year, "date": current_date.isoformat()}
+        )
+        tmp = state_file.with_suffix(".tmp")
+        tmp.write_text(payload)
+        os.replace(tmp, state_file)
+    except OSError as exc:
+        logger.debug("birthday_gift_state_write_error error=%r", str(exc))

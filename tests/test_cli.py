@@ -11,7 +11,7 @@ import requests
 from click.testing import CliRunner
 from freezegun import freeze_time
 
-from breakfast import api, cache, cli, renderers
+from breakfast import api, cache, cli, renderers, ui
 
 
 @pytest.fixture(autouse=True)
@@ -5411,8 +5411,13 @@ def test_reasonable_template_field_widths_still_render(monkeypatch, good_templat
 # ── Pizza recipe easter egg (#432) ──────────────────────────────────────────
 
 
-def _pizza_run(monkeypatch, extra_args):
+def _pizza_run(monkeypatch, extra_args=(), state_dir=None):
+    import tempfile
+    from pathlib import Path
 
+    if state_dir is None:
+        state_dir = Path(tempfile.mkdtemp())
+    monkeypatch.setattr(ui, "get_state_dir", lambda: state_dir)
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
@@ -5478,6 +5483,29 @@ def test_cli_birthday_auto_cake_with_colour(monkeypatch):
         assert result.exit_code == 0
         assert "🎂" in result.stderr
         assert "Its Steve's birthday, here is a gift" in result.stderr
+
+
+def test_cli_birthday_only_outputs_once_per_day(monkeypatch, tmp_path):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-01-08"):
+        # First invoke on birthday: outputs birthday cake
+        res1 = _pizza_run(monkeypatch, [], state_dir=tmp_path)
+        assert res1.exit_code == 0
+        assert "🎂" in res1.stderr
+        assert "Its Steve's birthday, here is a gift" in res1.stderr
+
+        # Second invoke on birthday in same state: does not output automatically
+        res2 = _pizza_run(monkeypatch, [], state_dir=tmp_path)
+        assert res2.exit_code == 0
+        assert "🎂" not in res2.stderr
+        assert "Its Steve's birthday, here is a gift" not in res2.stderr
+
+        # Explicit --cake still works
+        res3 = _pizza_run(monkeypatch, ["--cake"], state_dir=tmp_path)
+        assert res3.exit_code == 0
+        assert "🎂" in res3.stderr
+        assert "Secret Cake Recipe" in res3.stderr
 
 
 def test_cli_non_birthday_does_not_output_cake_automatically(monkeypatch):

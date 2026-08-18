@@ -766,3 +766,18 @@ def test_is_steves_birthday():
     assert ui.is_steves_birthday(datetime.date(2026, 1, 7)) is False
     assert ui.is_steves_birthday(datetime.date(2026, 1, 9)) is False
     assert ui.is_steves_birthday(datetime.date(2026, 6, 15)) is False
+
+
+def test_birthday_gift_state_tracking(tmp_path):
+    import datetime
+
+    d1 = datetime.date(2026, 1, 8)
+    d2 = datetime.date(2027, 1, 8)
+
+    assert ui.has_shown_birthday_gift(d1, state_dir=tmp_path) is False
+    ui.mark_birthday_gift_shown(d1, state_dir=tmp_path)
+    assert ui.has_shown_birthday_gift(d1, state_dir=tmp_path) is True
+    # Next year should return False until shown in 2027
+    assert ui.has_shown_birthday_gift(d2, state_dir=tmp_path) is False
+    ui.mark_birthday_gift_shown(d2, state_dir=tmp_path)
+    assert ui.has_shown_birthday_gift(d2, state_dir=tmp_path) is True

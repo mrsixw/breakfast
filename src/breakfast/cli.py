@@ -61,7 +61,9 @@ from .renderers import (
 from .ui import (
     get_random_cake_recipe,
     get_random_pizza_recipe,
+    has_shown_birthday_gift,
     is_steves_birthday,
+    mark_birthday_gift_shown,
     render_cake_recipe,
     render_colour_diagnostics,
     render_pizza_recipe,
@@ -247,13 +249,14 @@ def _finish_run(
                 err=True,
                 color=colour,
             )
-    if colour and is_steves_birthday():
+    if colour and is_steves_birthday() and not has_shown_birthday_gift():
         cake_recipe = get_random_cake_recipe()
         click.echo(
             render_cake_recipe(cake_recipe, is_birthday=True, colour=colour),
             err=True,
             color=colour,
         )
+        mark_birthday_gift_shown()
     elif cake:
         cake_recipe = get_random_cake_recipe()
         click.echo(

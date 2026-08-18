@@ -62,8 +62,11 @@ from .ui import (
     get_random_cake_recipe,
     get_random_pizza_recipe,
     has_shown_birthday_gift,
+    has_shown_christmas_gift,
+    is_christmas,
     is_steves_birthday,
     mark_birthday_gift_shown,
+    mark_christmas_gift_shown,
     render_cake_recipe,
     render_colour_diagnostics,
     render_pizza_recipe,
@@ -264,7 +267,15 @@ def _finish_run(
             err=True,
             color=colour,
         )
-    if pizza:
+    if colour and is_christmas() and not has_shown_christmas_gift():
+        pizza_recipe = get_random_pizza_recipe()
+        click.echo(
+            render_pizza_recipe(pizza_recipe, is_christmas=True, colour=colour),
+            err=True,
+            color=colour,
+        )
+        mark_christmas_gift_shown()
+    elif pizza:
         pizza_recipe = get_random_pizza_recipe()
         click.echo(
             render_pizza_recipe(pizza_recipe, is_birthday=False, colour=colour),

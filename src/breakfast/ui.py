@@ -786,11 +786,25 @@ def is_steves_birthday(today: datetime.date | None = None) -> bool:
     return current_date.month == 1 and current_date.day == 8
 
 
+def is_christmas(today: datetime.date | None = None) -> bool:
+    """Return True if today is Christmas Day (December 25th)."""
+    current_date = today or datetime.date.today()
+    return current_date.month == 12 and current_date.day == 25
+
+
 def render_pizza_recipe(
-    recipe: dict, is_birthday: bool = False, colour: bool | None = None
+    recipe: dict,
+    is_birthday: bool = False,
+    is_christmas: bool = False,
+    colour: bool | None = None,
 ) -> str:
     """Render a formatted pizza recipe banner with styling for terminal output."""
-    if is_birthday:
+    if is_christmas:
+        header = (
+            f"🍕 🎄 Merry Christmas! Here is a Christmas pizza gift: "
+            f"{recipe['title']} 🎁"
+        )
+    elif is_birthday:
         header = f"🍕 🎂 Its Steve's birthday, here is a gift: {recipe['title']} 🎁"
     else:
         header = f"🍕 Secret Pizza Recipe: {recipe['title']}"
@@ -798,7 +812,7 @@ def render_pizza_recipe(
     lines = [
         click.style(
             header,
-            fg="bright_yellow" if is_birthday else "bright_magenta",
+            fg="bright_yellow" if (is_birthday or is_christmas) else "bright_magenta",
             bold=True,
         ),
         click.style(f"   Style:    {recipe['style']}", fg="cyan"),
@@ -868,3 +882,39 @@ def mark_birthday_gift_shown(
         os.replace(tmp, state_file)
     except OSError as exc:
         logger.debug("birthday_gift_state_write_error error=%r", str(exc))
+
+
+def has_shown_christmas_gift(
+    today: datetime.date | None = None, state_dir: Path | None = None
+) -> bool:
+    """Return True if the Christmas pizza gift has been shown for this year."""
+    current_date = today or datetime.date.today()
+    target_dir = state_dir or get_state_dir()
+    state_file = target_dir / "christmas_gift.json"
+    try:
+        if not state_file.exists():
+            return False
+        data = json.loads(state_file.read_text())
+        return data.get("year") == current_date.year
+    except (OSError, json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
+        logger.debug("christmas_gift_state_read_error error=%r", str(exc))
+        return False
+
+
+def mark_christmas_gift_shown(
+    today: datetime.date | None = None, state_dir: Path | None = None
+) -> None:
+    """Record that the Christmas pizza gift was shown for this year."""
+    current_date = today or datetime.date.today()
+    target_dir = state_dir or get_state_dir()
+    state_file = target_dir / "christmas_gift.json"
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(
+            {"year": current_date.year, "date": current_date.isoformat()}
+        )
+        tmp = state_file.with_suffix(".tmp")
+        tmp.write_text(payload)
+        os.replace(tmp, state_file)
+    except OSError as exc:
+        logger.debug("christmas_gift_state_write_error error=%r", str(exc))

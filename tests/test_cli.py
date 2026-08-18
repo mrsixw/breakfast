@@ -5525,3 +5525,55 @@ def test_cli_birthday_without_colour_does_not_output_cake(monkeypatch):
         result = _pizza_run(monkeypatch, ["--no-colour"])
         assert result.exit_code == 0
         assert "🎂" not in result.stderr
+
+
+def test_cli_christmas_auto_pizza_with_colour(monkeypatch):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-12-25"):
+        result = _pizza_run(monkeypatch, [])
+        assert result.exit_code == 0
+        assert "🍕" in result.stderr
+        assert "Merry Christmas" in result.stderr
+
+
+def test_cli_christmas_only_outputs_once_per_day(monkeypatch, tmp_path):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-12-25"):
+        # First invoke on Christmas: outputs Christmas pizza gift
+        res1 = _pizza_run(monkeypatch, [], state_dir=tmp_path)
+        assert res1.exit_code == 0
+        assert "🍕" in res1.stderr
+        assert "Merry Christmas" in res1.stderr
+
+        # Second invoke on Christmas in same state: does not output automatically
+        res2 = _pizza_run(monkeypatch, [], state_dir=tmp_path)
+        assert res2.exit_code == 0
+        assert "🍕" not in res2.stderr
+        assert "Merry Christmas" not in res2.stderr
+
+        # Explicit --pizza still works
+        res3 = _pizza_run(monkeypatch, ["--pizza"], state_dir=tmp_path)
+        assert res3.exit_code == 0
+        assert "🍕" in res3.stderr
+        assert "Secret Pizza Recipe" in res3.stderr
+
+
+def test_cli_non_christmas_does_not_output_pizza_automatically(monkeypatch):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-07-04"):
+        result = _pizza_run(monkeypatch, [])
+        assert result.exit_code == 0
+        assert "🍕" not in result.stderr
+        assert "Merry Christmas" not in result.stderr
+
+
+def test_cli_christmas_without_colour_does_not_output_pizza(monkeypatch):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-12-25"):
+        result = _pizza_run(monkeypatch, ["--no-colour"])
+        assert result.exit_code == 0
+        assert "🍕" not in result.stderr

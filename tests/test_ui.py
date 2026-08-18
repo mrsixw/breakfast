@@ -781,3 +781,35 @@ def test_birthday_gift_state_tracking(tmp_path):
     assert ui.has_shown_birthday_gift(d2, state_dir=tmp_path) is False
     ui.mark_birthday_gift_shown(d2, state_dir=tmp_path)
     assert ui.has_shown_birthday_gift(d2, state_dir=tmp_path) is True
+
+
+def test_is_christmas():
+    import datetime
+
+    assert ui.is_christmas(datetime.date(2026, 12, 25)) is True
+    assert ui.is_christmas(datetime.date(2026, 12, 24)) is False
+    assert ui.is_christmas(datetime.date(2026, 12, 26)) is False
+    assert ui.is_christmas(datetime.date(2026, 7, 4)) is False
+
+
+def test_render_pizza_recipe_christmas_greeting():
+    recipe = ui.PIZZA_RECIPES[0]
+    rendered = ui.render_pizza_recipe(recipe, is_christmas=True)
+    assert "🎄" in rendered
+    assert "Merry Christmas" in rendered
+    assert recipe["title"] in rendered
+
+
+def test_christmas_gift_state_tracking(tmp_path):
+    import datetime
+
+    d1 = datetime.date(2026, 12, 25)
+    d2 = datetime.date(2027, 12, 25)
+
+    assert ui.has_shown_christmas_gift(d1, state_dir=tmp_path) is False
+    ui.mark_christmas_gift_shown(d1, state_dir=tmp_path)
+    assert ui.has_shown_christmas_gift(d1, state_dir=tmp_path) is True
+    # Next year should return False until shown in 2027
+    assert ui.has_shown_christmas_gift(d2, state_dir=tmp_path) is False
+    ui.mark_christmas_gift_shown(d2, state_dir=tmp_path)
+    assert ui.has_shown_christmas_gift(d2, state_dir=tmp_path) is True

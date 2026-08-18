@@ -93,7 +93,7 @@ def test_is_newer_downgrades_and_equality():
     assert not updater._is_newer("0.98.3", "0.98.3")
 
 
-def test_is_newer_unparseable_versions_never_claim_an_update():
+def test_is_newer_unparsable_versions_never_claim_an_update():
     assert not updater._is_newer("bad", "0.98.0")
     assert not updater._is_newer("bad", "also-bad")
 

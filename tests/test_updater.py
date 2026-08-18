@@ -74,6 +74,30 @@ def test_check_for_update_handles_errors(monkeypatch):
     assert updater.check_for_update() is None
 
 
+def test_is_newer_equal_versions_of_different_lengths():
+    # The regression: a bare tuple comparison made 0.98.0 beat 0.98, so the
+    # updater reported an update between two spellings of the same release.
+    assert not updater._is_newer("0.98.0", "0.98")
+    assert not updater._is_newer("0.98", "0.98.0")
+    assert not updater._is_newer("1.0.0.0", "1.0")
+
+
+def test_is_newer_genuine_upgrades():
+    assert updater._is_newer("0.99.0", "0.98.0")
+    assert updater._is_newer("1.0", "0.98.3")
+    assert updater._is_newer("0.98.1", "0.98")
+
+
+def test_is_newer_downgrades_and_equality():
+    assert not updater._is_newer("0.98.0", "0.99.0")
+    assert not updater._is_newer("0.98.3", "0.98.3")
+
+
+def test_is_newer_unparseable_versions_never_claim_an_update():
+    assert not updater._is_newer("bad", "0.98.0")
+    assert not updater._is_newer("bad", "also-bad")
+
+
 def test_get_latest_version_from_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(updater, "_CACHE_DIR", tmp_path)
     cache_file = tmp_path / "latest_version.json"

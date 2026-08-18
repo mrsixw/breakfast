@@ -10,11 +10,19 @@ from urllib.parse import quote, urlparse
 import click
 import requests
 
+from .constants import (
+    _GRAPHQL_REPOSITORY_PAGE_SIZE,
+    _MAX_GRAPHQL_ERROR_MESSAGE_LENGTH,
+    _MAX_GRAPHQL_ERROR_TYPES,
+    _MAX_RETRIES,
+    _MAX_STORED_GRAPHQL_ERRORS,
+    _REQUEST_TIMEOUT,
+    _RETRY_STATUSES,
+    BREAKFAST_ITEMS,
+    GITHUB_API_URL,
+    GITHUB_GRAPHQL_URL,
+)
 from .logger import logger
-from .ui import BREAKFAST_ITEMS
-
-GITHUB_API_URL = "https://api.github.com"
-GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 
 
 def _resolve_github_token_info():
@@ -35,10 +43,6 @@ def _resolve_github_token():
 
 
 SECRET_GITHUB_TOKEN, SECRET_GITHUB_TOKEN_VAR = _resolve_github_token_info()
-
-_MAX_GRAPHQL_ERROR_TYPES = 3
-_MAX_GRAPHQL_ERROR_MESSAGE_LENGTH = 120
-_MAX_STORED_GRAPHQL_ERRORS = 10
 
 
 def _summarize_graphql_errors(errors):
@@ -143,11 +147,6 @@ class GitHubAuthenticationError(requests.exceptions.HTTPError):
             )
         super().__init__(message, response=response)
 
-
-_MAX_RETRIES = 3
-_RETRY_STATUSES = {502, 503, 504}
-_REQUEST_TIMEOUT = (5, 30)
-_GRAPHQL_REPOSITORY_PAGE_SIZE = 25
 
 _api_stats_lock = threading.Lock()
 _api_stats = {

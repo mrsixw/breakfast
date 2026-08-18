@@ -563,6 +563,133 @@ def test_cli_mine_only_exits_cleanly_on_rate_limit(monkeypatch):
     assert "2026-04-10 16:04:48" in result.stderr
 
 
+def test_cli_mine_only_exits_cleanly_on_auth_error(monkeypatch):
+    from breakfast.api import GitHubAuthenticationError
+
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "expired-token")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli,
+        "get_authenticated_user_login",
+        lambda: (_ for _ in ()).throw(
+            GitHubAuthenticationError(token_var="GITHUB_TOKEN")
+        ),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--mine-only"])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "GitHub authentication failed" in result.stderr
+    assert "GITHUB_TOKEN was rejected (HTTP 401)" in result.stderr
+
+
+def test_cli_needs_my_review_exits_cleanly_on_auth_error(monkeypatch):
+    from breakfast.api import GitHubAuthenticationError
+
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "expired-token")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli,
+        "get_authenticated_user_login",
+        lambda: (_ for _ in ()).throw(
+            GitHubAuthenticationError(token_var="GITHUB_TOKEN")
+        ),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--needs-my-review"]
+    )
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "GitHub authentication failed" in result.stderr
+    assert "GITHUB_TOKEN was rejected (HTTP 401)" in result.stderr
+
+
+def test_cli_graphql_fetch_exits_cleanly_on_auth_error(monkeypatch):
+    from breakfast.api import GitHubAuthenticationError
+
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "expired-token")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda *_a, **_kw: (_ for _ in ()).throw(
+            GitHubAuthenticationError(token_var="GITHUB_TOKEN")
+        ),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "GitHub authentication failed" in result.stderr
+    assert "GITHUB_TOKEN was rejected (HTTP 401)" in result.stderr
+
+
+def test_cli_pr_detail_fetch_exits_cleanly_on_auth_error(monkeypatch):
+    from breakfast.api import GitHubAuthenticationError
+
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "expired-token")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_a, **_kw: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(
+        cli,
+        "_fetch_pr_detail",
+        lambda *_a, **_kw: (_ for _ in ()).throw(
+            GitHubAuthenticationError(token_var="GH_TOKEN")
+        ),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "GitHub authentication failed" in result.stderr
+    assert "GH_TOKEN was rejected (HTTP 401)" in result.stderr
+
+
+def test_cli_auth_error_leaves_cache_untouched(monkeypatch, tmp_path):
+    from breakfast import cache
+    from breakfast.api import GitHubAuthenticationError
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    user_file = cache_dir / "user.json"
+    sentinel_content = '{"login": "cached_sentinel_user"}'
+    user_file.write_text(sentinel_content)
+
+    monkeypatch.setattr(cache, "get_cache_dir", lambda: str(cache_dir))
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "expired-token")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli,
+        "get_authenticated_user_login",
+        lambda: (_ for _ in ()).throw(
+            GitHubAuthenticationError(token_var="GITHUB_TOKEN")
+        ),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--mine-only"])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert user_file.read_text() == sentinel_content
+
+
 def test_cli_needs_my_review_filters_to_requested_reviewer(monkeypatch):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])

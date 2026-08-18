@@ -17,12 +17,24 @@ GITHUB_API_URL = "https://api.github.com"
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 
 
+def _resolve_github_token_info():
+    """Resolve the GitHub auth token and variable name, preferring GH_TOKEN."""
+    gh_token = os.getenv("GH_TOKEN")
+    if gh_token:
+        return gh_token, "GH_TOKEN"
+    github_token = os.getenv("GITHUB_TOKEN")
+    if github_token:
+        return github_token, "GITHUB_TOKEN"
+    return None, None
+
+
 def _resolve_github_token():
     """Resolve the GitHub auth token, preferring GH_TOKEN (gh CLI convention)."""
-    return os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN")
+    token, _ = _resolve_github_token_info()
+    return token
 
 
-SECRET_GITHUB_TOKEN = _resolve_github_token()
+SECRET_GITHUB_TOKEN, SECRET_GITHUB_TOKEN_VAR = _resolve_github_token_info()
 
 _MAX_GRAPHQL_ERROR_TYPES = 3
 _MAX_GRAPHQL_ERROR_MESSAGE_LENGTH = 120
@@ -112,6 +124,26 @@ class OwnerNotFoundError(Exception):
         )
 
 
+class GitHubAuthenticationError(requests.exceptions.HTTPError):
+    """Raised when GitHub API authentication fails (HTTP 401).
+
+    Attributes:
+        token_var: The name of the environment variable used for auth.
+    """
+
+    def __init__(self, message=None, token_var=None, response=None):
+        if token_var is None:
+            _, resolved_var = _resolve_github_token_info()
+            token_var = resolved_var or "GITHUB_TOKEN"
+        self.token_var = token_var
+        if not message:
+            message = (
+                f"GitHub authentication failed: {token_var} was rejected (HTTP 401). "
+                "Refresh or replace the token and try again."
+            )
+        super().__init__(message, response=response)
+
+
 _MAX_RETRIES = 3
 _RETRY_STATUSES = {502, 503, 504}
 _REQUEST_TIMEOUT = (5, 30)
@@ -174,6 +206,15 @@ def make_github_api_request(query_string):
                     attempt + 1,
                 )
                 continue
+            if req.status_code == 401:
+                _, token_var = _resolve_github_token_info()
+                token_var = token_var or "GITHUB_TOKEN"
+                logger.warning(
+                    "api_call type=rest url=%s auth_failed status=401 token_var=%s",
+                    url,
+                    token_var,
+                )
+                raise GitHubAuthenticationError(token_var=token_var, response=req)
             if (
                 req.status_code == 403
                 and req.headers.get("X-RateLimit-Remaining") == "0"
@@ -283,6 +324,14 @@ def make_github_graphql_request(query, variables=None):
                     attempt + 1,
                 )
                 continue
+            if response.status_code == 401:
+                _, token_var = _resolve_github_token_info()
+                token_var = token_var or "GITHUB_TOKEN"
+                logger.warning(
+                    "api_call type=graphql auth_failed status=401 token_var=%s",
+                    token_var,
+                )
+                raise GitHubAuthenticationError(token_var=token_var, response=response)
             response.raise_for_status()
             resp_json = response.json()
             if "errors" in resp_json:

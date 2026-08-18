@@ -18,6 +18,7 @@ from .constants import (
     _PASSOVER_START,
     _ROSH_HASHANAH,
     _SUKKOT_START,
+    CAKE_RECIPES,
     HOLI_RAINBOW,
     PIZZA_RECIPES,
     PRIDE_RAINBOW,
@@ -769,6 +770,11 @@ def get_random_pizza_recipe() -> dict:
     return random.choice(PIZZA_RECIPES)
 
 
+def get_random_cake_recipe() -> dict:
+    """Return a randomly chosen cake recipe from the curated collection."""
+    return random.choice(CAKE_RECIPES)
+
+
 def is_steves_birthday(today: datetime.date | None = None) -> bool:
     """Return True if today is Steve's birthday (January 8th)."""
     current_date = today or datetime.date.today()
@@ -780,13 +786,9 @@ def render_pizza_recipe(
 ) -> str:
     """Render a formatted pizza recipe banner with styling for terminal output."""
     if is_birthday:
-        header = (
-            "🍕 🎂 Happy Birthday Steve! Here is a birthday pizza recipe gift: "
-            + recipe["title"]
-            + " 🎁"
-        )
+        header = f"🍕 🎂 Its Steve's birthday, here is a gift: {recipe['title']} 🎁"
     else:
-        header = "🍕 Secret Pizza Recipe: " + recipe["title"]
+        header = f"🍕 Secret Pizza Recipe: {recipe['title']}"
 
     lines = [
         click.style(
@@ -799,5 +801,29 @@ def render_pizza_recipe(
         click.style(f"   Toppings: {recipe['toppings']}", fg="white"),
         click.style(f"   Bake:     {recipe['bake']}", fg="white"),
         click.style(f"   Tip:      💡 {recipe['tip']}", fg="yellow"),
+    ]
+    return "\n".join(lines)
+
+
+def render_cake_recipe(
+    recipe: dict, is_birthday: bool = False, colour: bool | None = None
+) -> str:
+    """Render a formatted cake recipe banner with styling for terminal output."""
+    if is_birthday:
+        header = f"🎂 Its Steve's birthday, here is a gift: {recipe['title']} 🎁"
+    else:
+        header = f"🎂 Secret Cake Recipe: {recipe['title']}"
+
+    lines = [
+        click.style(
+            header,
+            fg="bright_yellow" if is_birthday else "bright_cyan",
+            bold=True,
+        ),
+        click.style(f"   Style:    {recipe['style']}", fg="yellow"),
+        click.style(f"   Batter:   {recipe['batter']}", fg="white"),
+        click.style(f"   Frosting: {recipe['frosting']}", fg="white"),
+        click.style(f"   Bake:     {recipe['bake']}", fg="white"),
+        click.style(f"   Tip:      💡 {recipe['tip']}", fg="bright_magenta"),
     ]
     return "\n".join(lines)

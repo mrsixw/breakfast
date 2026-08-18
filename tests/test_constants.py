@@ -45,3 +45,18 @@ def test_pizza_recipes():
         assert "toppings" in recipe
         assert "bake" in recipe
         assert "tip" in recipe
+
+
+def test_cake_recipes():
+    assert len(constants.CAKE_RECIPES) >= 3
+    has_chocolate = False
+    for recipe in constants.CAKE_RECIPES:
+        assert "title" in recipe
+        assert "style" in recipe
+        assert "batter" in recipe
+        assert "frosting" in recipe
+        assert "bake" in recipe
+        assert "tip" in recipe
+        if "chocolate" in recipe["title"].lower():
+            has_chocolate = True
+    assert has_chocolate

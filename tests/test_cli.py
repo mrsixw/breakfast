@@ -5460,30 +5460,40 @@ def test_cli_pizza_flag_outputs_recipe_to_stderr(monkeypatch):
     assert "Secret Pizza Recipe" not in result.stdout
 
 
-def test_cli_birthday_auto_pizza_with_colour(monkeypatch):
+def test_cli_cake_flag_outputs_recipe_to_stderr(monkeypatch):
+    result = _pizza_run(monkeypatch, ["--cake"])
+    assert result.exit_code == 0
+    assert "🎂" in result.stderr
+    assert "Secret Cake Recipe" in result.stderr
+    # Stdout must contain the table and not the cake recipe
+    assert "Fix bug" in result.stdout
+    assert "Secret Cake Recipe" not in result.stdout
+
+
+def test_cli_birthday_auto_cake_with_colour(monkeypatch):
     from freezegun import freeze_time
 
     with freeze_time("2026-01-08"):
         result = _pizza_run(monkeypatch, [])
         assert result.exit_code == 0
-        assert "🍕" in result.stderr
-        assert "Happy Birthday Steve" in result.stderr
+        assert "🎂" in result.stderr
+        assert "Its Steve's birthday, here is a gift" in result.stderr
 
 
-def test_cli_non_birthday_does_not_output_pizza_automatically(monkeypatch):
+def test_cli_non_birthday_does_not_output_cake_automatically(monkeypatch):
     from freezegun import freeze_time
 
     with freeze_time("2026-05-15"):
         result = _pizza_run(monkeypatch, [])
         assert result.exit_code == 0
-        assert "🍕" not in result.stderr
-        assert "Happy Birthday Steve" not in result.stderr
+        assert "🎂" not in result.stderr
+        assert "Its Steve's birthday, here is a gift" not in result.stderr
 
 
-def test_cli_birthday_without_colour_does_not_output_pizza(monkeypatch):
+def test_cli_birthday_without_colour_does_not_output_cake(monkeypatch):
     from freezegun import freeze_time
 
     with freeze_time("2026-01-08"):
         result = _pizza_run(monkeypatch, ["--no-colour"])
         assert result.exit_code == 0
-        assert "🍕" not in result.stderr
+        assert "🎂" not in result.stderr

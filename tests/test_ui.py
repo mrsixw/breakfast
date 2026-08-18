@@ -724,7 +724,39 @@ def test_render_pizza_recipe_birthday_greeting():
     recipe = ui.PIZZA_RECIPES[0]
     rendered = ui.render_pizza_recipe(recipe, is_birthday=True)
     assert "🎂" in rendered
-    assert "Happy Birthday Steve" in rendered
+    assert "Its Steve's birthday, here is a gift" in rendered
+
+
+def test_cake_recipes_structure():
+    assert len(ui.CAKE_RECIPES) >= 3
+    for recipe in ui.CAKE_RECIPES:
+        assert "title" in recipe
+        assert "style" in recipe
+        assert "batter" in recipe
+        assert "frosting" in recipe
+        assert "bake" in recipe
+        assert "tip" in recipe
+
+
+def test_get_random_cake_recipe():
+    recipe = ui.get_random_cake_recipe()
+    assert recipe in ui.CAKE_RECIPES
+
+
+def test_render_cake_recipe_formatting():
+    recipe = ui.CAKE_RECIPES[0]
+    rendered = ui.render_cake_recipe(recipe, is_birthday=False)
+    assert "🎂" in rendered
+    assert "Secret Cake Recipe" in rendered
+    assert recipe["title"] in rendered
+    assert recipe["batter"] in rendered
+
+
+def test_render_cake_recipe_birthday_greeting():
+    recipe = ui.CAKE_RECIPES[0]
+    rendered = ui.render_cake_recipe(recipe, is_birthday=True)
+    assert "🎂" in rendered
+    assert "Its Steve's birthday, here is a gift" in rendered
 
 
 def test_is_steves_birthday():

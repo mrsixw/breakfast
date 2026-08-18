@@ -452,3 +452,71 @@ PIZZA_RECIPES = [
         ),
     },
 ]
+
+# ── Cake Easter Egg Recipes ────────────────────────────────────────────────
+
+CAKE_RECIPES = [
+    {
+        "title": "Ultimate Rich & Fudgy Chocolate Cake",
+        "style": "Double Chocolate Layer Cake (Rich, Moist & Fudgy)",
+        "batter": (
+            "250g plain flour, 300g caster sugar, 75g cocoa powder, 1.5 tsp "
+            "baking powder, 1.5 tsp bicarb, 2 eggs, 250ml milk, 125ml oil, "
+            "250ml freshly brewed hot coffee. Whisk dry, add wet, pour thin "
+            "batter into tins."
+        ),
+        "frosting": (
+            "200g dark chocolate melted with 200ml double cream and 50g "
+            "butter into a glossy ganache."
+        ),
+        "bake": (
+            "350°F (180°C) in two 8-inch greased sandwich tins for 25-30 min "
+            "until a skewer comes out clean."
+        ),
+        "tip": (
+            "Hot coffee blooms the cocoa powder for an intensely deep chocolate "
+            "flavor without tasting like coffee!"
+        ),
+    },
+    {
+        "title": "Classic British Victoria Sponge Cake",
+        "style": "Traditional Layer Sponge (Light & Fluffy)",
+        "batter": (
+            "200g softened butter, 200g caster sugar, 4 eggs, 200g self-raising "
+            "flour, 1 tsp vanilla extract, 1-2 tbsp milk. Beat butter & sugar "
+            "pale, beat in eggs, fold flour gently."
+        ),
+        "frosting": (
+            "Generous layer of raspberry jam and freshly whipped double cream "
+            "with vanilla and a dust of icing sugar."
+        ),
+        "bake": (
+            "375°F (190°C) in two 8-inch tins for 20 min until golden and springy."
+        ),
+        "tip": (
+            "Don't open the oven door for the first 15 minutes to keep the sponge "
+            "from sinking in the centre."
+        ),
+    },
+    {
+        "title": "Spiced Carrot & Walnut Cake",
+        "style": "Moist Spiced Cake (Silky Cream Cheese Frosting)",
+        "batter": (
+            "250g grated carrots, 250g self-raising flour, 2 tsp cinnamon, "
+            "200g light brown sugar, 150ml vegetable oil, 4 eggs, 75g chopped "
+            "walnuts. Whisk oil, sugar, eggs, fold flour, carrots & nuts."
+        ),
+        "frosting": (
+            "100g softened butter, 200g cream cheese, 300g icing sugar, 1 tsp "
+            "vanilla extract beaten smooth."
+        ),
+        "bake": (
+            "350°F (180°C) in an 8-inch round cake tin for 45-50 min until "
+            "golden and firm."
+        ),
+        "tip": (
+            "Ensure the cake is completely cooled before frosting or the cream "
+            "cheese icing will melt!"
+        ),
+    },
+]

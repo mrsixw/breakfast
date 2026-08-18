@@ -863,6 +863,15 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     ),
 )
 @click.option(
+    "--update-summary",
+    is_flag=True,
+    default=False,
+    help=(
+        "When a newer version is available, include a short summary of"
+        " what's new (from the GitHub release notes) below the update banner."
+    ),
+)
+@click.option(
     "--no-colour",
     "--no-color",
     "no_colour",
@@ -978,6 +987,7 @@ def breakfast(
     legendary_only,
     search,
     api_stats,
+    update_summary,
     no_colour,
     colour_diagnostics,
     summarise_user_prs,
@@ -1217,7 +1227,7 @@ def breakfast(
     colour_index = cfg.get("colour-index", False)
     summarise_user_prs = summarise_user_prs or cfg.get("summarise-user-prs", False)
     summarise_repo_prs = summarise_repo_prs or cfg.get("summarise-repo-prs", False)
-    show_update_summary = cfg.get("update-summary", False)
+    show_update_summary = update_summary or cfg.get("update-summary", False)
     sort_by = sort_by if sort_by is not None else cfg.get("sort", "repo")
     sort_reverse = sort_reverse or cfg.get("sort-reverse", False)
 

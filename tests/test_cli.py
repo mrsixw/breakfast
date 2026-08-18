@@ -5577,3 +5577,52 @@ def test_cli_christmas_without_colour_does_not_output_pizza(monkeypatch):
         result = _pizza_run(monkeypatch, ["--no-colour"])
         assert result.exit_code == 0
         assert "🍕" not in result.stderr
+
+
+# ── --update-summary ───────────────────────────────────────────────────────
+
+
+def _run_finish(monkeypatch, **kwargs):
+    """Call _finish_run with the update check stubbed, returning show_summary."""
+    seen = {}
+
+    def fake_check_for_update(show_summary=False):
+        seen["show_summary"] = show_summary
+        return None
+
+    monkeypatch.setattr(cli, "check_for_update", fake_check_for_update)
+    cli._finish_run(
+        0.0,
+        0,
+        no_update_check=False,
+        api_stats=False,
+        colour=False,
+        **kwargs,
+    )
+    return seen.get("show_summary")
+
+
+def test_update_summary_flag_is_offered(monkeypatch):
+    # The regression: the config template advertised "Equivalent to:
+    # --update-summary" for a flag that was never implemented.
+    result = CliRunner().invoke(cli.breakfast, ["--help"])
+    assert "--update-summary" in result.output
+
+
+def test_finish_run_forwards_the_update_summary_choice(monkeypatch):
+    assert _run_finish(monkeypatch, show_update_summary=True) is True
+    assert _run_finish(monkeypatch, show_update_summary=False) is False
+
+
+def test_config_template_only_promises_flags_that_exist():
+    # The root cause: the template advertised a flag nobody had written. Hold
+    # every "Equivalent to:" line in the template to the CLI's actual options.
+    from breakfast import config
+
+    help_text = CliRunner().invoke(cli.breakfast, ["--help"]).output
+    promised = re.findall(
+        r"^# Equivalent to: (--[\w-]+)", config._DEFAULT_CONFIG_CONTENT, re.MULTILINE
+    )
+    assert promised, "expected the template to document some flags"
+    missing = [flag for flag in promised if flag not in help_text]
+    assert not missing, f"config template promises flags that do not exist: {missing}"

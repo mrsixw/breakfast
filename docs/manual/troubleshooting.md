@@ -12,6 +12,24 @@ breakfast reads `GH_TOKEN` first (the variable used by the [`gh` CLI](https://cl
 
 The token needs `repo` scope to access pull request data. Generate one at [github.com/settings/tokens](https://github.com/settings/tokens).
 
+## "GitHub authentication failed: ... was rejected (HTTP 401)..."
+
+If breakfast exits with an error such as:
+
+```text
+🍳 GitHub authentication failed: GITHUB_TOKEN was rejected (HTTP 401). Refresh or replace the token and try again.
+```
+
+Your GitHub personal access token is invalid, revoked, or has expired.
+
+- Check your personal access tokens at [github.com/settings/tokens](https://github.com/settings/tokens) (or [github.com/settings/personal-access-tokens](https://github.com/settings/personal-access-tokens) for fine-grained tokens) and generate a new token if it has expired.
+- Update your environment variable (`export GH_TOKEN="ghp_..."` or `export GITHUB_TOKEN="ghp_..."`). Note that an exported `GH_TOKEN` or `GITHUB_TOKEN` takes precedence over stored credentials managed by `gh auth refresh`.
+- Verify authentication manually:
+
+```bash
+curl -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" https://api.github.com/user
+```
+
 ## No PRs displayed
 
 - Verify the owner name is correct (`-o` / `--owner`)

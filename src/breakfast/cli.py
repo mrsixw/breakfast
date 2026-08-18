@@ -14,6 +14,7 @@ import requests
 
 from .api import (
     SECRET_GITHUB_TOKEN,
+    GitHubAuthenticationError,
     GitHubGraphQLError,
     GitHubGraphQLResourceLimitError,
     GitHubRateLimitError,
@@ -178,6 +179,16 @@ def _handle_rate_limit(exc, json_output=False):
     click.echo(
         click.style(f"🥞 {exc}", fg="red", bold=True),
         err=True,
+    )
+    sys.exit(1)
+
+
+def _handle_auth_error(exc, colour=None, json_output=False):
+    """Print a friendly authentication error message and exit non-zero."""
+    click.echo(
+        click.style(f"🍳 {exc}", fg="red", bold=True),
+        err=True,
+        color=colour,
     )
     sys.exit(1)
 
@@ -1303,6 +1314,8 @@ def breakfast(
             try:
                 current_user_login = get_authenticated_user_login()
                 write_cached_user_login(current_user_login)
+            except GitHubAuthenticationError as exc:
+                _handle_auth_error(exc, colour=colour, json_output=json_output)
             except GitHubRateLimitError as exc:
                 _handle_rate_limit(exc, json_output)
             except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
@@ -1518,6 +1531,12 @@ def breakfast(
                                 nl=False,
                                 err=True,
                             )
+                        except GitHubAuthenticationError as exc:
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            click.echo("", err=True)
+                            _handle_auth_error(
+                                exc, colour=colour, json_output=json_output
+                            )
                         except GitHubRateLimitError as exc:
                             click.echo("", err=True)
                             _handle_rate_limit(exc, json_output)
@@ -1564,6 +1583,9 @@ def breakfast(
             if cache_enabled:
                 needs_cache_write = True
 
+        except GitHubAuthenticationError as exc:
+            click.echo("", err=True)
+            _handle_auth_error(exc, colour=colour, json_output=json_output)
         except GitHubGraphQLResourceLimitError as exc:
             logger.warning(
                 "graphql_resource_limit_unrecoverable error_count=%d errors=%s",

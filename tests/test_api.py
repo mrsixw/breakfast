@@ -1298,6 +1298,96 @@ def test_make_github_api_request_403_without_rate_limit_header_raises_http_error
         api.make_github_api_request("/user")
 
 
+def _make_auth_error_response():
+    """Return a fake requests.Response that looks like an HTTP 401 Unauthorized."""
+
+    class FakeUnauthorized:
+        status_code = 401
+        headers = {}
+
+        def raise_for_status(self):
+            raise requests.exceptions.HTTPError(response=self)
+
+    return FakeUnauthorized()
+
+
+def test_make_github_api_request_raises_auth_error_on_401(monkeypatch):
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "expired-token")
+    calls = []
+
+    def fake_get(*_a, **_kw):
+        calls.append(1)
+        return _make_auth_error_response()
+
+    monkeypatch.setattr(api.requests, "get", fake_get)
+
+    with pytest.raises(api.GitHubAuthenticationError) as exc_info:
+        api.make_github_api_request("/user")
+
+    assert isinstance(exc_info.value, requests.exceptions.HTTPError)
+    assert "GitHub authentication failed" in str(exc_info.value)
+    assert "HTTP 401" in str(exc_info.value)
+    assert len(calls) == 1  # 401 is not retried
+
+
+def test_make_github_graphql_request_raises_auth_error_on_401(monkeypatch):
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "expired-token")
+    calls = []
+
+    def fake_post(*_a, **_kw):
+        calls.append(1)
+        return _make_auth_error_response()
+
+    monkeypatch.setattr(api.requests, "post", fake_post)
+
+    with pytest.raises(api.GitHubAuthenticationError) as exc_info:
+        api.make_github_graphql_request("query { viewer { login } }")
+
+    assert isinstance(exc_info.value, requests.exceptions.HTTPError)
+    assert "GitHub authentication failed" in str(exc_info.value)
+    assert "HTTP 401" in str(exc_info.value)
+    assert len(calls) == 1  # 401 is not retried
+
+
+def test_get_authenticated_user_login_raises_auth_error_on_401(monkeypatch):
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "expired-token")
+    monkeypatch.setattr(
+        api.requests, "get", lambda *_a, **_kw: _make_auth_error_response()
+    )
+
+    with pytest.raises(api.GitHubAuthenticationError):
+        api.get_authenticated_user_login()
+
+
+def test_make_github_api_request_401_names_active_token_variable(monkeypatch):
+    monkeypatch.setenv("GH_TOKEN", "cli-token")
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "cli-token")
+    monkeypatch.setattr(
+        api.requests, "get", lambda *_a, **_kw: _make_auth_error_response()
+    )
+
+    with pytest.raises(api.GitHubAuthenticationError) as exc_info_gh:
+        api.make_github_api_request("/user")
+    assert "GH_TOKEN was rejected" in str(exc_info_gh.value)
+
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_TOKEN", "env-token")
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "env-token")
+
+    with pytest.raises(api.GitHubAuthenticationError) as exc_info_github:
+        api.make_github_api_request("/user")
+    assert "GITHUB_TOKEN was rejected" in str(exc_info_github.value)
+
+
+def test_github_auth_error_message_identifies_token_variable():
+    err = api.GitHubAuthenticationError(token_var="GH_TOKEN")
+    assert "GH_TOKEN was rejected" in str(err)
+
+    err2 = api.GitHubAuthenticationError(token_var="GITHUB_TOKEN")
+    assert "GITHUB_TOKEN was rejected" in str(err2)
+
+
 # ---------------------------------------------------------------------------
 # _fetch_pr_detail URL parsing (#241)
 # ---------------------------------------------------------------------------
@@ -1466,3 +1556,16 @@ def test_resolve_github_token_none_when_neither_set(monkeypatch):
     monkeypatch.delenv("GH_TOKEN", raising=False)
 
     assert api._resolve_github_token() is None
+
+
+def test_resolve_github_token_info(monkeypatch):
+    monkeypatch.setenv("GH_TOKEN", "cli-tok")
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-tok")
+    assert api._resolve_github_token_info() == ("cli-tok", "GH_TOKEN")
+
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-tok")
+    assert api._resolve_github_token_info() == ("gh-tok", "GITHUB_TOKEN")
+
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    assert api._resolve_github_token_info() == (None, None)

@@ -276,8 +276,15 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Control how version update alerts appear.
 # -----------------------------------------------------------------------------
 
+# Skip the automatic check for newer releases entirely.
+# Also honoured via the BREAKFAST_NO_UPDATE_CHECK environment variable, set to
+# any non-empty value.
+# Equivalent to: --no-update-check
+# no-update-check = false
+
 # When a newer version of breakfast is available, include a short summary of
 # what's new (pulled from the GitHub release notes) below the update banner.
+# Has no effect when no-update-check is true.
 # Equivalent to: --update-summary
 # update-summary = false
 

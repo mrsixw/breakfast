@@ -1023,6 +1023,14 @@ breakfast -o my-org -r my-app --no-update-check
 export BREAKFAST_NO_UPDATE_CHECK=1
 ```
 
+Or permanently, in `~/.config/breakfast/config.toml`:
+
+```toml
+no-update-check = true
+```
+
+Any one of the three switching it off is enough; there is no way for a later one to switch it back on.
+
 Like `NO_COLOR`, `BREAKFAST_NO_UPDATE_CHECK` is resolved by presence: any non-empty value disables the update check, and only unset or empty leaves it enabled.
 
 ## Colour control

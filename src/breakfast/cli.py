@@ -1200,6 +1200,9 @@ def breakfast(
         legendary = True  # --legendary-only implies marking
     api_stats = api_stats or cfg.get("api-stats", False)
     no_colour = no_colour or cfg.get("no-colour", False)
+    # Composed after the flag and BREAKFAST_NO_UPDATE_CHECK, both resolved
+    # further up: any one of the three switching it off is enough.
+    no_update_check = no_update_check or cfg.get("no-update-check", False)
     colour = not no_colour
 
     # Click's IntRange has already vetted any command-line values; these config

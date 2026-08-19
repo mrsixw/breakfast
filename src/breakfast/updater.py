@@ -137,6 +137,20 @@ def _parse_version_tuple(version_str):
         return ()
 
 
+def _is_newer(latest: str, current: str) -> bool:
+    """Compare versions with zero-padding so ``0.2.0`` is not newer than ``0.2``.
+
+    _parse_version_tuple's length follows the number of dot-separated segments,
+    so a bare tuple comparison lets any longer tuple beat a shorter one sharing
+    its prefix — reporting an update from 0.98 to 0.98.0, which are the same
+    release.
+    """
+    lt = _parse_version_tuple(latest)
+    ct = _parse_version_tuple(current)
+    width = max(len(lt), len(ct))
+    return lt + (0,) * (width - len(lt)) > ct + (0,) * (width - len(ct))
+
+
 def get_release_summary(body: str, max_chars: int = 200) -> str:
     """Extract a short human-readable summary from a GitHub release body.
 
@@ -173,7 +187,7 @@ def check_for_update(show_summary: bool = False):
         latest = get_latest_version()
         if not latest:
             return None
-        if _parse_version_tuple(latest) > _parse_version_tuple(current):
+        if _is_newer(latest, current):
             msg = (
                 f"\U0001f373 A fresh breakfast is ready! "
                 f"v{current} → v{latest} "
@@ -218,7 +232,7 @@ def perform_update(executable_path) -> tuple[UpdateStatus, str, str | None]:
         return UpdateStatus.UNKNOWN, current, None
     # Same comparison check_for_update() uses, so the passive notice and this
     # command can never disagree about whether an update exists.
-    if not _parse_version_tuple(latest) > _parse_version_tuple(current):
+    if not _is_newer(latest, current):
         return UpdateStatus.UP_TO_DATE, current, latest
 
     # Download to a sibling and os.replace() it into position: the rename is

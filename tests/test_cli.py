@@ -5577,3 +5577,67 @@ def test_cli_christmas_without_colour_does_not_output_pizza(monkeypatch):
         result = _pizza_run(monkeypatch, ["--no-colour"])
         assert result.exit_code == 0
         assert "🍕" not in result.stderr
+
+
+# --- no-update-check config key (issue #439) --------------------------------
+
+
+def _update_check_probe(monkeypatch, cfg):
+    """Run breakfast with *cfg* loaded, returning the update-check call log."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "load_config", lambda _: cfg)
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+    monkeypatch.delenv("BREAKFAST_NO_UPDATE_CHECK", raising=False)
+
+    checked = []
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: checked.append(1))
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+    assert result.exit_code == 0, result.output
+    return checked
+
+
+def test_no_update_check_config_key_disables_check(monkeypatch):
+    assert _update_check_probe(monkeypatch, {"no-update-check": True}) == []
+
+
+def test_no_update_check_config_key_false_leaves_check_enabled(monkeypatch):
+    assert _update_check_probe(monkeypatch, {"no-update-check": False}) == [1]
+
+
+def test_no_update_check_absent_from_config_leaves_check_enabled(monkeypatch):
+    assert _update_check_probe(monkeypatch, {}) == [1]
+
+
+def test_no_update_check_flag_beats_a_false_config_key(monkeypatch):
+    # Any one of flag, env var, or config key switching it off is enough —
+    # none of the three can switch it back on.
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "load_config", lambda _: {"no-update-check": False})
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+    monkeypatch.delenv("BREAKFAST_NO_UPDATE_CHECK", raising=False)
+
+    checked = []
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: checked.append(1))
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--no-update-check"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert checked == []
+
+
+def test_no_update_check_env_beats_a_false_config_key(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "load_config", lambda _: {"no-update-check": False})
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+    monkeypatch.setenv("BREAKFAST_NO_UPDATE_CHECK", "1")
+
+    checked = []
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: checked.append(1))
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0, result.output
+    assert checked == []

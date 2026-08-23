@@ -1,4 +1,4 @@
-# Codex Instructions
+# Agent Instructions
 
 ## Project Overview
 - **breakfast** is a CLI tool that displays open GitHub pull requests across an organization's repos in a terminal table.
@@ -28,13 +28,21 @@
   - `docs/design/` — technical design documents for planned features
 
 ## Agent Instruction Files
-This project maintains per-agent instruction files that all convey the same rules:
-- `CLAUDE.md` — Claude Code
-- `GEMINI.md` — Gemini
-- `AGENTS.md` — OpenAI Codex (this file)
-- `.github/copilot-instructions.md` — GitHub Copilot
+`AGENTS.md` is the single source of truth. `CLAUDE.md`, `GEMINI.md` and
+`.github/copilot-instructions.md` are symlinks to it, so there is one file to
+edit and drift between them is impossible.
 
-When updating project rules, update **all four files** to keep them consistent.
+- `AGENTS.md` — canonical. Read natively by Codex and most other agents
+- `CLAUDE.md` → symlink — Claude Code
+- `GEMINI.md` → symlink — Gemini
+- `.github/copilot-instructions.md` → symlink — GitHub Copilot
+
+`AGENTS.md` is the canonical file because Codex, Copilot and others read that
+name natively, and it is the emerging cross-tool convention. The three tools
+that insist on their own filename get a symlink instead of a copy.
+
+On Windows, git checks symlinks out as plain text files containing the target
+path unless `core.symlinks=true` and Developer Mode are both enabled.
 
 ## Environment
 - Python >= 3.11

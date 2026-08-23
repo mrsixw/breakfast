@@ -645,7 +645,7 @@ def test_cli_pr_detail_fetch_exits_cleanly_on_auth_error(monkeypatch):
     )
     monkeypatch.setattr(
         cli,
-        "_fetch_pr_detail",
+        "fetch_pr_detail",
         lambda *_a, **_kw: (_ for _ in ()).throw(
             GitHubAuthenticationError(token_var="GH_TOKEN")
         ),
@@ -1390,7 +1390,7 @@ def test_cli_exclude_repo_filtering(monkeypatch):
             "number": 1,
         }
 
-    monkeypatch.setattr(cli, "_fetch_pr_detail", fake_fetch_pr_detail)
+    monkeypatch.setattr(cli, "fetch_pr_detail", fake_fetch_pr_detail)
     monkeypatch.setattr(cli, "render_pr_summary", lambda *a, **k: "PR SUMMARY")
 
     runner = CliRunner()
@@ -2245,7 +2245,7 @@ def test_per_repo_cache_partial_hit(monkeypatch, tmp_path):
     fetched_urls = []
 
     def fake_rest(url):
-        # _fetch_pr_detail converts https://github.com/org/repo-b/pull/2 →
+        # fetch_pr_detail converts https://github.com/org/repo-b/pull/2 →
         # /repos/org/repo-b/pulls/2
         fetched_urls.append(url)
         if "repo-b" in url and "2" in url:
@@ -5428,7 +5428,7 @@ def _pizza_run(monkeypatch, extra_args=(), state_dir=None):
     )
     monkeypatch.setattr(
         cli,
-        "_fetch_pr_detail",
+        "fetch_pr_detail",
         lambda *_a, **_kw: {
             "id": 1,
             "url": "https://github.com/org/repo/pull/1",
@@ -5583,7 +5583,7 @@ def test_cli_christmas_without_colour_does_not_output_pizza(monkeypatch):
 
 
 def _run_finish(monkeypatch, **kwargs):
-    """Call _finish_run with the update check stubbed, returning show_summary."""
+    """Call finish_run with the update check stubbed, returning show_summary."""
     seen = {}
 
     def fake_check_for_update(show_summary=False):
@@ -5591,7 +5591,7 @@ def _run_finish(monkeypatch, **kwargs):
         return None
 
     monkeypatch.setattr(cli, "check_for_update", fake_check_for_update)
-    cli._finish_run(
+    cli.finish_run(
         0.0,
         0,
         no_update_check=False,

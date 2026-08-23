@@ -19,8 +19,7 @@ from .api import (
     GitHubGraphQLResourceLimitError,
     GitHubRateLimitError,
     OwnerNotFoundError,
-    _fetch_pr_detail,
-    _match_exclude_repos,
+    fetch_pr_detail,
     get_api_stats,
     get_approval_summary,
     get_authenticated_user_login,
@@ -28,6 +27,7 @@ from .api import (
     get_github_prs,
     get_graphql_rate_limit,
     get_pr_age_days,
+    match_exclude_repos,
 )
 from .cache import (
     parse_ttl,
@@ -71,6 +71,12 @@ from .ui import (
     render_pr_summary,
 )
 from .updater import UpdateStatus, check_for_update, perform_update
+
+__all__ = [
+    "breakfast",
+    "env_flag_is_set",
+    "finish_run",
+]
 
 
 class Shell(StrEnum):
@@ -127,7 +133,7 @@ def _stdout_is_tty():
     return sys.stdout.isatty()
 
 
-def _env_flag_is_set(name):
+def env_flag_is_set(name):
     """Report whether an environment variable is set to any non-empty value.
 
     This is the no-color.org convention: presence is the signal, and the value
@@ -230,7 +236,7 @@ def _print_debug_summary(t0, pr_count, api_stats, graphql_rate_limit):
     click.echo("\n".join(lines), err=True)
 
 
-def _finish_run(
+def finish_run(
     t0_total,
     pr_count,
     *,
@@ -420,7 +426,7 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     Propagates RequestException from the detail fetch so the caller can skip
     the PR. Check/approval failures fall back to sentinel values instead.
     """
-    pr_detail = _fetch_pr_detail(url)
+    pr_detail = fetch_pr_detail(url)
 
     check_status = None
     if fetch_checks:
@@ -682,7 +688,7 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     default=False,
     # No envvar= here: Click would route BREAKFAST_NO_UPDATE_CHECK through its
     # BOOL converter, so unrecognised values abort the run. Resolved by
-    # presence in the callback instead — see _env_flag_is_set.
+    # presence in the callback instead — see env_flag_is_set.
     help=(
         "Disable the automatic update check."
         " Also honoured via the BREAKFAST_NO_UPDATE_CHECK environment"
@@ -1007,11 +1013,11 @@ def breakfast(
     if ctx.invoked_subcommand is not None:
         return
 
-    # Resolved by presence, not by parsing: see _env_flag_is_set. This runs
+    # Resolved by presence, not by parsing: see env_flag_is_set. This runs
     # before the first use of no_colour below, and composes with the config
     # fallback further down.
-    no_colour = no_colour or _env_flag_is_set("NO_COLOR")
-    no_update_check = no_update_check or _env_flag_is_set("BREAKFAST_NO_UPDATE_CHECK")
+    no_colour = no_colour or env_flag_is_set("NO_COLOR")
+    no_update_check = no_update_check or env_flag_is_set("BREAKFAST_NO_UPDATE_CHECK")
 
     if completion_shell:
         click.echo(
@@ -1512,7 +1518,7 @@ def breakfast(
                 prs = [
                     url
                     for url in prs
-                    if not _match_exclude_repos(_extract_repo_name(url), exclude_repos)
+                    if not match_exclude_repos(_extract_repo_name(url), exclude_repos)
                 ]
 
             # --- Layer 2.5: per-repo PR cache ---
@@ -1932,7 +1938,7 @@ def breakfast(
             render_pr_summary(groups, title, label_header, colour, seasonal_calendar),
             color=colour and _stdout_is_tty(),
         )
-        _finish_run(
+        finish_run(
             t0_total,
             len(pr_details),
             no_update_check=no_update_check,
@@ -2012,7 +2018,7 @@ def breakfast(
             stdout_is_tty=_stdout_is_tty(),
         )
 
-    _finish_run(
+    finish_run(
         t0_total,
         len(pr_details),
         no_update_check=no_update_check,

@@ -14,6 +14,14 @@ from .api import SECRET_GITHUB_TOKEN
 from .logger import logger
 from .xdg import get_cache_dir
 
+__all__ = [
+    "UpdateStatus",
+    "check_for_update",
+    "get_latest_version",
+    "get_release_summary",
+    "perform_update",
+]
+
 _UPDATE_CHECK_REPO = "mrsixw/breakfast"
 _PACKAGE_NAME = "breakfast"
 _RELEASE_ASSET_URL = (

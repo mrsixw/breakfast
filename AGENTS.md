@@ -1,4 +1,4 @@
-# Codex Instructions
+# Agent Instructions
 
 ## Project Overview
 - **breakfast** is a CLI tool that displays open GitHub pull requests across an organization's repos in a terminal table.
@@ -28,13 +28,21 @@
   - `docs/design/` — technical design documents for planned features
 
 ## Agent Instruction Files
-This project maintains per-agent instruction files that all convey the same rules:
-- `CLAUDE.md` — Claude Code
-- `GEMINI.md` — Gemini
-- `AGENTS.md` — OpenAI Codex (this file)
-- `.github/copilot-instructions.md` — GitHub Copilot
+`AGENTS.md` is the single source of truth. `CLAUDE.md`, `GEMINI.md` and
+`.github/copilot-instructions.md` are symlinks to it, so there is one file to
+edit and drift between them is impossible.
 
-When updating project rules, update **all four files** to keep them consistent.
+- `AGENTS.md` — canonical. Read natively by Codex and most other agents
+- `CLAUDE.md` → symlink — Claude Code
+- `GEMINI.md` → symlink — Gemini
+- `.github/copilot-instructions.md` → symlink — GitHub Copilot
+
+`AGENTS.md` is the canonical file because Codex, Copilot and others read that
+name natively, and it is the emerging cross-tool convention. The three tools
+that insist on their own filename get a symlink instead of a copy.
+
+On Windows, git checks symlinks out as plain text files containing the target
+path unless `core.symlinks=true` and Developer Mode are both enabled.
 
 ## Environment
 - Python >= 3.11
@@ -78,6 +86,21 @@ This repository provides standardized automated workflows for managing issues. A
 - **Raise a Pull Request:** Follow the steps defined in [.agents/skills/raise-pr/SKILL.md](.agents/skills/raise-pr/SKILL.md).
 - **Monitor Pull Request CI:** Follow the steps defined in [.agents/skills/monitor-pr/SKILL.md](.agents/skills/monitor-pr/SKILL.md).
 - **Raise a new issue:** Follow the steps defined in [.agents/skills/raise-issue/SKILL.md](.agents/skills/raise-issue/SKILL.md).
+
+## Module API contract
+- A leading `_` means "internal to this module". Anything a sibling module
+  imports must not have one, and must appear in that module's `__all__`.
+- Every module in `src/breakfast/` declares `__all__`. Add new public names to it.
+- `constants.py` holds no underscore-prefixed names at all — a module of pure
+  data has no invariants to protect.
+- Reach other modules through their public names only. If you need something a
+  module keeps private, widen that module's API deliberately — rename it and add
+  it to `__all__` — rather than reaching past the underscore. A private name you
+  had to import was never really private.
+- The same applies to third-party libraries: depend on their documented API, not
+  on internals that can change in a patch release.
+- `tests/test_public_api.py` enforces the first two. Tests may still reach into
+  the internals of the module they test — that boundary is not policed.
 
 ## Commit Messages
 - Use Conventional Commits (e.g., `feat: ...`, `fix: ...`, `chore: ...`, `docs: ...`, `refactor: ...`, `test: ...`, `ci: ...`).

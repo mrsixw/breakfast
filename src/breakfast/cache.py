@@ -6,9 +6,25 @@ from pathlib import Path
 
 import click
 
-from .constants import _SUFFIX_MAP
+from .constants import TTL_SUFFIX_MAP
 from .logger import logger
 from .xdg import get_cache_dir
+
+__all__ = [
+    "cache_path",
+    "graphql_cache_path",
+    "make_cache_key",
+    "parse_ttl",
+    "read_cached_user_login",
+    "read_graphql_cache",
+    "read_pr_cache",
+    "read_repo_pr_cache",
+    "repo_pr_cache_path",
+    "write_cached_user_login",
+    "write_graphql_cache",
+    "write_pr_cache",
+    "write_repo_pr_cache",
+]
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
@@ -41,7 +57,7 @@ def parse_ttl(value: str | int) -> int:
     if not s:
         raise ValueError("TTL must not be empty")
 
-    if s[-1] in _SUFFIX_MAP:
+    if s[-1] in TTL_SUFFIX_MAP:
         suffix = s[-1]
         try:
             n = int(s[:-1])
@@ -49,7 +65,7 @@ def parse_ttl(value: str | int) -> int:
             raise ValueError(f"Invalid TTL: {value!r}")
         if n <= 0:
             raise ValueError(f"TTL must be positive, got {value!r}")
-        return n * _SUFFIX_MAP[suffix]
+        return n * TTL_SUFFIX_MAP[suffix]
 
     try:
         n = int(s)

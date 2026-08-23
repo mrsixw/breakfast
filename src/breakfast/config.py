@@ -13,6 +13,16 @@ from .api import get_pr_age_days, get_pr_inactive_days
 from .logger import logger
 from .xdg import get_config_dir, get_config_paths
 
+__all__ = [
+    "KNOWN_KEYS",
+    "filter_pr_details",
+    "generate_default_config",
+    "load_config",
+    "normalize_ignore_authors",
+    "parse_columns_config",
+    "update_config",
+]
+
 _DEFAULT_CONFIG_CONTENT = """\
 # =============================================================================
 #  breakfast configuration file

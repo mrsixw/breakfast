@@ -397,24 +397,24 @@ def test_get_github_prs_raises_owner_not_found_when_null(monkeypatch):
 
 
 def test_match_exclude_repos_exact():
-    assert api._match_exclude_repos("old-service", ["old-service"]) is True
-    assert api._match_exclude_repos("app", ["old-service"]) is False
+    assert api.match_exclude_repos("old-service", ["old-service"]) is True
+    assert api.match_exclude_repos("app", ["old-service"]) is False
 
 
 def test_match_exclude_repos_glob():
-    assert api._match_exclude_repos("old-api", ["old-*"]) is True
-    assert api._match_exclude_repos("old-web", ["old-*"]) is True
-    assert api._match_exclude_repos("app", ["old-*"]) is False
+    assert api.match_exclude_repos("old-api", ["old-*"]) is True
+    assert api.match_exclude_repos("old-web", ["old-*"]) is True
+    assert api.match_exclude_repos("app", ["old-*"]) is False
 
 
 def test_match_exclude_repos_multiple_patterns():
-    assert api._match_exclude_repos("infra-prod", ["old-*", "infra-*"]) is True
-    assert api._match_exclude_repos("app", ["old-*", "infra-*"]) is False
+    assert api.match_exclude_repos("infra-prod", ["old-*", "infra-*"]) is True
+    assert api.match_exclude_repos("app", ["old-*", "infra-*"]) is False
 
 
 def test_match_exclude_repos_empty():
-    assert api._match_exclude_repos("anything", []) is False
-    assert api._match_exclude_repos("anything", None) is False
+    assert api.match_exclude_repos("anything", []) is False
+    assert api.match_exclude_repos("anything", None) is False
 
 
 def test_get_github_prs_fetch_state_open_uses_open_enum(monkeypatch):
@@ -1389,7 +1389,7 @@ def test_github_auth_error_message_identifies_token_variable():
 
 
 # ---------------------------------------------------------------------------
-# _fetch_pr_detail URL parsing (#241)
+# fetch_pr_detail URL parsing (#241)
 # ---------------------------------------------------------------------------
 
 
@@ -1402,7 +1402,7 @@ def test_fetch_pr_detail_standard_url(monkeypatch):
         return {"number": 42}
 
     monkeypatch.setattr(api, "make_github_api_request", fake_request)
-    api._fetch_pr_detail("https://github.com/myorg/myrepo/pull/42")
+    api.fetch_pr_detail("https://github.com/myorg/myrepo/pull/42")
     assert calls == ["/repos/myorg/myrepo/pulls/42"]
 
 
@@ -1410,7 +1410,7 @@ def test_fetch_pr_detail_trailing_slash(monkeypatch):
     """Trailing slash in URL does not break parsing."""
     calls = []
     monkeypatch.setattr(api, "make_github_api_request", lambda p: calls.append(p) or {})
-    api._fetch_pr_detail("https://github.com/org/repo/pull/7/")
+    api.fetch_pr_detail("https://github.com/org/repo/pull/7/")
     assert calls == ["/repos/org/repo/pulls/7"]
 
 
@@ -1419,7 +1419,7 @@ def test_fetch_pr_detail_invalid_url_raises():
     import pytest
 
     with pytest.raises(ValueError, match="Unexpected PR URL format"):
-        api._fetch_pr_detail("https://github.com/short")
+        api.fetch_pr_detail("https://github.com/short")
 
 
 def test_get_check_status_none_conclusion_not_counted_as_pass(monkeypatch):
@@ -1512,7 +1512,7 @@ def test_make_github_graphql_request_asserts_timeout(monkeypatch):
 
 
 def test_make_github_api_request_retries_on_timeout_and_propagates(monkeypatch):
-    """Verifies that a Timeout is retried _MAX_RETRIES times and then raises."""
+    """Verifies that a Timeout is retried MAX_RETRIES times and then raises."""
     attempts = []
     monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(api.time, "sleep", lambda _: None)

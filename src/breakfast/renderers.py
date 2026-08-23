@@ -13,11 +13,11 @@ from tabulate import tabulate
 
 from .api import get_pr_age_days
 from .constants import (
-    _COLUMN_DISPLAY_NAMES,
-    _DROPPABLE_COLUMNS,
-    _LEGENDARY_AGE_THRESHOLD_DAYS,
-    _LEGENDARY_COMMENT_THRESHOLD,
-    _LEGENDARY_EMOJI,
+    COLUMN_DISPLAY_NAMES,
+    DROPPABLE_COLUMNS,
+    LEGENDARY_AGE_THRESHOLD_DAYS,
+    LEGENDARY_COMMENT_THRESHOLD,
+    LEGENDARY_EMOJI,
 )
 from .ui import (
     apply_seasonal_colour,
@@ -29,6 +29,17 @@ from .ui import (
     format_pr_state,
     generate_terminal_url_anchor,
 )
+
+__all__ = [
+    "format_labels",
+    "format_reviewers",
+    "is_legendary",
+    "render_csv",
+    "render_json",
+    "render_markdown",
+    "render_table",
+    "render_template",
+]
 
 _ANSI_RE = re.compile(r"\x1b(?:\[[0-9;]*[a-zA-Z]|\]8;;.*?\x1b\\|\]8;;.*?\x07)")
 _ANSI_LEADING_RE = re.compile(r"^(?:\x1b\[[0-9;]*[a-zA-Z])*")
@@ -56,8 +67,8 @@ def is_legendary(pr_detail, now=None):
     """
     total_comments = pr_detail.get("comments", 0) + pr_detail.get("review_comments", 0)
     return (
-        total_comments >= _LEGENDARY_COMMENT_THRESHOLD
-        and _get_pr_age_days(pr_detail, now=now) >= _LEGENDARY_AGE_THRESHOLD_DAYS
+        total_comments >= LEGENDARY_COMMENT_THRESHOLD
+        and _get_pr_age_days(pr_detail, now=now) >= LEGENDARY_AGE_THRESHOLD_DAYS
     )
 
 
@@ -332,7 +343,7 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
         return pr_data
 
     # 8. Drop low-priority columns as last resort
-    for col in _DROPPABLE_COLUMNS:
+    for col in DROPPABLE_COLUMNS:
         if fits():
             break
         if col in pr_data[0]:
@@ -373,7 +384,7 @@ def _apply_column_specs(
 
     ordered: list[tuple[str, str, str | None]] = []
     for spec in resolved_specs:
-        display_key = _COLUMN_DISPLAY_NAMES.get(spec["name"])
+        display_key = COLUMN_DISPLAY_NAMES.get(spec["name"])
         if not display_key:
             continue
         if spec["name"] == "org" and not multi_org:
@@ -877,7 +888,7 @@ def render_table(
 
         state_label = format_pr_state(pr_detail["state"], pr_detail.get("draft", False))
         if legendary and is_legendary(pr_detail):
-            state_label = state_label + " " + _LEGENDARY_EMOJI
+            state_label = state_label + " " + LEGENDARY_EMOJI
 
         repo = pr_detail["base"]["repo"]
         repo_url = repo.get("html_url") or pr_detail["html_url"].split("/pull/")[0]

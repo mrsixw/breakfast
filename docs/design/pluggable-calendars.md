@@ -37,7 +37,7 @@ CalendarFn = Callable[[datetime.date], str | list[str] | None]
 
 ### `src/breakfast/ui.py`
 
-- Pre-computed lookup tables (`_DIWALI`, `_EID_AL_ADHA`, `_EID_AL_FITR`, `_HANUKKAH_START`, `_HOLI`, `_MID_AUTUMN`, `_PASSOVER_START`, `_ROSH_HASHANAH`, `_SUKKOT_START`) covering 2024–2045.
+- Pre-computed lookup tables (`DIWALI`, `EID_AL_ADHA`, `EID_AL_FITR`, `HANUKKAH_START`, `HOLI_DATES`, `MID_AUTUMN`, `PASSOVER_START`, `ROSH_HASHANAH`, `SUKKOT_START`) covering 2024–2045.
 - `_in_holiday_window(today, table, days)` helper.
 - `_east_asian_calendar`, `_hindu_calendar`, `_islamic_calendar`, `_jewish_calendar`, `_sikh_calendar`, `_western_calendar` — same signature. `_western_calendar` is refactored from the old `apply_seasonal_colour` logic. All return `list` for cycling effects, `str` for fixed colours, or `None` otherwise.
 - `CALENDARS` dict maps string keys to calendar functions.

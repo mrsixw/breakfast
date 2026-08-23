@@ -433,7 +433,7 @@ def test_droppable_columns_approved():
     fitted = renderers._auto_fit(
         rows, terminal_width=20, explicit_max_title_length=None
     )
-    # The column "Apr" should be dropped since we fixed the name in _DROPPABLE_COLUMNS
+    # The column "Apr" should be dropped since we fixed the name in DROPPABLE_COLUMNS
     for row in fitted:
         assert "Approved" not in row
         assert "Apr" not in row

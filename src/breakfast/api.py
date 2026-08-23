@@ -12,18 +12,41 @@ import click
 import requests
 
 from .constants import (
-    _GRAPHQL_REPOSITORY_PAGE_SIZE,
-    _MAX_GRAPHQL_ERROR_MESSAGE_LENGTH,
-    _MAX_GRAPHQL_ERROR_TYPES,
-    _MAX_RETRIES,
-    _MAX_STORED_GRAPHQL_ERRORS,
-    _REQUEST_TIMEOUT,
-    _RETRY_STATUSES,
     BREAKFAST_ITEMS,
     GITHUB_API_URL,
     GITHUB_GRAPHQL_URL,
+    GRAPHQL_REPOSITORY_PAGE_SIZE,
+    MAX_GRAPHQL_ERROR_MESSAGE_LENGTH,
+    MAX_GRAPHQL_ERROR_TYPES,
+    MAX_RETRIES,
+    MAX_STORED_GRAPHQL_ERRORS,
+    REQUEST_TIMEOUT,
+    RETRY_STATUSES,
 )
 from .logger import logger
+
+__all__ = [
+    "GitHubAuthenticationError",
+    "GitHubGraphQLError",
+    "GitHubGraphQLResourceLimitError",
+    "GitHubRateLimitError",
+    "OwnerNotFoundError",
+    "fetch_pr_detail",
+    "get_api_stats",
+    "get_approval_status",
+    "get_approval_summary",
+    "get_authenticated_user_login",
+    "get_check_status",
+    "get_github_prs",
+    "get_graphql_rate_limit",
+    "get_pr_age_days",
+    "get_pr_inactive_days",
+    "get_required_approving_review_count",
+    "make_github_api_request",
+    "make_github_graphql_request",
+    "make_paginated_github_api_request",
+    "match_exclude_repos",
+]
 
 
 def _resolve_github_token_info():
@@ -69,10 +92,10 @@ def _summarize_graphql_errors(errors):
 
     summaries = []
     error_types = sorted(counts, key=lambda item: (-counts[item], item))
-    for error_type in error_types[:_MAX_GRAPHQL_ERROR_TYPES]:
+    for error_type in error_types[:MAX_GRAPHQL_ERROR_TYPES]:
         message = first_messages[error_type]
-        if len(message) > _MAX_GRAPHQL_ERROR_MESSAGE_LENGTH:
-            message = f"{message[: _MAX_GRAPHQL_ERROR_MESSAGE_LENGTH - 3]}..."
+        if len(message) > MAX_GRAPHQL_ERROR_MESSAGE_LENGTH:
+            message = f"{message[: MAX_GRAPHQL_ERROR_MESSAGE_LENGTH - 3]}..."
         summaries.append(f"{error_type}={counts[error_type]}: {message}")
 
     omitted_types = len(counts) - len(summaries)
@@ -92,7 +115,7 @@ class GitHubGraphQLError(ValueError):
 
     def __init__(self, errors):
         self.error_count = len(errors)
-        self.errors = tuple(errors[:_MAX_STORED_GRAPHQL_ERRORS])
+        self.errors = tuple(errors[:MAX_STORED_GRAPHQL_ERRORS])
         self.summary = _summarize_graphql_errors(errors)
         super().__init__(f"GraphQL request failed: {self.summary}")
 
@@ -354,7 +377,7 @@ def make_github_api_request(query_string):
         "Authorization": f"token {SECRET_GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json",
     }
-    for attempt in range(_MAX_RETRIES + 1):
+    for attempt in range(MAX_RETRIES + 1):
         _raise_if_api_requests_stopped()
         if attempt:
             time.sleep(2 ** (attempt - 1) + random.uniform(0, 0.5))
@@ -362,11 +385,11 @@ def make_github_api_request(query_string):
             _raise_if_api_requests_stopped()
             t0 = time.monotonic()
             _record_api_attempt("rest")
-            req = requests.get(url, headers=headers, timeout=_REQUEST_TIMEOUT)
+            req = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             response_headers = getattr(req, "headers", {})
             _record_rate_limit_headers("rest", response_headers)
-            if req.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES:
+            if req.status_code in RETRY_STATUSES and attempt < MAX_RETRIES:
                 logger.debug(
                     "api_call type=rest url=%s status=%d"
                     " elapsed_ms=%d attempt=%d retrying",
@@ -420,11 +443,11 @@ def make_github_api_request(query_string):
                 str(exc),
                 attempt + 1,
             )
-            if attempt == _MAX_RETRIES:
+            if attempt == MAX_RETRIES:
                 raise
 
 
-def _fetch_pr_detail(pr_url):
+def fetch_pr_detail(pr_url):
     parsed = urlparse(pr_url)
     parts = [p for p in parsed.path.split("/") if p]
     if len(parts) < 4:
@@ -464,7 +487,7 @@ def make_github_graphql_request(query, variables=None):
         "Content-Type": "application/json",
     }
     payload = {"query": query, "variables": variables or {}}
-    for attempt in range(_MAX_RETRIES + 1):
+    for attempt in range(MAX_RETRIES + 1):
         _raise_if_api_requests_stopped()
         if attempt:
             time.sleep(2 ** (attempt - 1) + random.uniform(0, 0.5))
@@ -476,12 +499,12 @@ def make_github_graphql_request(query, variables=None):
                 GITHUB_GRAPHQL_URL,
                 json=payload,
                 headers=headers,
-                timeout=_REQUEST_TIMEOUT,
+                timeout=REQUEST_TIMEOUT,
             )
             elapsed_ms = int((time.monotonic() - t0) * 1000)
             response_headers = getattr(response, "headers", {})
             _record_rate_limit_headers("graphql", response_headers)
-            if response.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES:
+            if response.status_code in RETRY_STATUSES and attempt < MAX_RETRIES:
                 logger.debug(
                     "api_call type=graphql status=%d elapsed_ms=%d attempt=%d retrying",
                     response.status_code,
@@ -562,7 +585,7 @@ def make_github_graphql_request(query, variables=None):
                 str(exc),
                 attempt + 1,
             )
-            if attempt == _MAX_RETRIES:
+            if attempt == MAX_RETRIES:
                 raise
 
 
@@ -587,7 +610,7 @@ def _match_single_filter(repo_name, repo_filter):
     return repo_filter in repo_name
 
 
-def _match_exclude_repos(repo_name, exclude_repos):
+def match_exclude_repos(repo_name, exclude_repos):
     """Return True if repo_name matches any exclusion pattern (glob or substring)."""
     if not exclude_repos:
         return False
@@ -686,7 +709,7 @@ def get_github_prs(owner, repo_filters, fetch_state="open"):
     }}
         """
     cursor = None
-    page_size = _GRAPHQL_REPOSITORY_PAGE_SIZE
+    page_size = GRAPHQL_REPOSITORY_PAGE_SIZE
     gql_responses = []
 
     click.echo(f"Fetching {owner} PRs...", nl=False, err=True)

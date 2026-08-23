@@ -17,7 +17,7 @@ breakfast --no-cache  # always fetches fresh
 
 ## What to Cache
 
-**Cache: raw PR detail objects** after the `_fetch_pr_detail` REST calls, before
+**Cache: raw PR detail objects** after the `fetch_pr_detail` REST calls, before
 any in-memory filtering. This means `--ignore-author` and `--mine-only` can vary
 between runs without re-fetching the underlying data.
 

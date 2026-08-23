@@ -654,7 +654,7 @@ def test_cli_pr_detail_fetch_exits_cleanly_on_auth_error(monkeypatch):
     )
     monkeypatch.setattr(
         cli,
-        "_fetch_pr_detail",
+        "fetch_pr_detail",
         lambda *_a, **_kw: (_ for _ in ()).throw(
             GitHubAuthenticationError(token_var="GH_TOKEN")
         ),
@@ -1399,7 +1399,7 @@ def test_cli_exclude_repo_filtering(monkeypatch):
             "number": 1,
         }
 
-    monkeypatch.setattr(cli, "_fetch_pr_detail", fake_fetch_pr_detail)
+    monkeypatch.setattr(cli, "fetch_pr_detail", fake_fetch_pr_detail)
     monkeypatch.setattr(cli, "render_pr_summary", lambda *a, **k: "PR SUMMARY")
 
     runner = CliRunner()
@@ -2554,7 +2554,7 @@ def test_per_repo_cache_partial_hit(monkeypatch, tmp_path):
     fetched_urls = []
 
     def fake_rest(url):
-        # _fetch_pr_detail converts https://github.com/org/repo-b/pull/2 →
+        # fetch_pr_detail converts https://github.com/org/repo-b/pull/2 →
         # /repos/org/repo-b/pulls/2
         fetched_urls.append(url)
         if "repo-b" in url and "2" in url:
@@ -5671,7 +5671,7 @@ def _pizza_run(monkeypatch, extra_args=(), state_dir=None):
     )
     monkeypatch.setattr(
         cli,
-        "_fetch_pr_detail",
+        "fetch_pr_detail",
         lambda *_a, **_kw: {
             "id": 1,
             "url": "https://github.com/org/repo/pull/1",
@@ -5820,3 +5820,56 @@ def test_cli_christmas_without_colour_does_not_output_pizza(monkeypatch):
         result = _pizza_run(monkeypatch, ["--no-colour"])
         assert result.exit_code == 0
         assert "🍕" not in result.stderr
+
+
+# ── --update-summary ───────────────────────────────────────────────────────
+
+
+def _run_finish(monkeypatch, **kwargs):
+    """Call finish_run with the update check stubbed, returning show_summary."""
+    seen = {}
+
+    def fake_check_for_update(show_summary=False):
+        seen["show_summary"] = show_summary
+        return None
+
+    monkeypatch.setattr(cli, "check_for_update", fake_check_for_update)
+    cli.finish_run(
+        0.0,
+        0,
+        no_update_check=False,
+        api_stats=False,
+        colour=False,
+        # Added by the rate-limit cache fallback work; this test predates them
+        # and only cares about how show_update_summary is forwarded.
+        data_source="live",
+        cache_age_seconds=None,
+        **kwargs,
+    )
+    return seen.get("show_summary")
+
+
+def test_update_summary_flag_is_offered(monkeypatch):
+    # The regression: the config template advertised "Equivalent to:
+    # --update-summary" for a flag that was never implemented.
+    result = CliRunner().invoke(cli.breakfast, ["--help"])
+    assert "--update-summary" in result.output
+
+
+def test_finish_run_forwards_the_update_summary_choice(monkeypatch):
+    assert _run_finish(monkeypatch, show_update_summary=True) is True
+    assert _run_finish(monkeypatch, show_update_summary=False) is False
+
+
+def test_config_template_only_promises_flags_that_exist():
+    # The root cause: the template advertised a flag nobody had written. Hold
+    # every "Equivalent to:" line in the template to the CLI's actual options.
+    from breakfast import config
+
+    help_text = CliRunner().invoke(cli.breakfast, ["--help"]).output
+    promised = re.findall(
+        r"^# Equivalent to: (--[\w-]+)", config._DEFAULT_CONFIG_CONTENT, re.MULTILINE
+    )
+    assert promised, "expected the template to document some flags"
+    missing = [flag for flag in promised if flag not in help_text]
+    assert not missing, f"config template promises flags that do not exist: {missing}"

@@ -1,32 +1,68 @@
 """Project-wide constant definitions and data payloads."""
 
+__all__ = [
+    "BREAKFAST_ITEMS",
+    "CACHE_DIR_ENV_VAR",
+    "CACHE_DISABLED_ENV_VAR",
+    "CAKE_RECIPES",
+    "COLUMN_DISPLAY_NAMES",
+    "DEFAULT_CACHE_TTL",
+    "DIWALI",
+    "DROPPABLE_COLUMNS",
+    "EID_AL_ADHA",
+    "EID_AL_FITR",
+    "GITHUB_API_URL",
+    "GITHUB_GRAPHQL_URL",
+    "GRAPHQL_REPOSITORY_PAGE_SIZE",
+    "HANUKKAH_START",
+    "HOLI_DATES",
+    "HOLI_RAINBOW",
+    "LEGENDARY_AGE_THRESHOLD_DAYS",
+    "LEGENDARY_COMMENT_THRESHOLD",
+    "LEGENDARY_EMOJI",
+    "MAX_GRAPHQL_ERROR_MESSAGE_LENGTH",
+    "MAX_GRAPHQL_ERROR_TYPES",
+    "MAX_RETRIES",
+    "MAX_STORED_GRAPHQL_ERRORS",
+    "MID_AUTUMN",
+    "PASSOVER_START",
+    "PIZZA_RECIPES",
+    "PRIDE_RAINBOW",
+    "REQUEST_TIMEOUT",
+    "RETRY_STATUSES",
+    "ROSH_HASHANAH",
+    "SEASONAL_PALETTES",
+    "SUKKOT_START",
+    "TTL_SUFFIX_MAP",
+]
+
 # ── GitHub API Configuration ───────────────────────────────────────────────
 
 GITHUB_API_URL = "https://api.github.com"
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 
-_MAX_GRAPHQL_ERROR_TYPES = 3
-_MAX_GRAPHQL_ERROR_MESSAGE_LENGTH = 120
-_MAX_STORED_GRAPHQL_ERRORS = 10
-_MAX_RETRIES = 3
-_RETRY_STATUSES = {502, 503, 504}
-_REQUEST_TIMEOUT = (5, 30)
-_GRAPHQL_REPOSITORY_PAGE_SIZE = 25
+MAX_GRAPHQL_ERROR_TYPES = 3
+MAX_GRAPHQL_ERROR_MESSAGE_LENGTH = 120
+MAX_STORED_GRAPHQL_ERRORS = 10
+MAX_RETRIES = 3
+RETRY_STATUSES = {502, 503, 504}
+REQUEST_TIMEOUT = (5, 30)
+GRAPHQL_REPOSITORY_PAGE_SIZE = 25
 
 # ── Cache Configuration ────────────────────────────────────────────────────
 
 DEFAULT_CACHE_TTL = 300
 CACHE_DIR_ENV_VAR = "BREAKFAST_CACHE_DIR"
 CACHE_DISABLED_ENV_VAR = "BREAKFAST_NO_CACHE"
-_SUFFIX_MAP = {"s": 1, "m": 60, "h": 3600}
+TTL_SUFFIX_MAP = {"s": 1, "m": 60, "h": 3600}
 
 # ── Legendary PRs & Table Rendering ────────────────────────────────────────
 
-_LEGENDARY_COMMENT_THRESHOLD = 100
-_LEGENDARY_AGE_THRESHOLD_DAYS = 30
-_LEGENDARY_EMOJI = "⚔️"
+LEGENDARY_COMMENT_THRESHOLD = 100
+LEGENDARY_AGE_THRESHOLD_DAYS = 30
+LEGENDARY_EMOJI = "⚔️"
 
-_COLUMN_DISPLAY_NAMES: dict[str, str] = {
+COLUMN_DISPLAY_NAMES: dict[str, str] = {
     "org": "Org",
     "repo": "Repo",
     "title": "PR Title",
@@ -47,7 +83,7 @@ _COLUMN_DISPLAY_NAMES: dict[str, str] = {
     "link": "Link",
 }
 
-_DROPPABLE_COLUMNS = [
+DROPPABLE_COLUMNS = [
     "State",
     "Commits",
     "Files",
@@ -139,7 +175,7 @@ BREAKFAST_ITEMS = [
 
 # ── Holiday Date Tables (2024–2045) ────────────────────────────────────────
 
-_DIWALI: dict[int, tuple[int, int]] = {
+DIWALI: dict[int, tuple[int, int]] = {
     2024: (11, 1),
     2025: (10, 20),
     2026: (11, 8),
@@ -164,7 +200,7 @@ _DIWALI: dict[int, tuple[int, int]] = {
     2045: (11, 9),
 }
 
-_EID_AL_ADHA: dict[int, tuple[int, int]] = {
+EID_AL_ADHA: dict[int, tuple[int, int]] = {
     2024: (6, 16),
     2025: (6, 6),
     2026: (5, 26),
@@ -189,7 +225,7 @@ _EID_AL_ADHA: dict[int, tuple[int, int]] = {
     2045: (10, 22),
 }
 
-_EID_AL_FITR: dict[int, tuple[int, int]] = {
+EID_AL_FITR: dict[int, tuple[int, int]] = {
     2024: (4, 10),
     2025: (3, 30),
     2026: (3, 20),
@@ -214,7 +250,7 @@ _EID_AL_FITR: dict[int, tuple[int, int]] = {
     2045: (8, 12),
 }
 
-_HANUKKAH_START: dict[int, tuple[int, int]] = {
+HANUKKAH_START: dict[int, tuple[int, int]] = {
     2024: (12, 25),
     2025: (12, 14),
     2026: (12, 4),
@@ -239,7 +275,7 @@ _HANUKKAH_START: dict[int, tuple[int, int]] = {
     2045: (12, 5),
 }
 
-_HOLI: dict[int, tuple[int, int]] = {
+HOLI_DATES: dict[int, tuple[int, int]] = {
     2024: (3, 25),
     2025: (3, 14),
     2026: (3, 3),
@@ -264,7 +300,7 @@ _HOLI: dict[int, tuple[int, int]] = {
     2045: (3, 5),
 }
 
-_MID_AUTUMN: dict[int, tuple[int, int]] = {
+MID_AUTUMN: dict[int, tuple[int, int]] = {
     2024: (9, 17),
     2025: (10, 6),
     2026: (9, 25),
@@ -289,7 +325,7 @@ _MID_AUTUMN: dict[int, tuple[int, int]] = {
     2045: (9, 24),
 }
 
-_PASSOVER_START: dict[int, tuple[int, int]] = {
+PASSOVER_START: dict[int, tuple[int, int]] = {
     2024: (4, 22),
     2025: (4, 12),
     2026: (4, 1),
@@ -314,7 +350,7 @@ _PASSOVER_START: dict[int, tuple[int, int]] = {
     2045: (4, 3),
 }
 
-_ROSH_HASHANAH: dict[int, tuple[int, int]] = {
+ROSH_HASHANAH: dict[int, tuple[int, int]] = {
     2024: (10, 2),
     2025: (9, 22),
     2026: (9, 11),
@@ -339,7 +375,7 @@ _ROSH_HASHANAH: dict[int, tuple[int, int]] = {
     2045: (9, 12),
 }
 
-_SUKKOT_START: dict[int, tuple[int, int]] = {
+SUKKOT_START: dict[int, tuple[int, int]] = {
     2024: (10, 16),
     2025: (10, 6),
     2026: (9, 25),

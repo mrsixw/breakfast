@@ -75,3 +75,12 @@ This repository provides standardized automated workflows for managing issues. A
 - **Surface, don't solve.** If related work is spotted (missing docs, adjacent bugs, cleanup opportunities), flag it as an observation and ask before doing anything. "I notice X — want me to address that too?"
 - **Ask when scope is ambiguous.** When an instruction could mean a narrow or a broad thing, ask which is wanted before writing a single line of code or docs.
 - **Pause at natural checkpoints on large changes.** For multi-step or multi-file work, describe the plan and confirm before committing and pushing. That way the user can redirect early rather than unpicking completed work.
+
+## Module API contract
+- A leading `_` means "internal to this module". Anything a sibling module
+  imports must not have one, and must appear in that module's `__all__`.
+- `constants.py` holds no underscore-prefixed names at all — a module of pure
+  data has no invariants to protect.
+- `tests/test_public_api.py` enforces both. Tests may still reach into the
+  internals of the module they test — that boundary is not policed.
+

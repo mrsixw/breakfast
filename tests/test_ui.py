@@ -546,7 +546,7 @@ def test_unknown_year_returns_none_gracefully():
 
 
 def test_in_holiday_window_unknown_year():
-    result = ui._in_holiday_window(datetime.date(2099, 4, 1), ui._PASSOVER_START)
+    result = ui._in_holiday_window(datetime.date(2099, 4, 1), ui.PASSOVER_START)
     assert result is False
 
 

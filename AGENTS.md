@@ -79,6 +79,14 @@ This repository provides standardized automated workflows for managing issues. A
 - **Monitor Pull Request CI:** Follow the steps defined in [.agents/skills/monitor-pr/SKILL.md](.agents/skills/monitor-pr/SKILL.md).
 - **Raise a new issue:** Follow the steps defined in [.agents/skills/raise-issue/SKILL.md](.agents/skills/raise-issue/SKILL.md).
 
+## Module API contract
+- A leading `_` means "internal to this module". Anything a sibling module
+  imports must not have one, and must appear in that module's `__all__`.
+- `constants.py` holds no underscore-prefixed names at all — a module of pure
+  data has no invariants to protect.
+- `tests/test_public_api.py` enforces both. Tests may still reach into the
+  internals of the module they test — that boundary is not policed.
+
 ## Commit Messages
 - Use Conventional Commits (e.g., `feat: ...`, `fix: ...`, `chore: ...`, `docs: ...`, `refactor: ...`, `test: ...`, `ci: ...`).
 - Keep the summary short and imperative.

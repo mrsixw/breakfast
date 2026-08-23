@@ -1,9 +1,12 @@
 import json
+import os
 import re
 import time
 from datetime import datetime, timezone
+from enum import Enum, auto
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
+from pathlib import Path
 
 import requests
 
@@ -11,10 +14,35 @@ from .api import SECRET_GITHUB_TOKEN
 from .logger import logger
 from .xdg import get_cache_dir
 
+__all__ = [
+    "UpdateStatus",
+    "check_for_update",
+    "get_latest_version",
+    "get_release_summary",
+    "perform_update",
+]
+
 _UPDATE_CHECK_REPO = "mrsixw/breakfast"
+_PACKAGE_NAME = "breakfast"
+_RELEASE_ASSET_URL = (
+    f"https://github.com/{_UPDATE_CHECK_REPO}/releases/latest/download/{_PACKAGE_NAME}"
+)
 
 _CACHE_DIR = get_cache_dir()
 _CACHE_TTL_SECONDS = 86400  # 24 hours
+
+
+class UpdateStatus(Enum):
+    """Outcome of a :func:`perform_update` attempt.
+
+    The values are deliberately meaningless — nothing should serialise or
+    compare against them, so call sites use ``is`` against the members.
+    """
+
+    UPDATED = auto()
+    UP_TO_DATE = auto()
+    UNKNOWN = auto()
+    ERROR = auto()
 
 
 def _read_version_cache():
@@ -117,6 +145,20 @@ def _parse_version_tuple(version_str):
         return ()
 
 
+def _is_newer(latest: str, current: str) -> bool:
+    """Compare versions with zero-padding so ``0.2.0`` is not newer than ``0.2``.
+
+    _parse_version_tuple's length follows the number of dot-separated segments,
+    so a bare tuple comparison lets any longer tuple beat a shorter one sharing
+    its prefix — reporting an update from 0.98 to 0.98.0, which are the same
+    release.
+    """
+    lt = _parse_version_tuple(latest)
+    ct = _parse_version_tuple(current)
+    width = max(len(lt), len(ct))
+    return lt + (0,) * (width - len(lt)) > ct + (0,) * (width - len(ct))
+
+
 def get_release_summary(body: str, max_chars: int = 200) -> str:
     """Extract a short human-readable summary from a GitHub release body.
 
@@ -153,7 +195,7 @@ def check_for_update(show_summary: bool = False):
         latest = get_latest_version()
         if not latest:
             return None
-        if _parse_version_tuple(latest) > _parse_version_tuple(current):
+        if _is_newer(latest, current):
             msg = (
                 f"\U0001f373 A fresh breakfast is ready! "
                 f"v{current} → v{latest} "
@@ -170,3 +212,55 @@ def check_for_update(show_summary: bool = False):
     except PackageNotFoundError as exc:
         logger.debug("package_not_found error=%r", str(exc))
         return None
+
+
+def perform_update(executable_path) -> tuple[UpdateStatus, str, str | None]:
+    """Download the latest breakfast release and replace executable_path in place.
+
+    Returns (status, current_version, detail):
+      - UPDATED: executable_path now holds the release named by detail.
+      - UP_TO_DATE: current_version already matches or exceeds detail (latest).
+      - UNKNOWN: the latest version could not be determined; detail is None.
+      - ERROR: the download or install failed; detail carries the error message.
+    """
+    current = pkg_version(_PACKAGE_NAME)
+    executable_path = Path(executable_path)
+    if executable_path.suffix == ".py":
+        # Invoked from a source checkout (python -m <pkg>.cli), not an installed
+        # release. Writing a downloaded binary here would destroy the source.
+        return (
+            UpdateStatus.ERROR,
+            current,
+            f"{executable_path} is a source file, not an installed binary — "
+            "install a release before updating.",
+        )
+
+    latest = get_latest_version()
+    if not latest:
+        return UpdateStatus.UNKNOWN, current, None
+    # Same comparison check_for_update() uses, so the passive notice and this
+    # command can never disagree about whether an update exists.
+    if not _is_newer(latest, current):
+        return UpdateStatus.UP_TO_DATE, current, latest
+
+    # Download to a sibling and os.replace() it into position: the rename is
+    # atomic within a filesystem, so an interrupted download can never leave a
+    # half-written binary where the working one used to be.
+    tmp_path = executable_path.with_name(executable_path.name + ".new")
+    try:
+        with requests.get(_RELEASE_ASSET_URL, timeout=30, stream=True) as resp:
+            resp.raise_for_status()
+            with open(tmp_path, "wb") as fh:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    fh.write(chunk)
+        tmp_path.chmod(0o755)
+        os.replace(tmp_path, executable_path)
+    except (OSError, requests.exceptions.RequestException) as exc:
+        logger.debug("perform_update_failed error=%r", str(exc))
+        return UpdateStatus.ERROR, current, str(exc)
+    finally:
+        # Also covers KeyboardInterrupt mid-download, which the except above
+        # deliberately does not catch. A successful os.replace leaves nothing
+        # to remove, so this is a no-op on the happy path.
+        tmp_path.unlink(missing_ok=True)
+    return UpdateStatus.UPDATED, current, latest

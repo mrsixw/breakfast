@@ -10,16 +10,62 @@ from urllib.parse import quote, urlparse
 import click
 import requests
 
+from .constants import (
+    BREAKFAST_ITEMS,
+    GITHUB_API_URL,
+    GITHUB_GRAPHQL_URL,
+    GRAPHQL_REPOSITORY_PAGE_SIZE,
+    MAX_GRAPHQL_ERROR_MESSAGE_LENGTH,
+    MAX_GRAPHQL_ERROR_TYPES,
+    MAX_RETRIES,
+    MAX_STORED_GRAPHQL_ERRORS,
+    REQUEST_TIMEOUT,
+    RETRY_STATUSES,
+)
 from .logger import logger
-from .ui import BREAKFAST_ITEMS
 
-GITHUB_API_URL = "https://api.github.com"
-GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
-SECRET_GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", None)
+__all__ = [
+    "GitHubAuthenticationError",
+    "GitHubGraphQLError",
+    "GitHubGraphQLResourceLimitError",
+    "GitHubRateLimitError",
+    "OwnerNotFoundError",
+    "fetch_pr_detail",
+    "get_api_stats",
+    "get_approval_status",
+    "get_approval_summary",
+    "get_authenticated_user_login",
+    "get_check_status",
+    "get_github_prs",
+    "get_graphql_rate_limit",
+    "get_pr_age_days",
+    "get_pr_inactive_days",
+    "get_required_approving_review_count",
+    "make_github_api_request",
+    "make_github_graphql_request",
+    "make_paginated_github_api_request",
+    "match_exclude_repos",
+]
 
-_MAX_GRAPHQL_ERROR_TYPES = 3
-_MAX_GRAPHQL_ERROR_MESSAGE_LENGTH = 120
-_MAX_STORED_GRAPHQL_ERRORS = 10
+
+def _resolve_github_token_info():
+    """Resolve the GitHub auth token and variable name, preferring GH_TOKEN."""
+    gh_token = os.getenv("GH_TOKEN")
+    if gh_token:
+        return gh_token, "GH_TOKEN"
+    github_token = os.getenv("GITHUB_TOKEN")
+    if github_token:
+        return github_token, "GITHUB_TOKEN"
+    return None, None
+
+
+def _resolve_github_token():
+    """Resolve the GitHub auth token, preferring GH_TOKEN (gh CLI convention)."""
+    token, _ = _resolve_github_token_info()
+    return token
+
+
+SECRET_GITHUB_TOKEN, SECRET_GITHUB_TOKEN_VAR = _resolve_github_token_info()
 
 
 def _summarize_graphql_errors(errors):
@@ -45,10 +91,10 @@ def _summarize_graphql_errors(errors):
 
     summaries = []
     error_types = sorted(counts, key=lambda item: (-counts[item], item))
-    for error_type in error_types[:_MAX_GRAPHQL_ERROR_TYPES]:
+    for error_type in error_types[:MAX_GRAPHQL_ERROR_TYPES]:
         message = first_messages[error_type]
-        if len(message) > _MAX_GRAPHQL_ERROR_MESSAGE_LENGTH:
-            message = f"{message[: _MAX_GRAPHQL_ERROR_MESSAGE_LENGTH - 3]}..."
+        if len(message) > MAX_GRAPHQL_ERROR_MESSAGE_LENGTH:
+            message = f"{message[: MAX_GRAPHQL_ERROR_MESSAGE_LENGTH - 3]}..."
         summaries.append(f"{error_type}={counts[error_type]}: {message}")
 
     omitted_types = len(counts) - len(summaries)
@@ -68,7 +114,7 @@ class GitHubGraphQLError(ValueError):
 
     def __init__(self, errors):
         self.error_count = len(errors)
-        self.errors = tuple(errors[:_MAX_STORED_GRAPHQL_ERRORS])
+        self.errors = tuple(errors[:MAX_STORED_GRAPHQL_ERRORS])
         self.summary = _summarize_graphql_errors(errors)
         super().__init__(f"GraphQL request failed: {self.summary}")
 
@@ -105,10 +151,25 @@ class OwnerNotFoundError(Exception):
         )
 
 
-_MAX_RETRIES = 3
-_RETRY_STATUSES = {502, 503, 504}
-_REQUEST_TIMEOUT = (5, 30)
-_GRAPHQL_REPOSITORY_PAGE_SIZE = 25
+class GitHubAuthenticationError(requests.exceptions.HTTPError):
+    """Raised when GitHub API authentication fails (HTTP 401).
+
+    Attributes:
+        token_var: The name of the environment variable used for auth.
+    """
+
+    def __init__(self, message=None, token_var=None, response=None):
+        if token_var is None:
+            _, resolved_var = _resolve_github_token_info()
+            token_var = resolved_var or "GITHUB_TOKEN"
+        self.token_var = token_var
+        if not message:
+            message = (
+                f"GitHub authentication failed: {token_var} was rejected (HTTP 401). "
+                "Refresh or replace the token and try again."
+            )
+        super().__init__(message, response=response)
+
 
 _api_stats_lock = threading.Lock()
 _api_stats = {
@@ -150,14 +211,14 @@ def make_github_api_request(query_string):
         "Authorization": f"token {SECRET_GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json",
     }
-    for attempt in range(_MAX_RETRIES + 1):
+    for attempt in range(MAX_RETRIES + 1):
         if attempt:
             time.sleep(2 ** (attempt - 1) + random.uniform(0, 0.5))
         try:
             t0 = time.monotonic()
-            req = requests.get(url, headers=headers, timeout=_REQUEST_TIMEOUT)
+            req = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
             elapsed_ms = int((time.monotonic() - t0) * 1000)
-            if req.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES:
+            if req.status_code in RETRY_STATUSES and attempt < MAX_RETRIES:
                 logger.debug(
                     "api_call type=rest url=%s status=%d"
                     " elapsed_ms=%d attempt=%d retrying",
@@ -167,6 +228,15 @@ def make_github_api_request(query_string):
                     attempt + 1,
                 )
                 continue
+            if req.status_code == 401:
+                _, token_var = _resolve_github_token_info()
+                token_var = token_var or "GITHUB_TOKEN"
+                logger.warning(
+                    "api_call type=rest url=%s auth_failed status=401 token_var=%s",
+                    url,
+                    token_var,
+                )
+                raise GitHubAuthenticationError(token_var=token_var, response=req)
             if (
                 req.status_code == 403
                 and req.headers.get("X-RateLimit-Remaining") == "0"
@@ -212,11 +282,11 @@ def make_github_api_request(query_string):
                 str(exc),
                 attempt + 1,
             )
-            if attempt == _MAX_RETRIES:
+            if attempt == MAX_RETRIES:
                 raise
 
 
-def _fetch_pr_detail(pr_url):
+def fetch_pr_detail(pr_url):
     parsed = urlparse(pr_url)
     parts = [p for p in parsed.path.split("/") if p]
     if len(parts) < 4:
@@ -256,7 +326,7 @@ def make_github_graphql_request(query, variables=None):
         "Content-Type": "application/json",
     }
     payload = {"query": query, "variables": variables or {}}
-    for attempt in range(_MAX_RETRIES + 1):
+    for attempt in range(MAX_RETRIES + 1):
         if attempt:
             time.sleep(2 ** (attempt - 1) + random.uniform(0, 0.5))
         try:
@@ -265,10 +335,10 @@ def make_github_graphql_request(query, variables=None):
                 GITHUB_GRAPHQL_URL,
                 json=payload,
                 headers=headers,
-                timeout=_REQUEST_TIMEOUT,
+                timeout=REQUEST_TIMEOUT,
             )
             elapsed_ms = int((time.monotonic() - t0) * 1000)
-            if response.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES:
+            if response.status_code in RETRY_STATUSES and attempt < MAX_RETRIES:
                 logger.debug(
                     "api_call type=graphql status=%d elapsed_ms=%d attempt=%d retrying",
                     response.status_code,
@@ -276,6 +346,14 @@ def make_github_graphql_request(query, variables=None):
                     attempt + 1,
                 )
                 continue
+            if response.status_code == 401:
+                _, token_var = _resolve_github_token_info()
+                token_var = token_var or "GITHUB_TOKEN"
+                logger.warning(
+                    "api_call type=graphql auth_failed status=401 token_var=%s",
+                    token_var,
+                )
+                raise GitHubAuthenticationError(token_var=token_var, response=response)
             response.raise_for_status()
             resp_json = response.json()
             if "errors" in resp_json:
@@ -316,7 +394,7 @@ def make_github_graphql_request(query, variables=None):
                 str(exc),
                 attempt + 1,
             )
-            if attempt == _MAX_RETRIES:
+            if attempt == MAX_RETRIES:
                 raise
 
 
@@ -341,7 +419,7 @@ def _match_single_filter(repo_name, repo_filter):
     return repo_filter in repo_name
 
 
-def _match_exclude_repos(repo_name, exclude_repos):
+def match_exclude_repos(repo_name, exclude_repos):
     """Return True if repo_name matches any exclusion pattern (glob or substring)."""
     if not exclude_repos:
         return False
@@ -440,7 +518,7 @@ def get_github_prs(owner, repo_filters, fetch_state="open"):
     }}
         """
     cursor = None
-    page_size = _GRAPHQL_REPOSITORY_PAGE_SIZE
+    page_size = GRAPHQL_REPOSITORY_PAGE_SIZE
     gql_responses = []
 
     click.echo(f"Fetching {owner} PRs...", nl=False, err=True)

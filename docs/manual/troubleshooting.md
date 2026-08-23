@@ -1,14 +1,34 @@
 # Troubleshooting
 
-## "GITHUB_TOKEN not set in environment - exiting..."
+## "GH_TOKEN or GITHUB_TOKEN not set in environment - exiting..."
 
 breakfast requires a GitHub personal access token. Set it in your environment:
 
 ```bash
-export GITHUB_TOKEN="ghp_your_token_here"
+export GH_TOKEN="ghp_your_token_here"
 ```
 
+breakfast reads `GH_TOKEN` first (the variable used by the [`gh` CLI](https://cli.github.com/)), falling back to `GITHUB_TOKEN` if `GH_TOKEN` is not set. If neither is set, this error is shown.
+
 The token needs `repo` scope to access pull request data. Generate one at [github.com/settings/tokens](https://github.com/settings/tokens).
+
+## "GitHub authentication failed: ... was rejected (HTTP 401)..."
+
+If breakfast exits with an error such as:
+
+```text
+🍳 GitHub authentication failed: GITHUB_TOKEN was rejected (HTTP 401). Refresh or replace the token and try again.
+```
+
+Your GitHub personal access token is invalid, revoked, or has expired.
+
+- Check your personal access tokens at [github.com/settings/tokens](https://github.com/settings/tokens) (or [github.com/settings/personal-access-tokens](https://github.com/settings/personal-access-tokens) for fine-grained tokens) and generate a new token if it has expired.
+- Update your environment variable (`export GH_TOKEN="ghp_..."` or `export GITHUB_TOKEN="ghp_..."`). Note that an exported `GH_TOKEN` or `GITHUB_TOKEN` takes precedence over stored credentials managed by `gh auth refresh`.
+- Verify authentication manually:
+
+```bash
+curl -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" https://api.github.com/user
+```
 
 ## No PRs displayed
 
@@ -43,7 +63,7 @@ If errors persist and no cached data exists:
 
 - Check [GitHub Status](https://www.githubstatus.com/) for ongoing incidents
 - Verify your token hasn't been revoked
-- Check your [API rate limit](https://docs.github.com/en/rest/rate-limit): `curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/rate_limit`
+- Check your [API rate limit](https://docs.github.com/en/rest/rate-limit): `curl -H "Authorization: token $GH_TOKEN" https://api.github.com/rate_limit`
 
 ## GitHub GraphQL resource limits
 
@@ -142,13 +162,13 @@ organizations and personal accounts. If you see an owner-not-found error:
 - For organizations, you can verify with:
 
 ```bash
-curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/orgs/YOUR_ORG
+curl -H "Authorization: token $GH_TOKEN" https://api.github.com/orgs/YOUR_ORG
 ```
 
 - For personal accounts:
 
 ```bash
-curl -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/users/YOUR_USER
+curl -H "Authorization: token $GH_TOKEN" https://api.github.com/users/YOUR_USER
 ```
 
 ## Mergeable status shows "unknown" unexpectedly

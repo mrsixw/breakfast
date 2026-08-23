@@ -1,72 +1,77 @@
 import datetime
+import json
 import math
+import os
+import random
+import sys
 import unicodedata
 from datetime import date as _real_date
 from datetime import timedelta as _real_timedelta
+from pathlib import Path
 
 import click
 
-SEASONAL_PALETTES = {
-    "green": "\033[32m",
-    "purple": "\033[38;5;141m",
-    "yellow": "\033[38;5;226m",
-    "orange": "\033[38;5;208m",
-    "red": "\033[31m",
-    "pink": "\033[38;5;218m",
-    "lny": "\033[38;5;196m",
-    "blue": "\033[38;5;75m",
-    "spring_green": "\033[38;5;120m",
-    "gold": "\033[38;5;220m",
-}
+from .constants import (
+    CAKE_RECIPES,
+    DIWALI,
+    EID_AL_ADHA,
+    EID_AL_FITR,
+    HANUKKAH_START,
+    HOLI_DATES,
+    HOLI_RAINBOW,
+    MID_AUTUMN,
+    PASSOVER_START,
+    PIZZA_RECIPES,
+    PRIDE_RAINBOW,
+    ROSH_HASHANAH,
+    SEASONAL_PALETTES,
+    SUKKOT_START,
+)
+from .logger import logger
+from .xdg import get_state_dir
 
-# Pride Month 🏳️‍🌈 rainbow: one colour per row, cycling by PR number.
-PRIDE_RAINBOW = [
-    "\033[31m",  # red
-    "\033[38;5;208m",  # orange
-    "\033[38;5;226m",  # yellow
-    "\033[32m",  # green
-    "\033[38;5;63m",  # blue
-    "\033[38;5;141m",  # purple
+__all__ = [
+    "CALENDARS",
+    "apply_seasonal_colour",
+    "click_colour_grade_number",
+    "error_exit",
+    "format_approval_status",
+    "format_check_status",
+    "format_mergeable_status",
+    "format_pr_state",
+    "generate_terminal_url_anchor",
+    "get_random_cake_recipe",
+    "get_random_pizza_recipe",
+    "has_shown_holiday_gift",
+    "is_christmas",
+    "is_steves_birthday",
+    "mark_holiday_gift_shown",
+    "render_cake_recipe",
+    "render_colour_diagnostics",
+    "render_pizza_recipe",
+    "render_pr_summary",
 ]
 
 
-BREAKFAST_ITEMS = [
-    "☕️",
-    "🥐",
-    "🥞",
-    "🍳",
-    "🥓",
-    "🥯",
-    "🍩",
-    "🍪",
-    "🥛",
-    "🍵",
-    "🍎",
-    "🍌",
-    "🍉",
-    "🍇",
-    "🍓",
-    "🍒",
-    "🍑",
-    "🍍",
-    "🥖",
-    "🥨",
-    "🥯",
-    "🥞",
-    "🧇",
-    "🧀",
-    "🍗",
-    "🥩",
-    "🥓",
-    "🍔",
-    "🍟",
-    "🍕",
-    "🌭",
-    "🥪",
-    "🌮",
-    "🌯",
-    "🥙",
-]
+def error_exit(message, colour=True, exit_code=1):
+    """Report a fatal error to the user and stop.
+
+    The red-bold-on-stderr-then-exit idiom is the project's house style for a
+    failure the user caused and can fix, and it is currently hand-written at
+    two dozen call sites. Owning it here keeps stdout clean by construction —
+    a data-carrying stream must never receive an error message — and gives
+    #410's exit-code contract a single place to land.
+
+    Args:
+        message: The full message, including its "Error: " prefix.
+        colour: Whether to emit ANSI colour.
+        exit_code: Process exit status. Defaults to 1, an operational failure.
+
+    Raises:
+        SystemExit: Always.
+    """
+    click.echo(click.style(message, fg="red", bold=True), err=True, color=colour)
+    sys.exit(exit_code)
 
 
 def _easter_month(year: int) -> int:
@@ -164,244 +169,6 @@ def _lny_date(year: int) -> tuple[int, int]:
 # Pluggable seasonal calendar system
 # ---------------------------------------------------------------------------
 
-# Pre-computed holiday dates (year → (month, day)) for 2024–2045.
-# Dates are approximate; Islamic/Hindu dates vary by location and moon-sighting.
-
-_DIWALI: dict[int, tuple[int, int]] = {
-    2024: (11, 1),
-    2025: (10, 20),
-    2026: (11, 8),
-    2027: (10, 29),
-    2028: (10, 17),
-    2029: (11, 5),
-    2030: (10, 26),
-    2031: (11, 14),
-    2032: (11, 2),
-    2033: (10, 22),
-    2034: (11, 11),
-    2035: (11, 1),
-    2036: (10, 19),
-    2037: (11, 7),
-    2038: (10, 28),
-    2039: (10, 18),
-    2040: (11, 4),
-    2041: (10, 24),
-    2042: (11, 13),
-    2043: (11, 3),
-    2044: (10, 21),
-    2045: (11, 9),
-}
-
-_EID_AL_ADHA: dict[int, tuple[int, int]] = {
-    2024: (6, 16),
-    2025: (6, 6),
-    2026: (5, 26),
-    2027: (5, 16),
-    2028: (5, 4),
-    2029: (4, 24),
-    2030: (4, 13),
-    2031: (4, 2),
-    2032: (3, 22),
-    2033: (3, 11),
-    2034: (3, 1),
-    2035: (2, 18),
-    2036: (2, 7),
-    2037: (1, 26),
-    2038: (1, 16),
-    2039: (12, 26),
-    2040: (12, 14),
-    2041: (12, 4),
-    2042: (11, 23),
-    2043: (11, 13),
-    2044: (11, 1),
-    2045: (10, 22),
-}
-
-_EID_AL_FITR: dict[int, tuple[int, int]] = {
-    2024: (4, 10),
-    2025: (3, 30),
-    2026: (3, 20),
-    2027: (3, 9),
-    2028: (2, 26),
-    2029: (2, 15),
-    2030: (2, 4),
-    2031: (1, 24),
-    2032: (1, 13),
-    2033: (1, 2),
-    2034: (12, 11),
-    2035: (11, 30),
-    2036: (11, 19),
-    2037: (11, 8),
-    2038: (10, 28),
-    2039: (10, 17),
-    2040: (10, 6),
-    2041: (9, 25),
-    2042: (9, 14),
-    2043: (9, 4),
-    2044: (8, 23),
-    2045: (8, 12),
-}
-
-_HANUKKAH_START: dict[int, tuple[int, int]] = {
-    2024: (12, 25),
-    2025: (12, 14),
-    2026: (12, 4),
-    2027: (12, 24),
-    2028: (12, 12),
-    2029: (12, 1),
-    2030: (12, 20),
-    2031: (12, 9),
-    2032: (11, 27),
-    2033: (12, 16),
-    2034: (12, 5),
-    2035: (12, 25),
-    2036: (12, 13),
-    2037: (12, 2),
-    2038: (12, 22),
-    2039: (12, 11),
-    2040: (11, 29),
-    2041: (12, 18),
-    2042: (12, 8),
-    2043: (12, 27),
-    2044: (12, 15),
-    2045: (12, 5),
-}
-
-_HOLI: dict[int, tuple[int, int]] = {
-    2024: (3, 25),
-    2025: (3, 14),
-    2026: (3, 3),
-    2027: (3, 22),
-    2028: (3, 11),
-    2029: (3, 1),
-    2030: (3, 20),
-    2031: (3, 10),
-    2032: (2, 27),
-    2033: (3, 17),
-    2034: (3, 7),
-    2035: (3, 26),
-    2036: (3, 14),
-    2037: (3, 4),
-    2038: (3, 23),
-    2039: (3, 13),
-    2040: (3, 1),
-    2041: (3, 19),
-    2042: (3, 8),
-    2043: (3, 28),
-    2044: (3, 16),
-    2045: (3, 5),
-}
-
-_MID_AUTUMN: dict[int, tuple[int, int]] = {
-    2024: (9, 17),
-    2025: (10, 6),
-    2026: (9, 25),
-    2027: (9, 15),
-    2028: (10, 3),
-    2029: (9, 22),
-    2030: (9, 12),
-    2031: (10, 1),
-    2032: (9, 19),
-    2033: (9, 8),
-    2034: (9, 27),
-    2035: (9, 16),
-    2036: (10, 4),
-    2037: (9, 24),
-    2038: (9, 13),
-    2039: (10, 2),
-    2040: (9, 20),
-    2041: (9, 9),
-    2042: (9, 28),
-    2043: (9, 17),
-    2044: (10, 5),
-    2045: (9, 24),
-}
-
-_PASSOVER_START: dict[int, tuple[int, int]] = {
-    2024: (4, 22),
-    2025: (4, 12),
-    2026: (4, 1),
-    2027: (4, 21),
-    2028: (4, 10),
-    2029: (3, 29),
-    2030: (4, 17),
-    2031: (4, 7),
-    2032: (3, 27),
-    2033: (4, 14),
-    2034: (4, 3),
-    2035: (4, 23),
-    2036: (4, 11),
-    2037: (4, 1),
-    2038: (4, 20),
-    2039: (4, 9),
-    2040: (3, 29),
-    2041: (4, 16),
-    2042: (4, 6),
-    2043: (4, 25),
-    2044: (4, 13),
-    2045: (4, 3),
-}
-
-_ROSH_HASHANAH: dict[int, tuple[int, int]] = {
-    2024: (10, 2),
-    2025: (9, 22),
-    2026: (9, 11),
-    2027: (10, 1),
-    2028: (9, 20),
-    2029: (9, 9),
-    2030: (9, 27),
-    2031: (9, 18),
-    2032: (9, 5),
-    2033: (9, 24),
-    2034: (9, 14),
-    2035: (10, 3),
-    2036: (9, 21),
-    2037: (9, 10),
-    2038: (9, 29),
-    2039: (9, 19),
-    2040: (9, 7),
-    2041: (9, 25),
-    2042: (9, 15),
-    2043: (10, 4),
-    2044: (9, 22),
-    2045: (9, 12),
-}
-
-_SUKKOT_START: dict[int, tuple[int, int]] = {
-    2024: (10, 16),
-    2025: (10, 6),
-    2026: (9, 25),
-    2027: (10, 15),
-    2028: (10, 4),
-    2029: (9, 23),
-    2030: (10, 12),
-    2031: (10, 1),
-    2032: (9, 19),
-    2033: (10, 8),
-    2034: (9, 28),
-    2035: (10, 17),
-    2036: (10, 4),
-    2037: (9, 24),
-    2038: (10, 13),
-    2039: (10, 3),
-    2040: (9, 21),
-    2041: (10, 10),
-    2042: (9, 30),
-    2043: (10, 18),
-    2044: (10, 5),
-    2045: (9, 25),
-}
-
-# Holi rainbow: a burst of festival colours for the Festival of Colours 🎨
-HOLI_RAINBOW = [
-    "\033[38;5;218m",  # pink
-    "\033[38;5;226m",  # yellow
-    "\033[32m",  # green
-    "\033[38;5;208m",  # orange
-    "\033[38;5;141m",  # purple
-    "\033[38;5;75m",  # blue
-]
-
 
 def _in_holiday_window(
     today: datetime.date,
@@ -439,7 +206,7 @@ def _east_asian_calendar(today: datetime.date) -> "str | list[str] | None":
         pass
 
     # Mid-Autumn / Moon Festival (Chuseok / Tsukimi): 2-day window
-    if _in_holiday_window(today, _MID_AUTUMN, days=2):
+    if _in_holiday_window(today, MID_AUTUMN, days=2):
         return SEASONAL_PALETTES["yellow"]
 
     return None
@@ -447,31 +214,31 @@ def _east_asian_calendar(today: datetime.date) -> "str | list[str] | None":
 
 def _hindu_calendar(today: datetime.date) -> "str | list[str] | None":
     """Return seasonal colour for Hindu holiday calendar."""
-    if _in_holiday_window(today, _DIWALI, days=5):
+    if _in_holiday_window(today, DIWALI, days=5):
         return SEASONAL_PALETTES["gold"]
-    if _in_holiday_window(today, _HOLI, days=2):
+    if _in_holiday_window(today, HOLI_DATES, days=2):
         return HOLI_RAINBOW
     return None
 
 
 def _islamic_calendar(today: datetime.date) -> "str | list[str] | None":
     """Return seasonal colour for Islamic holiday calendar."""
-    if _in_holiday_window(today, _EID_AL_FITR, days=3):
+    if _in_holiday_window(today, EID_AL_FITR, days=3):
         return SEASONAL_PALETTES["green"]
-    if _in_holiday_window(today, _EID_AL_ADHA, days=3):
+    if _in_holiday_window(today, EID_AL_ADHA, days=3):
         return SEASONAL_PALETTES["green"]
     return None
 
 
 def _jewish_calendar(today: datetime.date) -> "str | list[str] | None":
     """Return seasonal colour for Jewish holiday calendar."""
-    if _in_holiday_window(today, _HANUKKAH_START, days=8):
+    if _in_holiday_window(today, HANUKKAH_START, days=8):
         return SEASONAL_PALETTES["blue"]
-    if _in_holiday_window(today, _ROSH_HASHANAH, days=2):
+    if _in_holiday_window(today, ROSH_HASHANAH, days=2):
         return SEASONAL_PALETTES["gold"]
-    if _in_holiday_window(today, _PASSOVER_START, days=7):
+    if _in_holiday_window(today, PASSOVER_START, days=7):
         return SEASONAL_PALETTES["spring_green"]
-    if _in_holiday_window(today, _SUKKOT_START, days=7):
+    if _in_holiday_window(today, SUKKOT_START, days=7):
         return SEASONAL_PALETTES["orange"]
     return None
 
@@ -480,7 +247,7 @@ def _sikh_calendar(today: datetime.date) -> "str | list[str] | None":
     """Return seasonal colour for Sikh holiday calendar."""
     if today.month == 4 and today.day == 13:  # Vaisakhi (fixed)
         return SEASONAL_PALETTES["spring_green"]
-    if _in_holiday_window(today, _DIWALI, days=5):  # Bandi Chhor Divas
+    if _in_holiday_window(today, DIWALI, days=5):  # Bandi Chhor Divas
         return SEASONAL_PALETTES["gold"]
     return None
 
@@ -1023,3 +790,119 @@ def render_pr_summary(groups, title, label_header, colour, calendar="western"):
         )
 
     return "\n".join(lines)
+
+
+def get_random_pizza_recipe() -> dict:
+    """Return a randomly chosen pizza recipe from the curated collection."""
+    return random.choice(PIZZA_RECIPES)
+
+
+def get_random_cake_recipe() -> dict:
+    """Return a randomly chosen cake recipe from the curated collection."""
+    return random.choice(CAKE_RECIPES)
+
+
+def is_steves_birthday(today: datetime.date | None = None) -> bool:
+    """Return True if today is Steve's birthday (January 8th)."""
+    current_date = today or datetime.date.today()
+    return current_date.month == 1 and current_date.day == 8
+
+
+def is_christmas(today: datetime.date | None = None) -> bool:
+    """Return True if today is Christmas Day (December 25th)."""
+    current_date = today or datetime.date.today()
+    return current_date.month == 12 and current_date.day == 25
+
+
+def render_pizza_recipe(
+    recipe: dict,
+    is_birthday: bool = False,
+    is_christmas: bool = False,
+    colour: bool | None = None,
+) -> str:
+    """Render a formatted pizza recipe banner with styling for terminal output."""
+    if is_christmas:
+        header = (
+            f"🍕 🎄 Merry Christmas! Here is a Christmas pizza gift: "
+            f"{recipe['title']} 🎁"
+        )
+    elif is_birthday:
+        header = f"🍕 🎂 Its Steve's birthday, here is a gift: {recipe['title']} 🎁"
+    else:
+        header = f"🍕 Secret Pizza Recipe: {recipe['title']}"
+
+    lines = [
+        click.style(
+            header,
+            fg="bright_yellow" if (is_birthday or is_christmas) else "bright_magenta",
+            bold=True,
+        ),
+        click.style(f"   Style:    {recipe['style']}", fg="cyan"),
+        click.style(f"   Dough:    {recipe['dough']}", fg="white"),
+        click.style(f"   Toppings: {recipe['toppings']}", fg="white"),
+        click.style(f"   Bake:     {recipe['bake']}", fg="white"),
+        click.style(f"   Tip:      💡 {recipe['tip']}", fg="yellow"),
+    ]
+    return "\n".join(lines)
+
+
+def render_cake_recipe(
+    recipe: dict, is_birthday: bool = False, colour: bool | None = None
+) -> str:
+    """Render a formatted cake recipe banner with styling for terminal output."""
+    if is_birthday:
+        header = f"🎂 Its Steve's birthday, here is a gift: {recipe['title']} 🎁"
+    else:
+        header = f"🎂 Secret Cake Recipe: {recipe['title']}"
+
+    lines = [
+        click.style(
+            header,
+            fg="bright_yellow" if is_birthday else "bright_cyan",
+            bold=True,
+        ),
+        click.style(f"   Style:    {recipe['style']}", fg="yellow"),
+        click.style(f"   Batter:   {recipe['batter']}", fg="white"),
+        click.style(f"   Frosting: {recipe['frosting']}", fg="white"),
+        click.style(f"   Bake:     {recipe['bake']}", fg="white"),
+        click.style(f"   Tip:      💡 {recipe['tip']}", fg="bright_magenta"),
+    ]
+    return "\n".join(lines)
+
+
+def has_shown_holiday_gift(
+    event: str, today: datetime.date | None = None, state_dir: Path | None = None
+) -> bool:
+    """Return True if the specified holiday gift has been shown for this year."""
+    current_date = today or datetime.date.today()
+    target_dir = state_dir or get_state_dir()
+    state_file = target_dir / f"{event}_gift.json"
+    try:
+        if not state_file.exists():
+            return False
+        data = json.loads(state_file.read_text())
+        return data.get("year") == current_date.year
+    except (OSError, json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
+        logger.debug("holiday_gift_state_read_error event=%r error=%r", event, str(exc))
+        return False
+
+
+def mark_holiday_gift_shown(
+    event: str, today: datetime.date | None = None, state_dir: Path | None = None
+) -> None:
+    """Record that the specified holiday gift was shown for this year."""
+    current_date = today or datetime.date.today()
+    target_dir = state_dir or get_state_dir()
+    state_file = target_dir / f"{event}_gift.json"
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(
+            {"year": current_date.year, "date": current_date.isoformat()}
+        )
+        tmp = state_file.with_suffix(".tmp")
+        tmp.write_text(payload)
+        os.replace(tmp, state_file)
+    except OSError as exc:
+        logger.debug(
+            "holiday_gift_state_write_error event=%r error=%r", event, str(exc)
+        )

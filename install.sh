@@ -98,6 +98,42 @@ else
     echo -e "${YELLOW}⚠️  Could not install fish completion (non-fatal).${RESET}"
 fi
 
+# Dropping the completion files into place is only half the job — bash and zsh
+# both need a line in the user's rc file before they will load them. Print the
+# snippet for the shell they are actually using rather than all three.
+# Print only: this script is normally run piped through curl, where prompting is
+# unreliable, so it never edits rc files on the user's behalf.
+echo -e "\n${BOLD}To finish enabling completions:${RESET}"
+case "${SHELL##*/}" in
+    *bash*)
+        echo -e "Add this to your ${BOLD}~/.bashrc${RESET}:"
+        echo -e "  ${BOLD}source \"${BASH_COMPLETION_DIR}/${BINARY_NAME}\"${RESET}"
+        echo -e "(If you already have the ${BOLD}bash-completion${RESET} package installed, it will be picked up automatically and you can skip this.)"
+        echo -e "Then restart your shell."
+        ;;
+    *zsh*)
+        echo -e "Add this to your ${BOLD}~/.zshrc${RESET}, above any existing ${BOLD}compinit${RESET} call:"
+        echo -e "  ${BOLD}fpath=(\"${ZSH_COMPLETION_DIR}\" \$fpath)${RESET}"
+        echo -e "If you don't already initialise completions (Oh My Zsh and friends do), add this too:"
+        echo -e "  ${BOLD}autoload -Uz compinit && compinit${RESET}"
+        echo -e "Then restart your shell."
+        ;;
+    *fish*)
+        echo -e "${GREEN}Nothing to do — fish loads completions from ${FISH_COMPLETION_DIR} automatically.${RESET}"
+        echo -e "New shells will pick them up."
+        ;;
+    *)
+        echo -e "bash — add to ${BOLD}~/.bashrc${RESET}:"
+        echo -e "  ${BOLD}source \"${BASH_COMPLETION_DIR}/${BINARY_NAME}\"${RESET}"
+        echo -e "zsh  — add to ${BOLD}~/.zshrc${RESET}, above any existing ${BOLD}compinit${RESET} call:"
+        echo -e "  ${BOLD}fpath=(\"${ZSH_COMPLETION_DIR}\" \$fpath)${RESET}"
+        echo -e "  ${BOLD}autoload -Uz compinit && compinit${RESET}  ${RESET}# only if you don't already initialise completions"
+        echo -e "fish — nothing to do, they load automatically."
+        echo -e "Then restart your shell."
+        ;;
+esac
+echo -e "You can also load them ad hoc with ${BOLD}eval \"\$(${BINARY_NAME} completions <shell>)\"${RESET}."
+
 # Check if INSTALL_DIR is in PATH
 if [[ ":$PATH:" != *":${INSTALL_DIR}:"* ]]; then
     echo -e "\n${BOLD}${YELLOW}⚠️  Warning: ${INSTALL_DIR} is not in your PATH.${RESET}"

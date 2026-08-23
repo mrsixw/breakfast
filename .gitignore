@@ -183,3 +183,8 @@ cython_debug/
 # Claude Code worktrees and Antigravity CLI state
 .claude/worktrees/
 .antigravitycli/
+
+# Per-user agent permission settings. Personal, not project configuration —
+# and ignoring it means a stray `git add -A` cannot commit it by accident.
+.claude/settings.json
+.claude/settings.local.json

@@ -17,9 +17,11 @@ curl -sSL https://raw.githubusercontent.com/mrsixw/breakfast/main/install.sh | b
 ## Quick start
 
 ```bash
-export GITHUB_TOKEN="ghp_your_token_here"
+export GH_TOKEN="ghp_your_token_here"
 breakfast -o my-org -r my-app
 ```
+
+breakfast reads `GH_TOKEN` first (matching the `gh` CLI convention), falling back to `GITHUB_TOKEN` if `GH_TOKEN` isn't set.
 
 ## Usage
 
@@ -60,7 +62,8 @@ breakfast -o my-org -r my-app --legendary
 breakfast -o my-org -r my-app --legendary-only
 breakfast -o my-org -r my-app --filter-mergeable clean
 breakfast -o my-org -r my-app --filter-mergeable clean --filter-approval approved
-breakfast --completion bash
+breakfast completions bash
+breakfast update
 ```
 
 ## Options
@@ -127,7 +130,8 @@ breakfast --completion bash
 
 ### Other
 
-- `--completion`: Print shell completion script for `bash`, `zsh`, or `fish` and exit. Eval in your shell config (e.g. `eval "$(breakfast --completion bash)"`).
+- `completions SHELL`: Print the shell completion script for `bash`, `zsh`, or `fish`. Eval in your shell config (e.g. `eval "$(breakfast completions bash)"`). The old `--completion` flag is deprecated.
+- `update`: Download the latest release and replace the running executable, atomically.
 - `--config`: Path to a config file.
 - `--show-config`: Print resolved config and exit.
 - `--init-config`: Generate a default config file.
@@ -139,3 +143,7 @@ breakfast --completion bash
 - [User Manual](docs/manual/) - Installation, usage, options reference, output formats, and troubleshooting
 - [Design Documents](docs/design/) - Technical designs for planned features
 - [Contributing](CONTRIBUTING.md) - How to contribute to the project
+
+---
+
+Made with ❤️ in the UK.

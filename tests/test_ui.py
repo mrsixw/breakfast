@@ -546,7 +546,7 @@ def test_unknown_year_returns_none_gracefully():
 
 
 def test_in_holiday_window_unknown_year():
-    result = ui._in_holiday_window(datetime.date(2099, 4, 1), ui._PASSOVER_START)
+    result = ui._in_holiday_window(datetime.date(2099, 4, 1), ui.PASSOVER_START)
     assert result is False
 
 
@@ -658,3 +658,160 @@ def test_render_colour_diagnostics_shows_all_new_palettes_and_holi():
     assert "Lunar New Year" in result
     assert "Rosh / Diwali / Bandi" in result
     assert "Holi 🎨" in result
+
+
+# --- Shared error reporting (issue #389 follow-up, groundwork for #410) ------
+
+
+def test_error_exit_writes_red_message_to_stderr_and_exits(capsys):
+    """The shared helper owns the repo's error idiom: red, stderr, exit 1."""
+    with pytest.raises(SystemExit) as excinfo:
+        ui.error_exit("Error: something went wrong", colour=True)
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == "", "errors must never touch stdout"
+    assert "something went wrong" in captured.err
+    assert "\x1b[" in captured.err, "expected ANSI styling when colour is on"
+
+
+def test_error_exit_omits_colour_when_disabled(capsys):
+    with pytest.raises(SystemExit):
+        ui.error_exit("Error: plain", colour=False)
+
+    captured = capsys.readouterr()
+    assert "plain" in captured.err
+    assert "\x1b[" not in captured.err
+
+
+def test_error_exit_honours_a_custom_exit_code(capsys):
+    """Groundwork for the exit-code contract in #410."""
+    with pytest.raises(SystemExit) as excinfo:
+        ui.error_exit("Error: bad usage", colour=False, exit_code=2)
+
+    assert excinfo.value.code == 2
+
+
+# --- Pizza recipe easter egg (#432) ----------------------------------------
+
+
+def test_pizza_recipes_structure():
+    assert len(ui.PIZZA_RECIPES) >= 3
+    for recipe in ui.PIZZA_RECIPES:
+        assert "title" in recipe
+        assert "style" in recipe
+        assert "dough" in recipe
+        assert "toppings" in recipe
+        assert "bake" in recipe
+        assert "tip" in recipe
+
+
+def test_get_random_pizza_recipe():
+    recipe = ui.get_random_pizza_recipe()
+    assert recipe in ui.PIZZA_RECIPES
+
+
+def test_render_pizza_recipe_formatting():
+    recipe = ui.PIZZA_RECIPES[0]
+    rendered = ui.render_pizza_recipe(recipe, is_birthday=False)
+    assert "🍕" in rendered
+    assert recipe["title"] in rendered
+    assert recipe["dough"] in rendered
+    assert recipe["bake"] in rendered
+
+
+def test_render_pizza_recipe_birthday_greeting():
+    recipe = ui.PIZZA_RECIPES[0]
+    rendered = ui.render_pizza_recipe(recipe, is_birthday=True)
+    assert "🎂" in rendered
+    assert "Its Steve's birthday, here is a gift" in rendered
+
+
+def test_cake_recipes_structure():
+    assert len(ui.CAKE_RECIPES) >= 3
+    for recipe in ui.CAKE_RECIPES:
+        assert "title" in recipe
+        assert "style" in recipe
+        assert "batter" in recipe
+        assert "frosting" in recipe
+        assert "bake" in recipe
+        assert "tip" in recipe
+
+
+def test_get_random_cake_recipe():
+    recipe = ui.get_random_cake_recipe()
+    assert recipe in ui.CAKE_RECIPES
+
+
+def test_render_cake_recipe_formatting():
+    recipe = ui.CAKE_RECIPES[0]
+    rendered = ui.render_cake_recipe(recipe, is_birthday=False)
+    assert "🎂" in rendered
+    assert "Secret Cake Recipe" in rendered
+    assert recipe["title"] in rendered
+    assert recipe["batter"] in rendered
+
+
+def test_render_cake_recipe_birthday_greeting():
+    recipe = ui.CAKE_RECIPES[0]
+    rendered = ui.render_cake_recipe(recipe, is_birthday=True)
+    assert "🎂" in rendered
+    assert "Its Steve's birthday, here is a gift" in rendered
+
+
+def test_is_steves_birthday():
+    import datetime
+
+    assert ui.is_steves_birthday(datetime.date(2026, 1, 8)) is True
+    assert ui.is_steves_birthday(datetime.date(2026, 1, 7)) is False
+    assert ui.is_steves_birthday(datetime.date(2026, 1, 9)) is False
+    assert ui.is_steves_birthday(datetime.date(2026, 6, 15)) is False
+
+
+def test_holiday_gift_state_tracking(tmp_path):
+    import datetime
+
+    d1 = datetime.date(2026, 1, 8)
+    d2 = datetime.date(2027, 1, 8)
+
+    assert ui.has_shown_holiday_gift("birthday", d1, state_dir=tmp_path) is False
+    ui.mark_holiday_gift_shown("birthday", d1, state_dir=tmp_path)
+    assert ui.has_shown_holiday_gift("birthday", d1, state_dir=tmp_path) is True
+    # Different event is still False
+    assert ui.has_shown_holiday_gift("christmas", d1, state_dir=tmp_path) is False
+    # Next year should return False until shown in 2027
+    assert ui.has_shown_holiday_gift("birthday", d2, state_dir=tmp_path) is False
+    ui.mark_holiday_gift_shown("birthday", d2, state_dir=tmp_path)
+    assert ui.has_shown_holiday_gift("birthday", d2, state_dir=tmp_path) is True
+
+
+def test_is_christmas():
+    import datetime
+
+    assert ui.is_christmas(datetime.date(2026, 12, 25)) is True
+    assert ui.is_christmas(datetime.date(2026, 12, 24)) is False
+    assert ui.is_christmas(datetime.date(2026, 12, 26)) is False
+    assert ui.is_christmas(datetime.date(2026, 7, 4)) is False
+
+
+def test_render_pizza_recipe_christmas_greeting():
+    recipe = ui.PIZZA_RECIPES[0]
+    rendered = ui.render_pizza_recipe(recipe, is_christmas=True)
+    assert "🎄" in rendered
+    assert "Merry Christmas" in rendered
+    assert recipe["title"] in rendered
+
+
+def test_christmas_gift_state_tracking(tmp_path):
+    import datetime
+
+    d1 = datetime.date(2026, 12, 25)
+    d2 = datetime.date(2027, 12, 25)
+
+    assert ui.has_shown_holiday_gift("christmas", d1, state_dir=tmp_path) is False
+    ui.mark_holiday_gift_shown("christmas", d1, state_dir=tmp_path)
+    assert ui.has_shown_holiday_gift("christmas", d1, state_dir=tmp_path) is True
+    # Next year should return False until shown in 2027
+    assert ui.has_shown_holiday_gift("christmas", d2, state_dir=tmp_path) is False
+    ui.mark_holiday_gift_shown("christmas", d2, state_dir=tmp_path)
+    assert ui.has_shown_holiday_gift("christmas", d2, state_dir=tmp_path) is True

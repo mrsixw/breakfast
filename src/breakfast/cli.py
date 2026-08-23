@@ -1,9 +1,12 @@
+import os
 import random
 import re
+import shutil
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from enum import StrEnum, auto
 from urllib.parse import urlparse
 
 import click
@@ -11,12 +14,12 @@ import requests
 
 from .api import (
     SECRET_GITHUB_TOKEN,
+    GitHubAuthenticationError,
     GitHubGraphQLError,
     GitHubGraphQLResourceLimitError,
     GitHubRateLimitError,
     OwnerNotFoundError,
-    _fetch_pr_detail,
-    _match_exclude_repos,
+    fetch_pr_detail,
     get_api_stats,
     get_approval_summary,
     get_authenticated_user_login,
@@ -24,6 +27,7 @@ from .api import (
     get_github_prs,
     get_graphql_rate_limit,
     get_pr_age_days,
+    match_exclude_repos,
 )
 from .cache import (
     parse_ttl,
@@ -43,6 +47,7 @@ from .config import (
     parse_columns_config,
     update_config,
 )
+from .constants import BREAKFAST_ITEMS
 from .logger import configure as configure_logging
 from .logger import logger
 from .renderers import (
@@ -54,11 +59,56 @@ from .renderers import (
     render_template,
 )
 from .ui import (
-    BREAKFAST_ITEMS,
+    get_random_cake_recipe,
+    get_random_pizza_recipe,
+    has_shown_holiday_gift,
+    is_christmas,
+    is_steves_birthday,
+    mark_holiday_gift_shown,
+    render_cake_recipe,
     render_colour_diagnostics,
+    render_pizza_recipe,
     render_pr_summary,
 )
-from .updater import check_for_update
+from .updater import UpdateStatus, check_for_update, perform_update
+
+__all__ = [
+    "breakfast",
+    "env_flag_is_set",
+    "finish_run",
+]
+
+
+class Shell(StrEnum):
+    """A shell that ``completions`` can emit a completion script for.
+
+    ``StrEnum`` + ``auto()`` yields the lowercase member name as the value, so
+    members pass straight into Click's completion machinery and into f-strings
+    without a trail of ``.value``.
+    """
+
+    BASH = auto()
+    ZSH = auto()
+    FISH = auto()
+
+
+# Click matches enum choices on member *names*, so click.Choice(Shell) would
+# demand "BASH" rather than "bash" — pass the values explicitly instead.
+_SHELL_CHOICES = [shell.value for shell in Shell]
+
+
+def _emit_completion_script(shell):
+    """Print the Click-generated completion script for *shell* to stdout."""
+    from click.shell_completion import get_completion_class
+
+    comp_cls = get_completion_class(Shell(shell))
+    comp = comp_cls(
+        cli=breakfast,
+        ctx_args={},
+        prog_name="breakfast",
+        complete_var="_BREAKFAST_COMPLETE",
+    )
+    click.echo(comp.source(), nl=False)
 
 
 def format_cache_age(age_seconds: float) -> str:
@@ -83,11 +133,76 @@ def _stdout_is_tty():
     return sys.stdout.isatty()
 
 
+def env_flag_is_set(name):
+    """Report whether an environment variable is set to any non-empty value.
+
+    This is the no-color.org convention: presence is the signal, and the value
+    is deliberately ignored, so `NO_COLOR=0` and `NO_COLOR=false` disable
+    colour just as `NO_COLOR=1` does. Click's `envvar=` on a boolean flag
+    cannot express this — it rejects unrecognised values outright and reads
+    `false` as "leave colour on", the opposite of the spec.
+
+    Args:
+        name: The environment variable to inspect.
+
+    Returns:
+        True if the variable is set to a non-empty value.
+    """
+    return bool(os.environ.get(name))
+
+
+def _require_positive_int(value, key, colour):
+    """Validate a config-sourced integer that must be 1 or greater.
+
+    Click's IntRange guards the command-line flags, but config keys are read
+    straight from TOML and bypass it entirely, so they need the same check.
+
+    Args:
+        value: The raw value read from the config file.
+        key: The config key name, used in the error message.
+        colour: Whether to colourise the error output.
+
+    Returns:
+        The value as an int.
+
+    Raises:
+        SystemExit: If the value is not an integer of 1 or greater.
+    """
+    if isinstance(value, bool):
+        parsed = None  # TOML booleans coerce to 0/1; that is never intentional here.
+    elif isinstance(value, float) and not value.is_integer():
+        parsed = None  # Reject 3.5 rather than silently running with 3.
+    else:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = None
+    if parsed is None or parsed < 1:
+        logger.error("invalid_config_value key=%s value=%r", key, value)
+        msg = (
+            f"Error: invalid {key} value in config: {value!r}."
+            " Must be a whole number of 1 or greater."
+        )
+        click.echo(click.style(msg, fg="red", bold=True), err=True, color=colour)
+        sys.exit(1)
+    return parsed
+
+
 def _handle_rate_limit(exc, json_output=False):
     """Print a friendly rate-limit message and exit non-zero."""
     click.echo(
         click.style(f"🥞 {exc}", fg="red", bold=True),
         err=True,
+    )
+    sys.exit(1)
+
+
+def _handle_auth_error(exc, colour=None, json_output=False):
+    """Print a friendly authentication error message and exit non-zero."""
+    click.echo(
+        click.style(f"🍳 {exc}", fg="red", bold=True),
+        err=True,
+        color=colour,
     )
     sys.exit(1)
 
@@ -121,7 +236,7 @@ def _print_debug_summary(t0, pr_count, api_stats, graphql_rate_limit):
     click.echo("\n".join(lines), err=True)
 
 
-def _finish_run(
+def finish_run(
     t0_total,
     pr_count,
     *,
@@ -129,6 +244,8 @@ def _finish_run(
     show_update_summary,
     api_stats,
     colour,
+    pizza=False,
+    cake=False,
 ):
     if not no_update_check:
         update_msg = check_for_update(show_summary=show_update_summary)
@@ -139,6 +256,36 @@ def _finish_run(
                 err=True,
                 color=colour,
             )
+    if colour and is_steves_birthday() and not has_shown_holiday_gift("birthday"):
+        cake_recipe = get_random_cake_recipe()
+        click.echo(
+            render_cake_recipe(cake_recipe, is_birthday=True, colour=colour),
+            err=True,
+            color=colour,
+        )
+        mark_holiday_gift_shown("birthday")
+    elif cake:
+        cake_recipe = get_random_cake_recipe()
+        click.echo(
+            render_cake_recipe(cake_recipe, is_birthday=False, colour=colour),
+            err=True,
+            color=colour,
+        )
+    if colour and is_christmas() and not has_shown_holiday_gift("christmas"):
+        pizza_recipe = get_random_pizza_recipe()
+        click.echo(
+            render_pizza_recipe(pizza_recipe, is_christmas=True, colour=colour),
+            err=True,
+            color=colour,
+        )
+        mark_holiday_gift_shown("christmas")
+    elif pizza:
+        pizza_recipe = get_random_pizza_recipe()
+        click.echo(
+            render_pizza_recipe(pizza_recipe, is_birthday=False, colour=colour),
+            err=True,
+            color=colour,
+        )
     if api_stats:
         _print_debug_summary(
             t0_total, pr_count, get_api_stats(), get_graphql_rate_limit()
@@ -279,7 +426,7 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     Propagates RequestException from the detail fetch so the caller can skip
     the PR. Check/approval failures fall back to sentinel values instead.
     """
-    pr_detail = _fetch_pr_detail(url)
+    pr_detail = fetch_pr_detail(url)
 
     check_status = None
     if fetch_checks:
@@ -334,15 +481,17 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     return pr_detail, check_status, approval_detail
 
 
-@click.command()
+@click.group(invoke_without_command=True, epilog="Made with ❤️ in the UK")
+@click.pass_context
 @click.option(
     "--completion",
     "completion_shell",
-    type=click.Choice(["bash", "zsh", "fish"]),
+    type=click.Choice(_SHELL_CHOICES),
     default=None,
     is_eager=True,
     expose_value=True,
-    help="Print shell completion script for SHELL and exit. Eval in your shell config.",
+    hidden=True,
+    help="Deprecated: use 'breakfast completions SHELL' instead.",
 )
 @click.option("--config", help="Path to config file.")
 @click.option("--show-config", is_flag=True, help="Print the resolved config and exit.")
@@ -517,19 +666,19 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
 )
 @click.option(
     "--limit",
-    type=int,
+    type=click.IntRange(min=1),
     default=None,
     help="Cap the number of PRs shown. Unset means show all results.",
 )
 @click.option(
     "--workers",
-    type=int,
+    type=click.IntRange(min=1),
     default=None,
     help="Number of parallel workers for fetching PR data. Default: 64.",
 )
 @click.option(
     "--max-title-length",
-    type=int,
+    type=click.IntRange(min=1),
     default=None,
     help="Truncate PR titles to this many characters. Unset means no truncation.",
 )
@@ -537,8 +686,14 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     "--no-update-check",
     is_flag=True,
     default=False,
-    envvar="BREAKFAST_NO_UPDATE_CHECK",
-    help="Disable the automatic update check.",
+    # No envvar= here: Click would route BREAKFAST_NO_UPDATE_CHECK through its
+    # BOOL converter, so unrecognised values abort the run. Resolved by
+    # presence in the callback instead — see env_flag_is_set.
+    help=(
+        "Disable the automatic update check."
+        " Also honoured via the BREAKFAST_NO_UPDATE_CHECK environment"
+        " variable, set to any non-empty value."
+    ),
 )
 @click.option(
     "--offline",
@@ -648,13 +803,13 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
 )
 @click.option(
     "--filter-stale",
-    type=int,
+    type=click.IntRange(min=0),
     default=None,
     help="Only show PRs older than N days (by creation date).",
 )
 @click.option(
     "--filter-inactive",
-    type=int,
+    type=click.IntRange(min=0),
     default=None,
     help="Only show PRs not updated in the last N days.",
 )
@@ -714,15 +869,26 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     ),
 )
 @click.option(
+    "--update-summary",
+    is_flag=True,
+    default=False,
+    help=(
+        "When a newer version is available, include a short summary of"
+        " what's new (from the GitHub release notes) below the update banner."
+    ),
+)
+@click.option(
     "--no-colour",
     "--no-color",
     "no_colour",
     is_flag=True,
     default=False,
-    envvar="NO_COLOR",
+    # No envvar= here — see the note on --no-update-check. no-color.org
+    # requires presence semantics, which Click's BOOL conversion cannot express.
     help=(
         "Disable ANSI colour in all output."
-        " Also honoured via the NO_COLOR environment variable (no-color.org)."
+        " Also honoured via the NO_COLOR environment variable (no-color.org),"
+        " set to any non-empty value."
     ),
 )
 @click.option(
@@ -759,8 +925,23 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
         " PR count, oldest age, and total comments per repo."
     ),
 )
+@click.option(
+    "--pizza",
+    is_flag=True,
+    default=False,
+    hidden=True,
+    help="Secret pizza recipe easter egg.",
+)
+@click.option(
+    "--cake",
+    is_flag=True,
+    default=False,
+    hidden=True,
+    help="Secret cake recipe easter egg.",
+)
 @click.version_option(package_name="breakfast")
 def breakfast(
+    ctx,
     completion_shell,
     config,
     show_config,
@@ -812,27 +993,44 @@ def breakfast(
     legendary_only,
     search,
     api_stats,
+    update_summary,
     no_colour,
     colour_diagnostics,
     summarise_user_prs,
     summarise_repo_prs,
     sort_by,
     sort_reverse,
+    pizza,
+    cake,
 ):
     t0_total = time.monotonic()
     configure_logging()
 
-    if completion_shell:
-        from click.shell_completion import get_completion_class
+    # This callback body *is* the program — without this guard, `breakfast
+    # completions bash` would go and fetch pull requests from GitHub before
+    # dispatching. Subcommands must also stay usable with no config file and no
+    # GITHUB_TOKEN, so return before any of the validation below.
+    if ctx.invoked_subcommand is not None:
+        return
 
-        comp_cls = get_completion_class(completion_shell)
-        comp = comp_cls(
-            cli=breakfast,
-            ctx_args={},
-            prog_name="breakfast",
-            complete_var="_BREAKFAST_COMPLETE",
+    # Resolved by presence, not by parsing: see env_flag_is_set. This runs
+    # before the first use of no_colour below, and composes with the config
+    # fallback further down.
+    no_colour = no_colour or env_flag_is_set("NO_COLOR")
+    no_update_check = no_update_check or env_flag_is_set("BREAKFAST_NO_UPDATE_CHECK")
+
+    if completion_shell:
+        click.echo(
+            click.style(
+                "⚠️  --completion is deprecated; use 'breakfast completions "
+                f"{completion_shell}' instead.",
+                fg="yellow",
+            ),
+            # stderr, always: this command's stdout gets eval'd by the user's
+            # shell, so a notice on stdout becomes a shell startup syntax error.
+            err=True,
         )
-        click.echo(comp.source(), nl=False)
+        _emit_completion_script(completion_shell)
         sys.exit(0)
 
     if colour_diagnostics:
@@ -1019,6 +1217,15 @@ def breakfast(
     api_stats = api_stats or cfg.get("api-stats", False)
     no_colour = no_colour or cfg.get("no-colour", False)
     colour = not no_colour
+
+    # Click's IntRange has already vetted any command-line values; these config
+    # keys bypass Click, so validate them before they reach ThreadPoolExecutor
+    # and the title truncation maths.
+    workers = _require_positive_int(workers, "workers", colour)
+    if max_title_length is not None:
+        max_title_length = _require_positive_int(
+            max_title_length, "max-title-length", colour
+        )
     seasonal_colours = cfg.get("seasonal-colours", True)
     seasonal_calendar = cfg.get("seasonal-calendar", "western")
     if not seasonal_colours:
@@ -1026,7 +1233,7 @@ def breakfast(
     colour_index = cfg.get("colour-index", False)
     summarise_user_prs = summarise_user_prs or cfg.get("summarise-user-prs", False)
     summarise_repo_prs = summarise_repo_prs or cfg.get("summarise-repo-prs", False)
-    show_update_summary = cfg.get("update-summary", False)
+    show_update_summary = update_summary or cfg.get("update-summary", False)
     sort_by = sort_by if sort_by is not None else cfg.get("sort", "repo")
     sort_reverse = sort_reverse or cfg.get("sort-reverse", False)
 
@@ -1170,7 +1377,7 @@ def breakfast(
         sys.exit(1)
 
     if SECRET_GITHUB_TOKEN is None:
-        message = "GITHUB_TOKEN not set in environment - exiting..."
+        message = "GH_TOKEN or GITHUB_TOKEN not set in environment - exiting..."
         click.echo(click.style(message, fg="red", bold=True), err=True, color=colour)
         sys.exit(1)
     current_user_login = None
@@ -1179,6 +1386,8 @@ def breakfast(
             try:
                 current_user_login = get_authenticated_user_login()
                 write_cached_user_login(current_user_login)
+            except GitHubAuthenticationError as exc:
+                _handle_auth_error(exc, colour=colour, json_output=json_output)
             except GitHubRateLimitError as exc:
                 _handle_rate_limit(exc, json_output)
             except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
@@ -1309,7 +1518,7 @@ def breakfast(
                 prs = [
                     url
                     for url in prs
-                    if not _match_exclude_repos(_extract_repo_name(url), exclude_repos)
+                    if not match_exclude_repos(_extract_repo_name(url), exclude_repos)
                 ]
 
             # --- Layer 2.5: per-repo PR cache ---
@@ -1394,6 +1603,12 @@ def breakfast(
                                 nl=False,
                                 err=True,
                             )
+                        except GitHubAuthenticationError as exc:
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            click.echo("", err=True)
+                            _handle_auth_error(
+                                exc, colour=colour, json_output=json_output
+                            )
                         except GitHubRateLimitError as exc:
                             click.echo("", err=True)
                             _handle_rate_limit(exc, json_output)
@@ -1440,6 +1655,9 @@ def breakfast(
             if cache_enabled:
                 needs_cache_write = True
 
+        except GitHubAuthenticationError as exc:
+            click.echo("", err=True)
+            _handle_auth_error(exc, colour=colour, json_output=json_output)
         except GitHubGraphQLResourceLimitError as exc:
             logger.warning(
                 "graphql_resource_limit_unrecoverable error_count=%d errors=%s",
@@ -1720,13 +1938,15 @@ def breakfast(
             render_pr_summary(groups, title, label_header, colour, seasonal_calendar),
             color=colour and _stdout_is_tty(),
         )
-        _finish_run(
+        finish_run(
             t0_total,
             len(pr_details),
             no_update_check=no_update_check,
             show_update_summary=show_update_summary,
             api_stats=api_stats,
             colour=colour,
+            pizza=pizza,
+            cake=cake,
         )
         return
 
@@ -1798,13 +2018,85 @@ def breakfast(
             stdout_is_tty=_stdout_is_tty(),
         )
 
-    _finish_run(
+    finish_run(
         t0_total,
         len(pr_details),
         no_update_check=no_update_check,
         show_update_summary=show_update_summary,
         api_stats=api_stats,
         colour=colour,
+        pizza=pizza,
+        cake=cake,
+    )
+
+
+# ── Shell completions ───────────────────────────────────────────────────────
+
+
+@breakfast.command()
+@click.argument("shell", type=click.Choice(_SHELL_CHOICES))
+def completions(shell):
+    """Print the shell completion script for SHELL.
+
+    Eval it in your shell config, e.g. ``eval "$(breakfast completions bash)"``.
+    """
+    _emit_completion_script(shell)
+
+
+# ── Self-update ─────────────────────────────────────────────────────────────
+
+
+def _current_executable_path() -> str:
+    """Resolve the absolute path of the running breakfast executable.
+
+    ``sys.argv[0]`` is what the user actually invoked, so prefer it whenever it
+    names a real file: ``./breakfast update`` must update *that* copy, not a
+    different one that happens to sit earlier on PATH. Fall back to a PATH
+    lookup for the usual case, where argv[0] is the bare console-script name.
+
+    ``abspath`` rather than ``resolve`` so a symlinked install has its link
+    replaced and not the file it points at, and so a relative argv[0] cannot
+    send ``os.replace()`` to the current working directory.
+    """
+    invoked = sys.argv[0]
+    if os.sep in invoked and os.path.isfile(invoked):
+        return os.path.abspath(invoked)
+    return os.path.abspath(shutil.which("breakfast") or invoked)
+
+
+@breakfast.command()
+def update():
+    """Fetch the latest breakfast release and serve it over this executable."""
+    click.echo(
+        click.style("🍳 Checking the kitchen for a fresher batch...", fg="cyan"),
+        err=True,
+    )
+    status, current, detail = perform_update(_current_executable_path())
+
+    if status is UpdateStatus.UNKNOWN:
+        raise click.ClickException("Could not reach GitHub to check for a new release.")
+    if status is UpdateStatus.ERROR:
+        raise click.ClickException(f"Update failed: {detail}")
+    if status is UpdateStatus.UP_TO_DATE:
+        click.echo(
+            click.style(
+                f"🥞 Already serving the freshest batch, v{current}.", fg="green"
+            ),
+            err=True,
+        )
+        return
+
+    click.echo(
+        click.style(f"🥞 A fresh batch is served — v{detail}.", fg="green"), err=True
+    )
+    # The completion scripts re-invoke the binary, so they track it for free.
+    # The man page is a static file and may sit somewhere needing privileges,
+    # so point at the installer rather than trying to rewrite it here.
+    click.echo(
+        click.style(
+            "   Re-run install.sh if you also want a refreshed man page.", fg="cyan"
+        ),
+        err=True,
     )
 
 

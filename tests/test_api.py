@@ -397,24 +397,24 @@ def test_get_github_prs_raises_owner_not_found_when_null(monkeypatch):
 
 
 def test_match_exclude_repos_exact():
-    assert api._match_exclude_repos("old-service", ["old-service"]) is True
-    assert api._match_exclude_repos("app", ["old-service"]) is False
+    assert api.match_exclude_repos("old-service", ["old-service"]) is True
+    assert api.match_exclude_repos("app", ["old-service"]) is False
 
 
 def test_match_exclude_repos_glob():
-    assert api._match_exclude_repos("old-api", ["old-*"]) is True
-    assert api._match_exclude_repos("old-web", ["old-*"]) is True
-    assert api._match_exclude_repos("app", ["old-*"]) is False
+    assert api.match_exclude_repos("old-api", ["old-*"]) is True
+    assert api.match_exclude_repos("old-web", ["old-*"]) is True
+    assert api.match_exclude_repos("app", ["old-*"]) is False
 
 
 def test_match_exclude_repos_multiple_patterns():
-    assert api._match_exclude_repos("infra-prod", ["old-*", "infra-*"]) is True
-    assert api._match_exclude_repos("app", ["old-*", "infra-*"]) is False
+    assert api.match_exclude_repos("infra-prod", ["old-*", "infra-*"]) is True
+    assert api.match_exclude_repos("app", ["old-*", "infra-*"]) is False
 
 
 def test_match_exclude_repos_empty():
-    assert api._match_exclude_repos("anything", []) is False
-    assert api._match_exclude_repos("anything", None) is False
+    assert api.match_exclude_repos("anything", []) is False
+    assert api.match_exclude_repos("anything", None) is False
 
 
 def test_get_github_prs_fetch_state_open_uses_open_enum(monkeypatch):
@@ -1298,8 +1298,98 @@ def test_make_github_api_request_403_without_rate_limit_header_raises_http_error
         api.make_github_api_request("/user")
 
 
+def _make_auth_error_response():
+    """Return a fake requests.Response that looks like an HTTP 401 Unauthorized."""
+
+    class FakeUnauthorized:
+        status_code = 401
+        headers = {}
+
+        def raise_for_status(self):
+            raise requests.exceptions.HTTPError(response=self)
+
+    return FakeUnauthorized()
+
+
+def test_make_github_api_request_raises_auth_error_on_401(monkeypatch):
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "expired-token")
+    calls = []
+
+    def fake_get(*_a, **_kw):
+        calls.append(1)
+        return _make_auth_error_response()
+
+    monkeypatch.setattr(api.requests, "get", fake_get)
+
+    with pytest.raises(api.GitHubAuthenticationError) as exc_info:
+        api.make_github_api_request("/user")
+
+    assert isinstance(exc_info.value, requests.exceptions.HTTPError)
+    assert "GitHub authentication failed" in str(exc_info.value)
+    assert "HTTP 401" in str(exc_info.value)
+    assert len(calls) == 1  # 401 is not retried
+
+
+def test_make_github_graphql_request_raises_auth_error_on_401(monkeypatch):
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "expired-token")
+    calls = []
+
+    def fake_post(*_a, **_kw):
+        calls.append(1)
+        return _make_auth_error_response()
+
+    monkeypatch.setattr(api.requests, "post", fake_post)
+
+    with pytest.raises(api.GitHubAuthenticationError) as exc_info:
+        api.make_github_graphql_request("query { viewer { login } }")
+
+    assert isinstance(exc_info.value, requests.exceptions.HTTPError)
+    assert "GitHub authentication failed" in str(exc_info.value)
+    assert "HTTP 401" in str(exc_info.value)
+    assert len(calls) == 1  # 401 is not retried
+
+
+def test_get_authenticated_user_login_raises_auth_error_on_401(monkeypatch):
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "expired-token")
+    monkeypatch.setattr(
+        api.requests, "get", lambda *_a, **_kw: _make_auth_error_response()
+    )
+
+    with pytest.raises(api.GitHubAuthenticationError):
+        api.get_authenticated_user_login()
+
+
+def test_make_github_api_request_401_names_active_token_variable(monkeypatch):
+    monkeypatch.setenv("GH_TOKEN", "cli-token")
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "cli-token")
+    monkeypatch.setattr(
+        api.requests, "get", lambda *_a, **_kw: _make_auth_error_response()
+    )
+
+    with pytest.raises(api.GitHubAuthenticationError) as exc_info_gh:
+        api.make_github_api_request("/user")
+    assert "GH_TOKEN was rejected" in str(exc_info_gh.value)
+
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_TOKEN", "env-token")
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "env-token")
+
+    with pytest.raises(api.GitHubAuthenticationError) as exc_info_github:
+        api.make_github_api_request("/user")
+    assert "GITHUB_TOKEN was rejected" in str(exc_info_github.value)
+
+
+def test_github_auth_error_message_identifies_token_variable():
+    err = api.GitHubAuthenticationError(token_var="GH_TOKEN")
+    assert "GH_TOKEN was rejected" in str(err)
+
+    err2 = api.GitHubAuthenticationError(token_var="GITHUB_TOKEN")
+    assert "GITHUB_TOKEN was rejected" in str(err2)
+
+
 # ---------------------------------------------------------------------------
-# _fetch_pr_detail URL parsing (#241)
+# fetch_pr_detail URL parsing (#241)
 # ---------------------------------------------------------------------------
 
 
@@ -1312,7 +1402,7 @@ def test_fetch_pr_detail_standard_url(monkeypatch):
         return {"number": 42}
 
     monkeypatch.setattr(api, "make_github_api_request", fake_request)
-    api._fetch_pr_detail("https://github.com/myorg/myrepo/pull/42")
+    api.fetch_pr_detail("https://github.com/myorg/myrepo/pull/42")
     assert calls == ["/repos/myorg/myrepo/pulls/42"]
 
 
@@ -1320,7 +1410,7 @@ def test_fetch_pr_detail_trailing_slash(monkeypatch):
     """Trailing slash in URL does not break parsing."""
     calls = []
     monkeypatch.setattr(api, "make_github_api_request", lambda p: calls.append(p) or {})
-    api._fetch_pr_detail("https://github.com/org/repo/pull/7/")
+    api.fetch_pr_detail("https://github.com/org/repo/pull/7/")
     assert calls == ["/repos/org/repo/pulls/7"]
 
 
@@ -1329,7 +1419,7 @@ def test_fetch_pr_detail_invalid_url_raises():
     import pytest
 
     with pytest.raises(ValueError, match="Unexpected PR URL format"):
-        api._fetch_pr_detail("https://github.com/short")
+        api.fetch_pr_detail("https://github.com/short")
 
 
 def test_get_check_status_none_conclusion_not_counted_as_pass(monkeypatch):
@@ -1422,7 +1512,7 @@ def test_make_github_graphql_request_asserts_timeout(monkeypatch):
 
 
 def test_make_github_api_request_retries_on_timeout_and_propagates(monkeypatch):
-    """Verifies that a Timeout is retried _MAX_RETRIES times and then raises."""
+    """Verifies that a Timeout is retried MAX_RETRIES times and then raises."""
     attempts = []
     monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(api.time, "sleep", lambda _: None)
@@ -1438,3 +1528,44 @@ def test_make_github_api_request_retries_on_timeout_and_propagates(monkeypatch):
 
     # 1 initial attempt + 3 retries = 4 attempts total
     assert len(attempts) == 4
+
+
+def test_resolve_github_token_uses_gh_token_when_only_it_is_set(monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setenv("GH_TOKEN", "gh-cli-token-value")
+
+    assert api._resolve_github_token() == "gh-cli-token-value"
+
+
+def test_resolve_github_token_falls_back_to_github_token(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-token-value")
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+
+    assert api._resolve_github_token() == "gh-token-value"
+
+
+def test_resolve_github_token_prefers_gh_token_over_github_token(monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-token-value")
+    monkeypatch.setenv("GH_TOKEN", "gh-cli-token-value")
+
+    assert api._resolve_github_token() == "gh-cli-token-value"
+
+
+def test_resolve_github_token_none_when_neither_set(monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+
+    assert api._resolve_github_token() is None
+
+
+def test_resolve_github_token_info(monkeypatch):
+    monkeypatch.setenv("GH_TOKEN", "cli-tok")
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-tok")
+    assert api._resolve_github_token_info() == ("cli-tok", "GH_TOKEN")
+
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-tok")
+    assert api._resolve_github_token_info() == ("gh-tok", "GITHUB_TOKEN")
+
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    assert api._resolve_github_token_info() == (None, None)

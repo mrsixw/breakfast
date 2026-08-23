@@ -5,12 +5,17 @@ api_url="https://api.github.com/repos/idc101/git-mkver/releases/latest"
 
 asset_url=$(python - <<'PY'
 import json
-import sys
-from urllib.request import urlopen
+import os
+from urllib.request import Request, urlopen
 
 api_url = "https://api.github.com/repos/idc101/git-mkver/releases/latest"
 
-with urlopen(api_url) as response:
+headers = {}
+token = os.environ.get("GITHUB_TOKEN")
+if token:
+    headers["Authorization"] = f"Bearer {token}"
+
+with urlopen(Request(api_url, headers=headers)) as response:
     data = json.load(response)
 
 assets = data.get("assets", [])

@@ -3,6 +3,11 @@ from pathlib import Path
 
 from .xdg import get_state_dir
 
+__all__ = [
+    "configure",
+    "logger",
+]
+
 _LOG_FILENAME = "breakfast.log"
 
 

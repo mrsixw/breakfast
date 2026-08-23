@@ -223,7 +223,7 @@ breakfast -o my-org --exclude-label wip --exclude-label blocked
 
 ### `--filter-stale`
 
-Only show PRs that have been open for more than N days (based on creation date). Pairs naturally with `--age` to see the age column.
+Only show PRs that have been open for more than N days (based on creation date). Pairs naturally with `--age` to see the age column. N must be `0` or greater.
 
 ```bash
 breakfast -o my-org --filter-stale 14         # PRs open for more than 14 days
@@ -232,7 +232,7 @@ breakfast -o my-org --filter-stale 30 --age   # stale PRs with age column visibl
 
 ### `--filter-inactive`
 
-Only show PRs that have not been updated in the last N days. Useful for surfacing PRs that need a nudge.
+Only show PRs that have not been updated in the last N days. Useful for surfacing PRs that need a nudge. N must be `0` or greater.
 
 ```bash
 breakfast -o my-org --filter-inactive 7       # not updated in the last 7 days
@@ -263,7 +263,7 @@ Error: --search pattern is not valid regex: unterminated character set at positi
 
 ### `--mine-only`
 
-Show only PRs authored by the currently authenticated GitHub user (determined from `GITHUB_TOKEN`).
+Show only PRs authored by the currently authenticated GitHub user (determined from `GH_TOKEN`, or `GITHUB_TOKEN` as a fallback).
 
 ```text
 $ breakfast -o my-org -r platform --mine-only
@@ -278,7 +278,7 @@ Processing platform PRs...🍳...Done
 
 ### `--needs-my-review`
 
-Show only PRs where the authenticated GitHub user (determined from `GITHUB_TOKEN`) is a requested reviewer. Ideal for the morning triage: skip everything that isn't waiting on you.
+Show only PRs where the authenticated GitHub user (determined from `GH_TOKEN`, or `GITHUB_TOKEN` as a fallback) is a requested reviewer. Ideal for the morning triage: skip everything that isn't waiting on you.
 
 ```bash
 breakfast -o my-org --needs-my-review
@@ -389,7 +389,17 @@ breakfast -o my-org --format template --template "{repo}: {title} by {author} �
 breakfast -o my-org --format template --template "{number}\t{title}\t{url}"
 ```
 
-If an unknown field is used, breakfast exits with an error message.
+Standard Python format specs are supported, so `{title:>30}` and `{additions:05d}` work as you would expect.
+
+Templates are validated **before any row is printed**, so a broken template never leaves partial output on stdout for a script to misread. breakfast exits with code 1 and a message on stderr for:
+
+- unknown fields — `{nope}`
+- unbalanced or stray braces — `{title`, `title}` (use `{{` and `}}` for literal braces)
+- positional fields — `{0}`; only the named fields above are supported
+- format specs that do not apply to the field's type — `{title:d}`
+- field widths above 10,000 — `{title:>99999999999}`. Padding is capped because a large enough width builds a multi-gigabyte string before anything can report an error.
+
+The same validation applies whether the template comes from `--template` or the `template` config key.
 
 Config keys: `format = "template"` and `template = "{repo}: {title} ({url})"`
 
@@ -716,7 +726,7 @@ Auto-fit is a no-op when output is piped or redirected (not a TTY), so `--json` 
 
 ### `--limit`
 
-Cap the number of PRs displayed. Results are limited after all filtering is applied. There is no config file equivalent — this is intentionally a CLI-only flag.
+Cap the number of PRs displayed. Results are limited after all filtering is applied. Must be `1` or greater; zero and negative values are rejected with a usage error. There is no config file equivalent — this is intentionally a CLI-only flag.
 
 ```bash
 breakfast -o my-org -r my-app --limit 10
@@ -724,7 +734,7 @@ breakfast -o my-org -r my-app --limit 10
 
 ### `--max-title-length`
 
-Truncate PR titles to a maximum number of characters. Titles longer than the limit are cut and suffixed with `…`. When unset, titles are displayed in full.
+Truncate PR titles to a maximum number of characters. Titles longer than the limit are cut and suffixed with `…`. When unset, titles are displayed in full. Must be `1` or greater, whether set on the CLI or in the config file.
 
 ```bash
 breakfast -o my-org -r my-app --max-title-length 72
@@ -880,6 +890,8 @@ When `columns` is set in config, it controls the table layout for all runs. CLI 
 
 Number of parallel workers used to fetch PR details, check statuses, and approval statuses. Defaults to `64`. Lower values reduce API concurrency (useful if you're hitting rate limits); higher values may speed things up on very large organisations.
 
+Must be a whole number of `1` or greater. Anything else — `0`, a negative, or a fractional value like `3.5` — is rejected up front with a clear error, whether it comes from the CLI flag or the `workers` config key.
+
 ```bash
 breakfast -o my-org -r my-app --workers 16
 ```
@@ -984,9 +996,9 @@ breakfast automatically checks for new versions once per day (cached for 24 hour
 
 The check is non-blocking and non-fatal — network failures are silently ignored. The notification is sent to stderr so it won't interfere with `--json` output piping.
 
-### `update-summary` (config only)
+### `--update-summary`
 
-When set to `true`, appends a short summary of what's new (pulled from the GitHub release notes) below the update banner:
+Appends a short summary of what's new (pulled from the GitHub release notes) below the update banner:
 
 ```text
 🍳 A fresh breakfast is ready! v0.10.0 → v0.11.0 — update at ...
@@ -995,7 +1007,11 @@ When set to `true`, appends a short summary of what's new (pulled from the GitHu
       - New --exclude-label filter
 ```
 
-Enable in `~/.config/breakfast/config.toml`:
+```bash
+breakfast -o my-org -r my-app --update-summary
+```
+
+Or enable it permanently in `~/.config/breakfast/config.toml`:
 
 ```toml
 update-summary = true
@@ -1010,6 +1026,8 @@ breakfast -o my-org -r my-app --no-update-check
 # Via environment variable (useful in CI or scripts)
 export BREAKFAST_NO_UPDATE_CHECK=1
 ```
+
+Like `NO_COLOR`, `BREAKFAST_NO_UPDATE_CHECK` is resolved by presence: any non-empty value disables the update check, and only unset or empty leaves it enabled.
 
 ## Colour control
 
@@ -1026,6 +1044,13 @@ The `NO_COLOR` environment variable is also honoured (see [no-color.org](https:/
 
 ```bash
 NO_COLOR=1 breakfast -o my-org -r my-app
+```
+
+Following the spec, `NO_COLOR` is resolved by **presence, not value**: any non-empty value disables colour, whatever it says. `NO_COLOR=0`, `NO_COLOR=false` and `NO_COLOR=nonsense` all disable colour just as `NO_COLOR=1` does — the variable's content is deliberately ignored. Only leaving it unset, or setting it to the empty string, keeps colour on:
+
+```bash
+NO_COLOR= breakfast -o my-org -r my-app     # empty: colour stays enabled
+unset NO_COLOR                              # unset: colour stays enabled
 ```
 
 Can also be set persistently in config:
@@ -1109,17 +1134,44 @@ Can also be enabled persistently via config:
 api-stats = true
 ```
 
-### `--completion SHELL`
+## Commands
+
+Alongside the options above, breakfast has two subcommands. Both run before any
+GitHub token or `--owner` validation, so they work with no configuration at all.
+
+### `completions SHELL`
 
 Print the tab-completion script for `SHELL` to stdout and exit. `SHELL` must be one of `bash`, `zsh`, or `fish`.
 
 ```bash
-breakfast --completion zsh   # print zsh completion script
-breakfast --completion bash  # print bash completion script
-breakfast --completion fish  # print fish completion script
+breakfast completions zsh   # print zsh completion script
+breakfast completions bash  # print bash completion script
+breakfast completions fish  # print fish completion script
 ```
 
-This flag short-circuits before any GitHub token or `--owner` validation, so it works without any configuration. See [Installation → Shell completions](installation.md#shell-completions) for setup instructions.
+See [Installation → Shell completions](installation.md#shell-completions) for setup instructions.
+
+The older `--completion SHELL` flag is deprecated and hidden from `--help`. It
+still prints the same script to stdout, with a deprecation notice on stderr, and
+will be removed in a future release.
+
+### `update`
+
+Download the latest release and replace the running executable with it.
+
+```bash
+breakfast update
+```
+
+The replacement is atomic, so an interrupted download leaves the working binary
+in place. Nothing is written unless a newer release actually exists.
+
+The man page is not refreshed — re-run `install.sh` for that. Completion scripts
+need no refresh: they call back into the binary, so they follow it automatically.
+
+Not to be confused with `--update-config`, which merges new keys into your config
+file, or `--no-update-check`, which silences the passive "a new version exists"
+notice.
 
 ## Summary views
 

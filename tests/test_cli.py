@@ -11,7 +11,7 @@ import requests
 from click.testing import CliRunner
 from freezegun import freeze_time
 
-from breakfast import api, cache, cli, renderers
+from breakfast import api, cache, cli, renderers, ui
 
 
 @pytest.fixture(autouse=True)
@@ -61,7 +61,7 @@ def test_cli_exits_when_token_missing(monkeypatch):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
 
     assert result.exit_code == 1
-    assert "GITHUB_TOKEN not set" in result.stderr
+    assert "GH_TOKEN or GITHUB_TOKEN not set" in result.stderr
 
 
 def test_cli_outputs_table(monkeypatch):
@@ -561,6 +561,133 @@ def test_cli_mine_only_exits_cleanly_on_rate_limit(monkeypatch):
     assert result.exit_code == 1
     assert "rate limit" in result.stderr.lower()
     assert "2026-04-10 16:04:48" in result.stderr
+
+
+def test_cli_mine_only_exits_cleanly_on_auth_error(monkeypatch):
+    from breakfast.api import GitHubAuthenticationError
+
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "expired-token")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli,
+        "get_authenticated_user_login",
+        lambda: (_ for _ in ()).throw(
+            GitHubAuthenticationError(token_var="GITHUB_TOKEN")
+        ),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--mine-only"])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "GitHub authentication failed" in result.stderr
+    assert "GITHUB_TOKEN was rejected (HTTP 401)" in result.stderr
+
+
+def test_cli_needs_my_review_exits_cleanly_on_auth_error(monkeypatch):
+    from breakfast.api import GitHubAuthenticationError
+
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "expired-token")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli,
+        "get_authenticated_user_login",
+        lambda: (_ for _ in ()).throw(
+            GitHubAuthenticationError(token_var="GITHUB_TOKEN")
+        ),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--needs-my-review"]
+    )
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "GitHub authentication failed" in result.stderr
+    assert "GITHUB_TOKEN was rejected (HTTP 401)" in result.stderr
+
+
+def test_cli_graphql_fetch_exits_cleanly_on_auth_error(monkeypatch):
+    from breakfast.api import GitHubAuthenticationError
+
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "expired-token")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda *_a, **_kw: (_ for _ in ()).throw(
+            GitHubAuthenticationError(token_var="GITHUB_TOKEN")
+        ),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "GitHub authentication failed" in result.stderr
+    assert "GITHUB_TOKEN was rejected (HTTP 401)" in result.stderr
+
+
+def test_cli_pr_detail_fetch_exits_cleanly_on_auth_error(monkeypatch):
+    from breakfast.api import GitHubAuthenticationError
+
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "expired-token")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *_a, **_kw: ["https://github.com/org/repo/pull/1"]
+    )
+    monkeypatch.setattr(
+        cli,
+        "fetch_pr_detail",
+        lambda *_a, **_kw: (_ for _ in ()).throw(
+            GitHubAuthenticationError(token_var="GH_TOKEN")
+        ),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "GitHub authentication failed" in result.stderr
+    assert "GH_TOKEN was rejected (HTTP 401)" in result.stderr
+
+
+def test_cli_auth_error_leaves_cache_untouched(monkeypatch, tmp_path):
+    from breakfast import cache
+    from breakfast.api import GitHubAuthenticationError
+
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    user_file = cache_dir / "user.json"
+    sentinel_content = '{"login": "cached_sentinel_user"}'
+    user_file.write_text(sentinel_content)
+
+    monkeypatch.setattr(cache, "get_cache_dir", lambda: str(cache_dir))
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "expired-token")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli,
+        "get_authenticated_user_login",
+        lambda: (_ for _ in ()).throw(
+            GitHubAuthenticationError(token_var="GITHUB_TOKEN")
+        ),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--mine-only"])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert user_file.read_text() == sentinel_content
 
 
 def test_cli_needs_my_review_filters_to_requested_reviewer(monkeypatch):
@@ -1263,7 +1390,7 @@ def test_cli_exclude_repo_filtering(monkeypatch):
             "number": 1,
         }
 
-    monkeypatch.setattr(cli, "_fetch_pr_detail", fake_fetch_pr_detail)
+    monkeypatch.setattr(cli, "fetch_pr_detail", fake_fetch_pr_detail)
     monkeypatch.setattr(cli, "render_pr_summary", lambda *a, **k: "PR SUMMARY")
 
     runner = CliRunner()
@@ -2118,7 +2245,7 @@ def test_per_repo_cache_partial_hit(monkeypatch, tmp_path):
     fetched_urls = []
 
     def fake_rest(url):
-        # _fetch_pr_detail converts https://github.com/org/repo-b/pull/2 →
+        # fetch_pr_detail converts https://github.com/org/repo-b/pull/2 →
         # /repos/org/repo-b/pulls/2
         fetched_urls.append(url)
         if "repo-b" in url and "2" in url:
@@ -4602,48 +4729,69 @@ def test_cli_offline_respects_age_flag(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Shell completion (#350)
+# Shell completions (#350, #412)
 # ---------------------------------------------------------------------------
 
 
-def test_completion_zsh_exits_zero_and_outputs_script():
-    """--completion zsh prints a zsh script and exits 0 without needing a token."""
+def test_completions_zsh_exits_zero_and_outputs_script():
+    """completions zsh prints a zsh script and exits 0 without needing a token."""
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["--completion", "zsh"])
+    result = runner.invoke(cli.breakfast, ["completions", "zsh"])
     assert result.exit_code == 0
-    assert "_BREAKFAST_COMPLETE" in result.output
-    assert "breakfast" in result.output
+    assert "_BREAKFAST_COMPLETE" in result.stdout
+    assert "breakfast" in result.stdout
 
 
-def test_completion_bash_exits_zero_and_outputs_script():
+def test_completions_bash_exits_zero_and_outputs_script():
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["--completion", "bash"])
+    result = runner.invoke(cli.breakfast, ["completions", "bash"])
     assert result.exit_code == 0
-    assert "_BREAKFAST_COMPLETE" in result.output
-    assert "breakfast" in result.output
+    assert "_BREAKFAST_COMPLETE" in result.stdout
 
 
-def test_completion_fish_exits_zero_and_outputs_script():
+def test_completions_fish_exits_zero_and_outputs_script():
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["--completion", "fish"])
+    result = runner.invoke(cli.breakfast, ["completions", "fish"])
     assert result.exit_code == 0
-    assert "_BREAKFAST_COMPLETE" in result.output
-    assert "breakfast" in result.output
+    assert "_BREAKFAST_COMPLETE" in result.stdout
 
 
-def test_completion_requires_no_github_token(monkeypatch):
-    """--completion must work even with no GITHUB_TOKEN set."""
+def test_completions_requires_no_github_token(monkeypatch):
+    """completions must work even with no GITHUB_TOKEN set."""
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "")
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["--completion", "zsh"])
+    result = runner.invoke(cli.breakfast, ["completions", "zsh"])
     assert result.exit_code == 0
 
 
-def test_completion_rejects_unknown_shell():
+def test_completions_rejects_unknown_shell():
     runner = CliRunner()
-    result = runner.invoke(cli.breakfast, ["--completion", "powershell"])
+    result = runner.invoke(cli.breakfast, ["completions", "powershell"])
     assert result.exit_code != 0
+
+
+def test_shell_enum_members_are_their_lowercase_names():
+    assert [s.value for s in cli.Shell] == ["bash", "zsh", "fish"]
+    assert cli.Shell.BASH == "bash"
+
+
+def test_deprecated_completion_flag_keeps_stdout_evaluable():
+    """The notice must not land on stdout — the shell eval's it verbatim."""
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--completion", "bash"])
+    assert result.exit_code == 0
+    assert "_BREAKFAST_COMPLETE" in result.stdout
+    assert "deprecated" not in result.stdout
+    assert "deprecated" in result.stderr
+    assert "breakfast completions bash" in result.stderr
+
+
+def test_deprecated_completion_flag_is_hidden_from_help():
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--help"])
+    assert "--completion" not in result.stdout
+    assert "completions" in result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -4748,3 +4896,733 @@ def test_cli_auto_appends_optional_columns_missing_from_custom_columns_config(
     result_with = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--age"])
     assert result_with.exit_code == 0
     assert "Age" in result_with.stdout
+
+
+# ---------------------------------------------------------------------------
+# --help credit (#365)
+# ---------------------------------------------------------------------------
+
+
+def test_help_shows_credit_line():
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--help"])
+    assert result.exit_code == 0
+    assert "Made with ❤️ in the UK" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# update (#416)
+# ---------------------------------------------------------------------------
+
+
+def _stub_update(monkeypatch, status, current="1.0.0", detail="2.0.0"):
+    monkeypatch.setattr(cli, "perform_update", lambda _path: (status, current, detail))
+    monkeypatch.setattr(cli, "_current_executable_path", lambda: "/tmp/breakfast")
+
+
+def test_update_reports_success(monkeypatch):
+    _stub_update(monkeypatch, cli.UpdateStatus.UPDATED)
+    result = CliRunner().invoke(cli.breakfast, ["update"])
+    assert result.exit_code == 0
+    assert "fresh batch is served — v2.0.0" in result.stderr
+    assert "install.sh" in result.stderr
+
+
+def test_update_reports_already_current(monkeypatch):
+    _stub_update(monkeypatch, cli.UpdateStatus.UP_TO_DATE)
+    result = CliRunner().invoke(cli.breakfast, ["update"])
+    assert result.exit_code == 0
+    assert "freshest batch, v1.0.0" in result.stderr
+
+
+def test_update_unreachable_github_fails_cleanly(monkeypatch):
+    _stub_update(monkeypatch, cli.UpdateStatus.UNKNOWN, detail=None)
+    result = CliRunner().invoke(cli.breakfast, ["update"])
+    assert result.exit_code != 0
+    assert "Could not reach GitHub" in result.stderr
+    assert "Traceback" not in result.output
+
+
+def test_update_error_surfaces_detail(monkeypatch):
+    _stub_update(monkeypatch, cli.UpdateStatus.ERROR, detail="Permission denied")
+    result = CliRunner().invoke(cli.breakfast, ["update"])
+    assert result.exit_code != 0
+    assert "Permission denied" in result.stderr
+    assert "Traceback" not in result.output
+
+
+def test_update_needs_no_github_token(monkeypatch):
+    """The group callback must not demand a token before dispatching."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "")
+    _stub_update(monkeypatch, cli.UpdateStatus.UP_TO_DATE)
+    result = CliRunner().invoke(cli.breakfast, ["update"])
+    assert result.exit_code == 0
+
+
+def test_update_does_not_also_fetch_pull_requests(monkeypatch):
+    """The subcommand guard must short-circuit before any GitHub work."""
+
+    def explode(*_args, **_kwargs):
+        raise AssertionError("the group callback body ran for a subcommand")
+
+    monkeypatch.setattr(cli, "get_github_prs", explode)
+    monkeypatch.setattr(cli, "check_for_update", explode)
+    _stub_update(monkeypatch, cli.UpdateStatus.UP_TO_DATE)
+    result = CliRunner().invoke(cli.breakfast, ["update"])
+    assert result.exit_code == 0
+
+
+def test_completions_does_not_also_fetch_pull_requests(monkeypatch):
+    def explode(*_args, **_kwargs):
+        raise AssertionError("the group callback body ran for a subcommand")
+
+    monkeypatch.setattr(cli, "get_github_prs", explode)
+    monkeypatch.setattr(cli, "check_for_update", explode)
+    result = CliRunner().invoke(cli.breakfast, ["completions", "bash"])
+    assert result.exit_code == 0
+
+
+def test_current_executable_path_is_absolute(monkeypatch):
+    monkeypatch.setattr(cli.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(cli.sys, "argv", ["./breakfast"])
+    assert cli._current_executable_path().startswith("/")
+
+
+# --- Numeric option validation (issue #387) ---------------------------------
+
+
+@pytest.mark.parametrize(
+    "flag,value",
+    [
+        ("--workers", "0"),
+        ("--workers", "-4"),
+        ("--limit", "0"),
+        ("--limit", "-1"),
+        ("--max-title-length", "0"),
+        ("--max-title-length", "-20"),
+        ("--filter-stale", "-1"),
+        ("--filter-inactive", "-7"),
+    ],
+)
+def test_out_of_range_numeric_options_are_rejected(monkeypatch, flag, value):
+    """Out-of-range integers fail as usage errors, never as tracebacks."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+
+    def explode(*_args, **_kwargs):
+        raise AssertionError("validation must reject the value before fetching")
+
+    monkeypatch.setattr(cli, "get_github_prs", explode)
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo", flag, value])
+
+    assert result.exit_code == 2
+    assert "Traceback" not in result.output
+    assert flag in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("bad_value", [0, -1, "many", True])
+def test_config_workers_out_of_range_is_rejected(monkeypatch, bad_value):
+    """The workers config key bypasses Click, so it needs its own guard."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "load_config", lambda _: {"workers": bad_value})
+
+    def explode(*_args, **_kwargs):
+        raise AssertionError("validation must reject the value before fetching")
+
+    monkeypatch.setattr(cli, "get_github_prs", explode)
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert "workers" in result.stderr
+    assert result.stdout == ""
+
+
+def test_config_max_title_length_out_of_range_is_rejected(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "load_config", lambda _: {"max-title-length": -5})
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 1
+    assert "max-title-length" in result.stderr
+    assert "Traceback" not in result.output
+
+
+def test_valid_numeric_options_still_work(monkeypatch):
+    """The happy path is untouched: in-range values behave exactly as before."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "load_config", lambda _: {})
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda *a: ["https://api.github.com/repos/org/repo/pulls/1"],
+    )
+    monkeypatch.setattr(
+        cli, "_fetch_pr_bundle", lambda *a, **kw: (_make_pr_detail(1), None, None)
+    )
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        [
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--workers",
+            "1",
+            "--limit",
+            "1",
+            "--max-title-length",
+            "10",
+            "--filter-stale",
+            "0",
+        ],
+    )
+
+    assert result.exit_code == 0
+
+
+def test_config_workers_default_is_used_when_unset(monkeypatch):
+    """An absent workers key must still resolve to the documented default."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "load_config", lambda _: {})
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--show-config"]
+    )
+
+    assert result.exit_code == 0
+    assert "workers: 64" in result.stdout
+
+
+@pytest.mark.parametrize("bad_value", [3.5, -0.5, "3.5"])
+def test_config_workers_rejects_non_integral_values(monkeypatch, bad_value):
+    """workers = 3.5 must not be silently truncated to 3."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "load_config", lambda _: {"workers": bad_value})
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 1
+    assert "workers" in result.stderr
+    assert "Traceback" not in result.output
+
+
+def test_config_workers_accepts_an_integral_string(monkeypatch):
+    """A quoted whole number in TOML keeps working — no gratuitous breakage."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "load_config", lambda _: {"workers": "8"})
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--show-config"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "workers: 8" in result.stdout
+
+
+# --- NO_COLOR / BREAKFAST_NO_UPDATE_CHECK presence semantics (issue #386) ----
+
+
+def _colour_probe(monkeypatch):
+    """Stub out a minimal run and report the resolved colour setting."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "load_config", lambda _: {})
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+
+
+@pytest.mark.parametrize(
+    "value", ["nonsense", "1", "false", "0", "no", "off", "please"]
+)
+def test_no_color_any_non_empty_value_disables_colour(monkeypatch, value):
+    """no-color.org: any non-empty value disables colour, and never errors."""
+    _colour_probe(monkeypatch)
+    monkeypatch.setenv("NO_COLOR", value)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--show-config"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "no-colour: True" in result.stdout
+
+
+def test_no_color_empty_value_leaves_colour_enabled(monkeypatch):
+    """An empty NO_COLOR is explicitly *not* a request to disable colour."""
+    _colour_probe(monkeypatch)
+    monkeypatch.setenv("NO_COLOR", "")
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--show-config"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "no-colour: False" in result.stdout
+
+
+def test_no_color_unset_leaves_colour_enabled(monkeypatch):
+    _colour_probe(monkeypatch)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--show-config"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "no-colour: False" in result.stdout
+
+
+def test_no_colour_flag_still_disables_colour(monkeypatch):
+    """The explicit flag keeps working with no environment variable set."""
+    _colour_probe(monkeypatch)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--no-colour", "--show-config"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "no-colour: True" in result.stdout
+
+
+@pytest.mark.parametrize("value", ["anything", "1", "false", "off", "please"])
+def test_no_update_check_env_any_non_empty_value_disables_check(monkeypatch, value):
+    """BREAKFAST_NO_UPDATE_CHECK follows the same presence-based semantics."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "load_config", lambda _: {})
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+    monkeypatch.setenv("BREAKFAST_NO_UPDATE_CHECK", value)
+
+    checked = []
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: checked.append(1))
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0, result.output
+    assert checked == [], f"NO_UPDATE_CHECK={value!r} should suppress the check"
+
+
+def test_no_update_check_env_empty_leaves_check_enabled(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "load_config", lambda _: {})
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+    monkeypatch.setenv("BREAKFAST_NO_UPDATE_CHECK", "")
+
+    checked = []
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: checked.append(1))
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0, result.output
+    assert checked == [1], "an empty value must not suppress the update check"
+
+
+# --- Malformed --template handling (issue #389) -----------------------------
+
+
+def _template_run(monkeypatch, args, pr_count=1):
+    """Invoke the CLI with a stubbed set of PRs and the given arguments."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "tok")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda *_: [
+            f"https://github.com/org/repo/pull/{i}" for i in range(1, pr_count + 1)
+        ],
+    )
+    monkeypatch.setattr(api, "make_github_api_request", _fake_pr_detail)
+    return CliRunner().invoke(cli.breakfast, ["-o", "org", *args])
+
+
+@pytest.mark.parametrize(
+    "bad_template",
+    [
+        "{title",  # unbalanced opening brace -> ValueError
+        "title}",  # stray closing brace -> ValueError
+        "{0}",  # positional field -> IndexError
+        "{0}: {title}",  # positional mixed with named -> IndexError
+        "{title:d}",  # invalid format spec for a str -> ValueError
+        "{additions:%%}",  # nonsense format spec
+    ],
+)
+def test_malformed_template_exits_cleanly(monkeypatch, bad_template):
+    """Every malformed template fails friendly, with no traceback."""
+    result = _template_run(
+        monkeypatch, ["--format", "template", "--template", bad_template]
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "Traceback" not in result.output
+    assert "Error" in result.stderr
+
+
+@pytest.mark.parametrize("bad_template", ["{title", "{0}", "{title:d}"])
+def test_malformed_template_emits_no_partial_stdout(monkeypatch, bad_template):
+    """A broken template must not print rows before it fails.
+
+    The template is validated once up front, so scripts consuming stdout never
+    see a partial result set followed by an error.
+    """
+    result = _template_run(
+        monkeypatch,
+        ["--format", "template", "--template", bad_template],
+        pr_count=3,
+    )
+
+    assert result.exit_code == 1
+    assert result.stdout == "", f"leaked partial output: {result.stdout!r}"
+
+
+def test_malformed_template_from_config_exits_cleanly(monkeypatch):
+    """Config-sourced templates get the same handling as CLI-sourced ones."""
+    monkeypatch.setattr(cli, "load_config", lambda _: {"template": "{title"})
+
+    result = _template_run(monkeypatch, [])
+
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert "Error" in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize(
+    "good_template",
+    ["{title:>30}", "{repo}:{title}", "{additions:d}", "{{literal}} {title}"],
+)
+def test_valid_templates_still_render(monkeypatch, good_template):
+    """Valid templates, including format specs, are untouched by the guard."""
+    result = _template_run(
+        monkeypatch, ["--format", "template", "--template", good_template]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.strip() != ""
+
+
+def test_unknown_template_field_still_names_the_field(monkeypatch):
+    """The pre-existing unknown-field message must survive the new validation."""
+    result = _template_run(
+        monkeypatch, ["--format", "template", "--template", "{nope}"]
+    )
+
+    assert result.exit_code == 1
+    assert "nope" in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("bad_template", ["{0}", "{}", "{0}: {title}", "{} {title}"])
+def test_positional_template_fields_name_the_fix(monkeypatch, bad_template):
+    """Positional fields get a message that says what to use instead.
+
+    format_map reports all of these as a bare "Format string contains
+    positional fields" ValueError, which does not help the user.
+    """
+    result = _template_run(
+        monkeypatch, ["--format", "template", "--template", bad_template]
+    )
+
+    assert result.exit_code == 1
+    assert "positional" in result.stderr
+    assert "{title}" in result.stderr
+    assert result.stdout == ""
+
+
+def test_template_data_gap_is_not_reported_as_a_template_error(capsys):
+    """A gap in the PR payload must not be blamed on the user's template.
+
+    _template_fields raises KeyError when the PR detail is missing a nested
+    key. Reporting that as "unknown template field 'base'" sends the user off
+    to fix a template that is perfectly correct.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        renderers.render_template([{"title": "no base key"}], "{title}", colour=False)
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "unknown template field" not in captured.err
+    assert "PR data" in captured.err
+    assert captured.out == ""
+
+
+def test_template_probe_and_row_fields_stay_in_lockstep():
+    """The dry-run probe must expose exactly the fields a real row does."""
+    probe_keys = set(renderers._template_fields(renderers._TEMPLATE_PROBE_PR))
+    row_keys = set(renderers._template_fields(_make_pr_detail(1)))
+    assert probe_keys == row_keys
+
+
+@pytest.mark.parametrize(
+    "bad_template",
+    ["{title:>999999999999999}", "{title:>99999999999}"],
+    ids=["raises_memoryerror", "allocates_100gb"],
+)
+def test_absurd_template_field_width_is_rejected(monkeypatch, bad_template):
+    """Huge field widths must be refused before anything is allocated.
+
+    A width of 10^15 raises MemoryError, which escaped the caught tuple as a
+    traceback. A width of 10^11 is worse: it *succeeds*, quietly building a
+    ~100GB string. Both are rejected up front by inspecting the format spec,
+    so neither allocation is ever attempted.
+    """
+    result = _template_run(
+        monkeypatch, ["--format", "template", "--template", bad_template]
+    )
+
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert "width" in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("good_template", ["{title:>30}", "{title:>10000}"])
+def test_reasonable_template_field_widths_still_render(monkeypatch, good_template):
+    """Padding within the cap is untouched."""
+    result = _template_run(
+        monkeypatch, ["--format", "template", "--template", good_template]
+    )
+
+    assert result.exit_code == 0, result.output
+
+
+# ── Pizza recipe easter egg (#432) ──────────────────────────────────────────
+
+
+def _pizza_run(monkeypatch, extra_args=(), state_dir=None):
+    import tempfile
+    from pathlib import Path
+
+    if state_dir is None:
+        state_dir = Path(tempfile.mkdtemp())
+    monkeypatch.setattr(ui, "get_state_dir", lambda: state_dir)
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda *_a, **_kw: ["https://github.com/org/repo/pull/1"],
+    )
+    monkeypatch.setattr(
+        cli,
+        "fetch_pr_detail",
+        lambda *_a, **_kw: {
+            "id": 1,
+            "url": "https://github.com/org/repo/pull/1",
+            "html_url": "https://github.com/org/repo/pull/1",
+            "title": "Fix bug",
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "additions": 1,
+            "deletions": 0,
+            "comments": 0,
+            "review_comments": 0,
+            "mergeable_state": "clean",
+            "draft": False,
+            "created_at": "2026-01-01T00:00:00Z",
+            "head": {"ref": "patch-1"},
+            "base": {"ref": "main", "repo": {"name": "repo"}},
+            "requested_reviewers": [],
+            "number": 1,
+        },
+    )
+    runner = CliRunner()
+    return runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", *extra_args])
+
+
+def test_cli_pizza_flag_outputs_recipe_to_stderr(monkeypatch):
+    result = _pizza_run(monkeypatch, ["--pizza"])
+    assert result.exit_code == 0
+    assert "🍕" in result.stderr
+    assert "Secret Pizza Recipe" in result.stderr
+    # Stdout must contain the table and not the pizza recipe
+    assert "Fix bug" in result.stdout
+    assert "Secret Pizza Recipe" not in result.stdout
+
+
+def test_cli_cake_flag_outputs_recipe_to_stderr(monkeypatch):
+    result = _pizza_run(monkeypatch, ["--cake"])
+    assert result.exit_code == 0
+    assert "🎂" in result.stderr
+    assert "Secret Cake Recipe" in result.stderr
+    # Stdout must contain the table and not the cake recipe
+    assert "Fix bug" in result.stdout
+    assert "Secret Cake Recipe" not in result.stdout
+
+
+def test_cli_birthday_auto_cake_with_colour(monkeypatch):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-01-08"):
+        result = _pizza_run(monkeypatch, [])
+        assert result.exit_code == 0
+        assert "🎂" in result.stderr
+        assert "Its Steve's birthday, here is a gift" in result.stderr
+
+
+def test_cli_birthday_only_outputs_once_per_day(monkeypatch, tmp_path):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-01-08"):
+        # First invoke on birthday: outputs birthday cake
+        res1 = _pizza_run(monkeypatch, [], state_dir=tmp_path)
+        assert res1.exit_code == 0
+        assert "🎂" in res1.stderr
+        assert "Its Steve's birthday, here is a gift" in res1.stderr
+
+        # Second invoke on birthday in same state: does not output automatically
+        res2 = _pizza_run(monkeypatch, [], state_dir=tmp_path)
+        assert res2.exit_code == 0
+        assert "🎂" not in res2.stderr
+        assert "Its Steve's birthday, here is a gift" not in res2.stderr
+
+        # Explicit --cake still works
+        res3 = _pizza_run(monkeypatch, ["--cake"], state_dir=tmp_path)
+        assert res3.exit_code == 0
+        assert "🎂" in res3.stderr
+        assert "Secret Cake Recipe" in res3.stderr
+
+
+def test_cli_non_birthday_does_not_output_cake_automatically(monkeypatch):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-05-15"):
+        result = _pizza_run(monkeypatch, [])
+        assert result.exit_code == 0
+        assert "🎂" not in result.stderr
+        assert "Its Steve's birthday, here is a gift" not in result.stderr
+
+
+def test_cli_birthday_without_colour_does_not_output_cake(monkeypatch):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-01-08"):
+        result = _pizza_run(monkeypatch, ["--no-colour"])
+        assert result.exit_code == 0
+        assert "🎂" not in result.stderr
+
+
+def test_cli_christmas_auto_pizza_with_colour(monkeypatch):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-12-25"):
+        result = _pizza_run(monkeypatch, [])
+        assert result.exit_code == 0
+        assert "🍕" in result.stderr
+        assert "Merry Christmas" in result.stderr
+
+
+def test_cli_christmas_only_outputs_once_per_day(monkeypatch, tmp_path):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-12-25"):
+        # First invoke on Christmas: outputs Christmas pizza gift
+        res1 = _pizza_run(monkeypatch, [], state_dir=tmp_path)
+        assert res1.exit_code == 0
+        assert "🍕" in res1.stderr
+        assert "Merry Christmas" in res1.stderr
+
+        # Second invoke on Christmas in same state: does not output automatically
+        res2 = _pizza_run(monkeypatch, [], state_dir=tmp_path)
+        assert res2.exit_code == 0
+        assert "🍕" not in res2.stderr
+        assert "Merry Christmas" not in res2.stderr
+
+        # Explicit --pizza still works
+        res3 = _pizza_run(monkeypatch, ["--pizza"], state_dir=tmp_path)
+        assert res3.exit_code == 0
+        assert "🍕" in res3.stderr
+        assert "Secret Pizza Recipe" in res3.stderr
+
+
+def test_cli_non_christmas_does_not_output_pizza_automatically(monkeypatch):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-07-04"):
+        result = _pizza_run(monkeypatch, [])
+        assert result.exit_code == 0
+        assert "🍕" not in result.stderr
+        assert "Merry Christmas" not in result.stderr
+
+
+def test_cli_christmas_without_colour_does_not_output_pizza(monkeypatch):
+    from freezegun import freeze_time
+
+    with freeze_time("2026-12-25"):
+        result = _pizza_run(monkeypatch, ["--no-colour"])
+        assert result.exit_code == 0
+        assert "🍕" not in result.stderr
+
+
+# ── --update-summary ───────────────────────────────────────────────────────
+
+
+def _run_finish(monkeypatch, **kwargs):
+    """Call finish_run with the update check stubbed, returning show_summary."""
+    seen = {}
+
+    def fake_check_for_update(show_summary=False):
+        seen["show_summary"] = show_summary
+        return None
+
+    monkeypatch.setattr(cli, "check_for_update", fake_check_for_update)
+    cli.finish_run(
+        0.0,
+        0,
+        no_update_check=False,
+        api_stats=False,
+        colour=False,
+        **kwargs,
+    )
+    return seen.get("show_summary")
+
+
+def test_update_summary_flag_is_offered(monkeypatch):
+    # The regression: the config template advertised "Equivalent to:
+    # --update-summary" for a flag that was never implemented.
+    result = CliRunner().invoke(cli.breakfast, ["--help"])
+    assert "--update-summary" in result.output
+
+
+def test_finish_run_forwards_the_update_summary_choice(monkeypatch):
+    assert _run_finish(monkeypatch, show_update_summary=True) is True
+    assert _run_finish(monkeypatch, show_update_summary=False) is False
+
+
+def test_config_template_only_promises_flags_that_exist():
+    # The root cause: the template advertised a flag nobody had written. Hold
+    # every "Equivalent to:" line in the template to the CLI's actual options.
+    from breakfast import config
+
+    help_text = CliRunner().invoke(cli.breakfast, ["--help"]).output
+    promised = re.findall(
+        r"^# Equivalent to: (--[\w-]+)", config._DEFAULT_CONFIG_CONTENT, re.MULTILINE
+    )
+    assert promised, "expected the template to document some flags"
+    missing = [flag for flag in promised if flag not in help_text]
+    assert not missing, f"config template promises flags that do not exist: {missing}"

@@ -543,6 +543,112 @@ def test_cli_mine_only_filters_to_authenticated_user(monkeypatch):
     assert "Bob PR" not in result.stdout
 
 
+def _stub_two_author_prs(monkeypatch):
+    """Wire up an alice PR and a bob PR for author-filtering CLI tests."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+
+    def fake_get_prs(_org, _repo_filter, _state="open"):
+        return [
+            "https://github.com/org/repo/pull/1",
+            "https://github.com/org/repo/pull/2",
+        ]
+
+    def fake_api_request(path):
+        number = 1 if path.endswith("/1") else 2
+        author = "alice" if number == 1 else "bob"
+        title = "Alice PR" if number == 1 else "Bob PR"
+        return {
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": title,
+            "user": {"login": author},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": f"https://github.com/org/repo/pull/{number}",
+            "number": number,
+        }
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+
+
+def test_cli_filter_author_shows_only_named_authors(monkeypatch):
+    _stub_two_author_prs(monkeypatch)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--filter-author", "ALICE"],
+    )
+
+    assert result.exit_code == 0
+    assert "Alice PR" in result.stdout
+    assert "Bob PR" not in result.stdout
+
+
+def test_cli_filter_author_config_key_applies(monkeypatch, tmp_path):
+    _stub_two_author_prs(monkeypatch)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('filter-author = ["alice"]')
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["--config", str(cfg_file), "-o", "org", "-r", "repo"],
+    )
+
+    assert result.exit_code == 0
+    assert "Alice PR" in result.stdout
+    assert "Bob PR" not in result.stdout
+
+
+def test_cli_filter_author_cli_replaces_config(monkeypatch, tmp_path):
+    """A CLI --filter-author replaces the config list rather than appending."""
+    _stub_two_author_prs(monkeypatch)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('filter-author = ["alice"]')
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        [
+            "--config",
+            str(cfg_file),
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--filter-author",
+            "bob",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Bob PR" in result.stdout
+    assert "Alice PR" not in result.stdout
+
+
+def test_cli_show_config_includes_filter_author(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('filter-author = ["alice"]')
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--config", str(cfg_file), "--show-config"])
+
+    assert result.exit_code == 0
+    assert "filter-author: ['alice']" in result.stdout
+
+
 def test_cli_mine_only_exits_cleanly_on_rate_limit(monkeypatch):
     from breakfast.api import GitHubRateLimitError
 
@@ -5626,3 +5732,67 @@ def test_config_template_only_promises_flags_that_exist():
     assert promised, "expected the template to document some flags"
     missing = [flag for flag in promised if flag not in help_text]
     assert not missing, f"config template promises flags that do not exist: {missing}"
+
+
+# --- no-update-check config key (issue #439) --------------------------------
+
+
+def _update_check_probe(monkeypatch, cfg):
+    """Run breakfast with *cfg* loaded, returning the update-check call log."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "load_config", lambda _: cfg)
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+    monkeypatch.delenv("BREAKFAST_NO_UPDATE_CHECK", raising=False)
+
+    checked = []
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: checked.append(1))
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+    assert result.exit_code == 0, result.output
+    return checked
+
+
+def test_no_update_check_config_key_disables_check(monkeypatch):
+    assert _update_check_probe(monkeypatch, {"no-update-check": True}) == []
+
+
+def test_no_update_check_config_key_false_leaves_check_enabled(monkeypatch):
+    assert _update_check_probe(monkeypatch, {"no-update-check": False}) == [1]
+
+
+def test_no_update_check_absent_from_config_leaves_check_enabled(monkeypatch):
+    assert _update_check_probe(monkeypatch, {}) == [1]
+
+
+def test_no_update_check_flag_beats_a_false_config_key(monkeypatch):
+    # Any one of flag, env var, or config key switching it off is enough —
+    # none of the three can switch it back on.
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "load_config", lambda _: {"no-update-check": False})
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+    monkeypatch.delenv("BREAKFAST_NO_UPDATE_CHECK", raising=False)
+
+    checked = []
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: checked.append(1))
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--no-update-check"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert checked == []
+
+
+def test_no_update_check_env_beats_a_false_config_key(monkeypatch):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "load_config", lambda _: {"no-update-check": False})
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+    monkeypatch.setenv("BREAKFAST_NO_UPDATE_CHECK", "1")
+
+    checked = []
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: checked.append(1))
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0, result.output
+    assert checked == []

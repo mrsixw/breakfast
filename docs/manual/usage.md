@@ -223,5 +223,5 @@ If GitHub exhausts a REST or GraphQL rate limit, a cache-enabled run automatical
 4. **Filter repos** - Keeps only repos matching the active repository filters
 5. **Fetch PR details** - Uses the GitHub REST API to fetch full details for each open PR (parallelized for speed); writes complete results to disk cache
 6. **Fall back safely** - If a rate limit or connection failure interrupts acquisition, discards partial results and reads the latest coherent full cache
-7. **Filter PRs** - Applies author filters (`--ignore-author`, `--mine-only`), title search (`--search`), and other filters
+7. **Filter PRs** - Applies author filters (`--ignore-author`, `--filter-author`, `--mine-only`), title search (`--search`), and other filters
 8. **Display** - Renders results as a terminal table or JSON

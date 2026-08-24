@@ -18,7 +18,7 @@ __all__ = [
     "filter_pr_details",
     "generate_default_config",
     "load_config",
-    "normalize_ignore_authors",
+    "normalize_author_logins",
     "parse_columns_config",
     "update_config",
 ]
@@ -79,6 +79,13 @@ _DEFAULT_CONFIG_CONTENT = """\
 # bot PRs. List format — add as many entries as you like.
 # Equivalent to: --ignore-author dependabot[bot] --ignore-author renovate[bot]
 # ignore-author = ["dependabot[bot]", "renovate[bot]"]
+
+# Authors to include in the output (case-insensitive). Only PRs raised by these
+# authors are served — the sunny-side-up counterpart to ignore-author. List
+# format, OR logic across entries. ignore-author still wins on any overlap, and
+# passing --filter-author on the command line replaces this list for that run.
+# Equivalent to: --filter-author alice --filter-author bob
+# filter-author = ["alice", "bob"]
 
 # Show only PRs authored by the currently authenticated GitHub user
 # (determined from GITHUB_TOKEN). Useful for a personal morning view.
@@ -286,8 +293,15 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Control how version update alerts appear.
 # -----------------------------------------------------------------------------
 
+# Skip the automatic check for newer releases entirely.
+# Also honoured via the BREAKFAST_NO_UPDATE_CHECK environment variable, set to
+# any non-empty value.
+# Equivalent to: --no-update-check
+# no-update-check = false
+
 # When a newer version of breakfast is available, include a short summary of
 # what's new (pulled from the GitHub release notes) below the update banner.
+# Has no effect when no-update-check is true.
 # Equivalent to: --update-summary
 # update-summary = false
 
@@ -353,7 +367,7 @@ def _key_present_in_file(key: str, content: str) -> bool:
     return bool(re.search(pattern, content, re.MULTILINE))
 
 
-_LIST_KEYS = {"ignore-author", "exclude-repos"}
+_LIST_KEYS = {"filter-author", "ignore-author", "exclude-repos"}
 
 _VALID_COLUMN_NAMES = frozenset(
     {
@@ -637,12 +651,10 @@ def update_config():
     return True
 
 
-def normalize_ignore_authors(ignore_authors):
-    if not ignore_authors:
+def normalize_author_logins(author_logins):
+    if not author_logins:
         return set()
-    return {
-        author.strip().lower() for author in ignore_authors if author and author.strip()
-    }
+    return {login.strip().lower() for login in author_logins if login and login.strip()}
 
 
 def filter_pr_details(
@@ -650,6 +662,7 @@ def filter_pr_details(
     ignore_authors,
     mine_only=False,
     current_user_login=None,
+    filter_authors=None,
     no_drafts=False,
     drafts_only=False,
     filter_state=None,
@@ -672,6 +685,8 @@ def filter_pr_details(
         ignore_authors: Author logins to exclude.
         mine_only: Whether to include only PRs authored by the current user.
         current_user_login: Authenticated GitHub login used by ``mine_only``.
+        filter_authors: Author logins to include. Empty or ``None`` disables the
+            filter. ``ignore_authors`` still wins on any overlap.
         no_drafts: Whether to exclude draft PRs.
         drafts_only: Whether to include only draft PRs.
         filter_state: Accepted PR state labels. ``open`` excludes drafts,
@@ -692,7 +707,8 @@ def filter_pr_details(
     Returns:
         list: Pull request details matching every configured filter.
     """
-    ignore_set = normalize_ignore_authors(ignore_authors)
+    ignore_set = normalize_author_logins(ignore_authors)
+    filter_author_set = normalize_author_logins(filter_authors)
     current_user_login_normalized = (
         current_user_login.lower()
         if mine_only and current_user_login and current_user_login.strip()
@@ -704,6 +720,8 @@ def filter_pr_details(
         author_login_normalized = author_login.lower()
 
         if author_login_normalized in ignore_set:
+            continue
+        if filter_author_set and author_login_normalized not in filter_author_set:
             continue
         if (
             current_user_login_normalized

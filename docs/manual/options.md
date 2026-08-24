@@ -126,6 +126,26 @@ With `--ignore-author dependabot[bot]`, the bot PR is excluded:
 +---------+----------------+-----------------+--------+---------+-------+---------+------------+----------+--------------+--------+
 ```
 
+### `--filter-author`
+
+Show only PRs raised by a specific author login (case-insensitive) — the sunny-side-up counterpart to `--ignore-author`. Repeat the flag to include any of the given authors (OR logic).
+
+```bash
+breakfast -o my-org --filter-author alice                          # only alice's PRs
+breakfast -o my-org --filter-author alice --filter-author bob      # alice OR bob
+breakfast -o my-org --filter-author 'dependabot[bot]' --no-drafts  # bot PRs, no drafts
+```
+
+Can also be set persistently in the config file:
+
+```toml
+filter-author = ["alice", "bob"]
+```
+
+Passing `--filter-author` on the command line **replaces** the config list for that run, the same way `--repo-filter` does — so a single flag narrows the run without fighting your config file.
+
+If the same login appears in both `--filter-author` and `--ignore-author`, **exclusion wins** and the PR is hidden. Composable with `--mine-only`, which intersects rather than unions (the result is empty unless you name yourself, but breakfast won't error).
+
 ### `--fetch-state`
 
 Control which PR states are **fetched** from GitHub. By default only open PRs are
@@ -1033,6 +1053,14 @@ breakfast -o my-org -r my-app --no-update-check
 export BREAKFAST_NO_UPDATE_CHECK=1
 ```
 
+Or permanently, in `~/.config/breakfast/config.toml`:
+
+```toml
+no-update-check = true
+```
+
+Any one of the three switching it off is enough; there is no way for a later one to switch it back on.
+
 Like `NO_COLOR`, `BREAKFAST_NO_UPDATE_CHECK` is resolved by presence: any non-empty value disables the update check, and only unset or empty leaves it enabled.
 
 ## Colour control
@@ -1235,7 +1263,7 @@ $ breakfast -o my-org --summarise-repo-prs
 Config key: `summarise-repo-prs = true`
 
 > **Note:** `--summarise-user-prs` and `--summarise-repo-prs` are mutually
-> exclusive. All standard filter flags (`--author`, `--repo-filter`,
+> exclusive. All standard filter flags (`--ignore-author`, `--filter-author`, `--repo-filter`,
 > `--filter-state`, etc.) apply before the summary is computed.
 
 ## Sorting
@@ -1302,6 +1330,9 @@ Options:
                                   authors, e.g. --ignore-author
                                   dependabot[bot].
   --no-ignore-author              Clear config defaults for ignore-author.
+  --filter-author TEXT            Show only PRs raised by one or more authors
+                                  (case-insensitive). Repeat for multiple
+                                  authors, e.g. --filter-author alice.
   --mine-only / --no-mine-only    Only include PRs authored by the currently
                                   authenticated GitHub user.
   --no-drafts                     Exclude draft PRs from results.

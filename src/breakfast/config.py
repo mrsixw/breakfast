@@ -18,7 +18,7 @@ __all__ = [
     "filter_pr_details",
     "generate_default_config",
     "load_config",
-    "normalize_ignore_authors",
+    "normalize_author_logins",
     "parse_columns_config",
     "update_config",
 ]
@@ -637,11 +637,11 @@ def update_config():
     return True
 
 
-def normalize_ignore_authors(ignore_authors):
-    if not ignore_authors:
+def normalize_author_logins(author_logins):
+    if not author_logins:
         return set()
     return {
-        author.strip().lower() for author in ignore_authors if author and author.strip()
+        login.strip().lower() for login in author_logins if login and login.strip()
     }
 
 
@@ -692,7 +692,7 @@ def filter_pr_details(
     Returns:
         list: Pull request details matching every configured filter.
     """
-    ignore_set = normalize_ignore_authors(ignore_authors)
+    ignore_set = normalize_author_logins(ignore_authors)
     current_user_login_normalized = (
         current_user_login.lower()
         if mine_only and current_user_login and current_user_login.strip()

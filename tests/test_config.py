@@ -73,10 +73,10 @@ def test_filter_pr_details_draft_field_missing():
     assert filtered == [{"user": {"login": "alice"}}]
 
 
-def test_normalize_ignore_authors_multiple():
-    ignore_authors = [" Dependabot[Bot] ", "", "ALICE", "alice", None, "bob"]
+def test_normalize_author_logins_multiple():
+    author_logins = [" Dependabot[Bot] ", "", "ALICE", "alice", None, "bob"]
 
-    result = config.normalize_ignore_authors(ignore_authors)
+    result = config.normalize_author_logins(author_logins)
 
     assert result == {"dependabot[bot]", "alice", "bob"}
 

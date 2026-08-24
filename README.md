@@ -30,6 +30,7 @@ breakfast -o my-org -r my-app
 breakfast -o my-org -o another-org -r platform
 breakfast -o my-org:api -o another-org:platform
 breakfast -o my-org -r my-app --ignore-author dependabot[bot] --ignore-author renovate[bot]
+breakfast -o my-org -r my-app --filter-author alice --filter-author bob
 breakfast -o my-org -r my-app --mine-only
 breakfast -o my-org --needs-my-review
 breakfast -o my-org -r my-app --age
@@ -90,6 +91,7 @@ breakfast update
 
 - `--ignore-author`: Exclude PRs by author (case-insensitive, repeatable).
 - `--no-ignore-author`: Clear `ignore-author` config defaults for this run.
+- `--filter-author`: Show only PRs by this author (case-insensitive, repeatable — OR logic).
 - `--mine-only`: Show only your own PRs.
 - `--needs-my-review`: Show only PRs where you are a requested reviewer.
 - `--no-drafts`: Hide draft PRs.

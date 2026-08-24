@@ -18,6 +18,97 @@ def test_filter_pr_details_ignores_authors():
     assert filtered == [{"user": {"login": "alice"}}]
 
 
+def test_filter_pr_details_filter_authors():
+    pr_details = [
+        {"user": {"login": "alice"}},
+        {"user": {"login": "bob"}},
+        {"user": {"login": "carol"}},
+    ]
+
+    filtered = config.filter_pr_details(
+        pr_details,
+        ignore_authors=[],
+        filter_authors=["alice", "carol"],
+    )
+
+    assert filtered == [
+        {"user": {"login": "alice"}},
+        {"user": {"login": "carol"}},
+    ]
+
+
+def test_filter_pr_details_filter_authors_is_case_insensitive():
+    pr_details = [
+        {"user": {"login": "alice"}},
+        {"user": {"login": "bob"}},
+    ]
+
+    filtered = config.filter_pr_details(
+        pr_details,
+        ignore_authors=[],
+        filter_authors=["ALICE"],
+    )
+
+    assert filtered == [{"user": {"login": "alice"}}]
+
+
+def test_filter_pr_details_ignore_author_beats_filter_author():
+    pr_details = [
+        {"user": {"login": "alice"}},
+        {"user": {"login": "bob"}},
+    ]
+
+    filtered = config.filter_pr_details(
+        pr_details,
+        ignore_authors=["bob"],
+        filter_authors=["alice", "bob"],
+    )
+
+    assert filtered == [{"user": {"login": "alice"}}]
+
+
+def test_filter_pr_details_filter_authors_ignores_blank_entries():
+    pr_details = [
+        {"user": {"login": "alice"}},
+        {"user": {"login": "bob"}},
+    ]
+
+    filtered = config.filter_pr_details(
+        pr_details,
+        ignore_authors=[],
+        filter_authors=["", "   "],
+    )
+
+    assert filtered == pr_details
+
+
+def test_filter_pr_details_filter_authors_with_mine_only():
+    pr_details = [
+        {"user": {"login": "alice"}},
+        {"user": {"login": "bob"}},
+    ]
+
+    disjoint = config.filter_pr_details(
+        pr_details,
+        ignore_authors=[],
+        mine_only=True,
+        current_user_login="alice",
+        filter_authors=["bob"],
+    )
+
+    assert disjoint == []
+
+    overlapping = config.filter_pr_details(
+        pr_details,
+        ignore_authors=[],
+        mine_only=True,
+        current_user_login="alice",
+        filter_authors=["alice"],
+    )
+
+    assert overlapping == [{"user": {"login": "alice"}}]
+
+
 def test_filter_pr_details_mine_only():
     pr_details = [
         {"user": {"login": "alice"}},
@@ -533,6 +624,7 @@ def test_extract_option_blocks_finds_all_keys():
         "owner",
         "repo-filter",
         "ignore-author",
+        "filter-author",
         "mine-only",
         "limit",
         "age",
@@ -740,6 +832,29 @@ def test_load_config_wraps_scalar_ignore_author_to_list(tmp_path, monkeypatch):
 
     assert result["ignore-author"] == ["alice"]
     warning_calls = [c for c in echo_calls if "ignore-author" in str(c[0])]
+    assert len(warning_calls) == 1
+    assert warning_calls[0][1].get("err") is True
+
+
+def test_known_keys_contains_filter_author():
+    """filter-author is registered so load_config does not warn on it."""
+    assert "filter-author" in config.KNOWN_KEYS
+
+
+def test_load_config_wraps_scalar_filter_author_to_list(tmp_path, monkeypatch):
+    """A scalar filter-author value is wrapped in a list with a stderr warning."""
+    cfg_file = tmp_path / ".breakfast.toml"
+    cfg_file.write_text('filter-author = "alice"')
+    echo_calls = []
+    monkeypatch.setattr(
+        config.click, "echo", lambda msg, **kw: echo_calls.append((msg, kw))
+    )
+    monkeypatch.setattr(config.click, "style", lambda msg, **kw: msg)
+
+    result = config.load_config(str(cfg_file))
+
+    assert result["filter-author"] == ["alice"]
+    warning_calls = [c for c in echo_calls if "filter-author" in str(c[0])]
     assert len(warning_calls) == 1
     assert warning_calls[0][1].get("err") is True
 

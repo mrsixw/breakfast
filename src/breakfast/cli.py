@@ -566,6 +566,14 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     help="Clear config defaults for ignore-author.",
 )
 @click.option(
+    "--filter-author",
+    multiple=True,
+    help=(
+        "Show only PRs raised by one or more authors (case-insensitive). "
+        "Repeat for multiple authors, e.g. --filter-author alice."
+    ),
+)
+@click.option(
     "--mine-only/--no-mine-only",
     default=None,
     help="Only include PRs authored by the currently authenticated GitHub user.",
@@ -954,6 +962,7 @@ def breakfast(
     exclude_repo,
     ignore_author,
     no_ignore_author,
+    filter_author,
     mine_only,
     needs_my_review,
     no_drafts,
@@ -1139,6 +1148,13 @@ def breakfast(
         merged_ignore_authors = list(ignore_author) + cfg.get("ignore-author", [])
     ignore_author = merged_ignore_authors
 
+    # A CLI --filter-author replaces the config list: it is a selective filter,
+    # so appending would widen what the user asked to narrow.
+    if filter_author:
+        filter_authors = list(filter_author)
+    else:
+        filter_authors = cfg.get("filter-author", [])
+
     mine_only = mine_only if mine_only is not None else cfg.get("mine-only", False)
     needs_my_review = (
         needs_my_review
@@ -1300,6 +1316,7 @@ def breakfast(
             ],
             "repo-filter": repo_filters,
             "ignore-author": ignore_author,
+            "filter-author": filter_authors,
             "mine-only": mine_only,
             "no-drafts": no_drafts,
             "drafts-only": drafts_only,
@@ -1875,6 +1892,7 @@ def breakfast(
         ignore_author,
         mine_only=mine_only,
         current_user_login=current_user_login,
+        filter_authors=filter_authors,
         no_drafts=no_drafts,
         drafts_only=drafts_only,
         filter_state=filter_state,

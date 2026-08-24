@@ -219,5 +219,5 @@ breakfast -o my-org -r platform --cache-ttl 10m   # cache for 10 minutes
 2. **Fetch repositories** - Uses the GitHub GraphQL API to paginate through all repositories for the owner (organization or personal account)
 3. **Filter repos** - Keeps only repos whose name contains the `--repo-filter` substring
 4. **Fetch PR details** - Uses the GitHub REST API to fetch full details for each open PR (parallelized for speed); writes results to disk cache
-5. **Filter PRs** - Applies author filters (`--ignore-author`, `--mine-only`), title search (`--search`), and other filters
+5. **Filter PRs** - Applies author filters (`--ignore-author`, `--filter-author`, `--mine-only`), title search (`--search`), and other filters
 6. **Display** - Renders results as a terminal table or JSON

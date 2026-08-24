@@ -90,7 +90,7 @@ The principle: **CLI flags always win over config file values.**
 ### Merge strategy by type
 
 - **Scalar values** (organization, repo-filter, format, sort): CLI replaces config
-- **List values** (ignore-author, label, exclude-label): CLI *appends* to config values. To clear config defaults, use `--no-ignore-author` (new flag) or `--config /dev/null`
+- **List values**: *accumulative* lists (ignore-author, exclude-repos) — CLI *appends* to config values; to clear config defaults use `--no-ignore-author` (new flag) or `--config /dev/null`. *Selective* lists (repo-filter, filter-author) — CLI *replaces* config values, so a single flag narrows the run without fighting the config file
 - **Boolean flags** (age, mine-only, draft, checks): CLI replaces config. Add `--no-<flag>` counterparts so users can explicitly disable config defaults
 
 ## Implementation Plan

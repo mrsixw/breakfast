@@ -36,6 +36,7 @@ curl -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" https://api.github.co
 - Check that the repo filter (`-r`) matches at least one repository name (it's a substring match)
 - If using `--mine-only`, ensure the token belongs to the user whose PRs you want to see
 - If using `--ignore-author`, check you haven't accidentally filtered out the authors you want
+- If using `--filter-author`, check the logins are spelled as they appear on GitHub (matching is case-insensitive but not fuzzy), and that they aren't also listed in `ignore-author` in your config — exclusion wins
 
 ## API errors (502, 503, 504), timeouts, and network loss
 

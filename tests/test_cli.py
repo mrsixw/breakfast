@@ -543,6 +543,112 @@ def test_cli_mine_only_filters_to_authenticated_user(monkeypatch):
     assert "Bob PR" not in result.stdout
 
 
+def _stub_two_author_prs(monkeypatch):
+    """Wire up an alice PR and a bob PR for author-filtering CLI tests."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+
+    def fake_get_prs(_org, _repo_filter, _state="open"):
+        return [
+            "https://github.com/org/repo/pull/1",
+            "https://github.com/org/repo/pull/2",
+        ]
+
+    def fake_api_request(path):
+        number = 1 if path.endswith("/1") else 2
+        author = "alice" if number == 1 else "bob"
+        title = "Alice PR" if number == 1 else "Bob PR"
+        return {
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": title,
+            "user": {"login": author},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": f"https://github.com/org/repo/pull/{number}",
+            "number": number,
+        }
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+
+
+def test_cli_filter_author_shows_only_named_authors(monkeypatch):
+    _stub_two_author_prs(monkeypatch)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--filter-author", "ALICE"],
+    )
+
+    assert result.exit_code == 0
+    assert "Alice PR" in result.stdout
+    assert "Bob PR" not in result.stdout
+
+
+def test_cli_filter_author_config_key_applies(monkeypatch, tmp_path):
+    _stub_two_author_prs(monkeypatch)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('filter-author = ["alice"]')
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["--config", str(cfg_file), "-o", "org", "-r", "repo"],
+    )
+
+    assert result.exit_code == 0
+    assert "Alice PR" in result.stdout
+    assert "Bob PR" not in result.stdout
+
+
+def test_cli_filter_author_cli_replaces_config(monkeypatch, tmp_path):
+    """A CLI --filter-author replaces the config list rather than appending."""
+    _stub_two_author_prs(monkeypatch)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('filter-author = ["alice"]')
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        [
+            "--config",
+            str(cfg_file),
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--filter-author",
+            "bob",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Bob PR" in result.stdout
+    assert "Alice PR" not in result.stdout
+
+
+def test_cli_show_config_includes_filter_author(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('filter-author = ["alice"]')
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["--config", str(cfg_file), "--show-config"])
+
+    assert result.exit_code == 0
+    assert "filter-author: ['alice']" in result.stdout
+
+
 def test_cli_mine_only_exits_cleanly_on_rate_limit(monkeypatch):
     from breakfast.api import GitHubRateLimitError
 

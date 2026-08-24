@@ -1001,14 +1001,23 @@ Can also be set in the config file:
 offline = true
 ```
 
-| Flag | Cache active? | GraphQL cache | PR detail cache |
-| --- | --- | --- | --- |
-| *(none)* | no | skip | skip |
-| `--cache` | yes | read | read |
-| `--cache --refresh-prs` | yes | read | skip, write fresh |
-| `--cache --refresh` | yes | skip, write fresh | skip, write fresh |
-| `--no-cache` | no (override) | skip | skip |
-| `--offline` | yes | read (ignore TTL) | read (ignore TTL, no write) |
+breakfast caches in three layers: the **URL list** returned by the GraphQL
+search, a **per-repo** bundle of PR details, and the **full** result for the
+whole run.
+
+| Flag | Cache active? | URL list | Per-repo PR cache | Full PR cache |
+| --- | --- | --- | --- | --- |
+| *(none)* | no | skip | skip | skip |
+| `--cache` | yes | read | read | read |
+| `--cache --refresh-prs` | yes | read | skip, write fresh | skip, write fresh |
+| `--cache --refresh` | yes | skip, write fresh | skip, write fresh | skip, write fresh |
+| `--no-cache` | no (override) | skip | skip | skip |
+| `--offline` | yes | not reached | not reached | read (ignore TTL, no write) |
+
+A per-repo cache hit is always reconciled against the URL list for that run:
+cached PRs whose URL is no longer listed are dropped, and listed URLs the cache
+does not cover are fetched. So a PR closed since the cache was written stops
+appearing, and one opened since shows up, without waiting for the TTL.
 
 When a live cache-enabled run is rate limited, the full PR detail cache is read with TTL expiry ignored. If no matching full cache is available, breakfast exits non-zero, leaves `stdout` empty, and reports both the missing cache and reset time on `stderr`.
 

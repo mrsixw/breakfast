@@ -1715,7 +1715,7 @@ def breakfast(
             repo_hit_approvals: dict = {}
             repo_hit_approval_details: dict = {}
 
-            if cache_enabled and not refresh_prs and prs:
+            if cache_enabled and not refresh and not refresh_prs and prs:
                 repos_to_urls: dict[tuple[str, str], list[str]] = {}
                 for url in prs:
                     parts = urlparse(url).path.strip("/").split("/")
@@ -1725,16 +1725,29 @@ def breakfast(
                 uncached_urls: list[str] = []
                 for (org_name, rname), repo_urls in repos_to_urls.items():
                     cached = read_repo_pr_cache(org_name, rname, cache_ttl_seconds)
-                    if cached is not None:
-                        repo_hit_prs.extend(cached["prs"])
-                        if cached["check_statuses"]:
-                            repo_hit_checks.update(cached["check_statuses"])
-                        if cached["approval_statuses"]:
-                            repo_hit_approvals.update(cached["approval_statuses"])
-                        if cached["approval_details"]:
-                            repo_hit_approval_details.update(cached["approval_details"])
-                    else:
+                    if cached is None:
                         uncached_urls.extend(repo_urls)
+                        continue
+
+                    # Reconcile the cached payload against the authoritative URL
+                    # list: serve only PRs still listed, and fetch any the cache
+                    # does not cover. Without this a PR closed since the cache
+                    # was written keeps appearing, and one opened since stays
+                    # invisible until the entry expires.
+                    wanted = set(repo_urls)
+                    kept = [pr for pr in cached["prs"] if pr.get("html_url") in wanted]
+                    covered = {pr.get("html_url") for pr in kept}
+                    uncached_urls.extend(u for u in repo_urls if u not in covered)
+
+                    repo_hit_prs.extend(kept)
+                    kept_ids = {pr["id"] for pr in kept if "id" in pr}
+                    for src, dest in (
+                        (cached["check_statuses"], repo_hit_checks),
+                        (cached["approval_statuses"], repo_hit_approvals),
+                        (cached["approval_details"], repo_hit_approval_details),
+                    ):
+                        if src:
+                            dest.update({k: v for k, v in src.items() if k in kept_ids})
                 urls_to_fetch = uncached_urls
 
             pr_details = []

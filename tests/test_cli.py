@@ -2756,6 +2756,114 @@ def test_per_repo_cache_expired_triggers_refetch(monkeypatch, tmp_path):
     assert "PR number 5" in result.stdout
 
 
+def _wire_cache(monkeypatch, tmp_path):
+    """Point the CLI at a real on-disk cache rooted in tmp_path."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    for name in (
+        "read_repo_pr_cache",
+        "write_repo_pr_cache",
+        "read_pr_cache",
+        "write_pr_cache",
+        "read_graphql_cache",
+        "write_graphql_cache",
+    ):
+        monkeypatch.setattr(cli, name, getattr(cache, name))
+
+
+def test_refresh_bypasses_per_repo_cache(monkeypatch, tmp_path):
+    """--refresh must not read pr_repo_*.json; it re-fetches every URL."""
+    _wire_cache(monkeypatch, tmp_path)
+
+    # Per-repo cache holds a stale copy of PR 42.
+    cache.write_repo_pr_cache("org", "repo", [_make_pr_detail(42, repo="repo")])
+
+    monkeypatch.setattr(
+        cli, "get_github_prs", lambda *a: ["https://github.com/org/repo/pull/42"]
+    )
+    fetch_calls = []
+
+    def _fresh(_url):
+        fetch_calls.append(1)
+        detail = _make_pr_detail(42, repo="repo")
+        detail["title"] = "FRESHLY FETCHED 42"
+        return detail
+
+    monkeypatch.setattr(api, "make_github_api_request", _fresh)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--cache", "--refresh"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(fetch_calls) >= 1, "--refresh should re-fetch, not serve the repo cache"
+    assert "FRESHLY FETCHED 42" in result.stdout
+    assert "PR number 42" not in result.stdout
+
+
+def test_per_repo_cache_drops_prs_absent_from_url_list(monkeypatch, tmp_path):
+    """A cached PR that is no longer in the fresh URL list is not displayed."""
+    _wire_cache(monkeypatch, tmp_path)
+
+    # The URL list knows only about 42; the repo cache still holds closed PR 99.
+    cache.write_graphql_cache("org", "repo", ["https://github.com/org/repo/pull/42"])
+    cache.write_repo_pr_cache(
+        "org",
+        "repo",
+        [_make_pr_detail(42, repo="repo"), _make_pr_detail(99, repo="repo")],
+    )
+
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+
+    def _should_not_fetch(_url):
+        raise AssertionError("no fetch expected: PR 42 is cached")
+
+    monkeypatch.setattr(api, "make_github_api_request", _should_not_fetch)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--cache"])
+
+    assert result.exit_code == 0, result.output
+    assert "PR number 42" in result.stdout
+    assert "PR number 99" not in result.stdout
+
+
+def test_per_repo_cache_fetches_urls_missing_from_cache(monkeypatch, tmp_path):
+    """A URL in the list but absent from an in-TTL repo cache is still fetched."""
+    _wire_cache(monkeypatch, tmp_path)
+
+    # The URL list has 42 and 43; the repo cache only covers 42.
+    cache.write_graphql_cache(
+        "org",
+        "repo",
+        [
+            "https://github.com/org/repo/pull/42",
+            "https://github.com/org/repo/pull/43",
+        ],
+    )
+    cache.write_repo_pr_cache("org", "repo", [_make_pr_detail(42, repo="repo")])
+
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+    fetched = []
+
+    def _fetch(url):
+        fetched.append(url)
+        return _make_pr_detail(43, repo="repo")
+
+    monkeypatch.setattr(api, "make_github_api_request", _fetch)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--cache"])
+
+    assert result.exit_code == 0, result.output
+    assert "PR number 42" in result.stdout, "cached PR should still be served"
+    assert "PR number 43" in result.stdout, "missing PR should be fetched"
+    assert len(fetched) == 1, f"only the missing URL should be fetched, got {fetched}"
+
+
 # ---------------------------------------------------------------------------
 # Legendary PR tests
 # ---------------------------------------------------------------------------

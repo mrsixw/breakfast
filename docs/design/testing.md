@@ -209,14 +209,21 @@ gh pr merge 8 --merge
 # Freeze it. Archiving is the strongest lock available: archived repos are
 # read-only and accept no new PRs, but existing ones stay queryable — the
 # GraphQL query has no isArchived filter.
-gh repo edit mrsixw/breakfast-fixtures --enable-issues=false --enable-wiki=false
-gh api -X PUT repos/mrsixw/breakfast-fixtures/vulnerability-alerts 2>/dev/null || true
 gh api -X DELETE repos/mrsixw/breakfast-fixtures/vulnerability-alerts
+gh repo edit mrsixw/breakfast-fixtures --enable-issues=false --enable-wiki=false
 gh repo archive mrsixw/breakfast-fixtures --yes
 ```
 
-Verify afterwards with `make e2e` — the canary scenario will report any mismatch
-against the table above.
+Archive **last**, after verifying with `make e2e` — an archived repo is
+read-only, so a mistake in the inventory would need unarchiving to fix. Settings
+changes are also rejected once archived, which is why the Dependabot and
+issues/wiki steps come first. Archiving makes those largely redundant anyway (no
+bot can open a pull request on a read-only repo), but they cost nothing and
+document the intent.
+
+Archiving does **not** hide the pull requests: the suite was re-run after
+archiving and all 25 scenarios still pass, confirming the GraphQL query has no
+`isArchived` filter.
 
 ## Cost and flakiness
 

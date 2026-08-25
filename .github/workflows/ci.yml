@@ -84,14 +84,11 @@ jobs:
     # build job produced rather than rebuilding, so the bits under test are
     # the bits that ship.
     #
-    # secrets.* are not exposed to pull_request runs from forks, so if the
-    # live scenarios ever need the PAT this job must skip rather than fail
-    # there. GITHUB_TOKEN is provided to forks read-only and can read public
-    # repos, so try it first — if it suffices, this guard can be deleted and
-    # forks get full coverage.
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+    # No fork guard: the live scenarios only read the public fixture repo, and
+    # the built-in GITHUB_TOKEN is provided (read-only) to pull requests from
+    # forks. Verified sufficient in CI, so forks get the full suite. If this
+    # ever needs secrets.GH_TOKEN, a guard skipping fork PRs must come back —
+    # secrets.* are not exposed to them.
     steps:
       - name: Checkout
         uses: actions/checkout@v7

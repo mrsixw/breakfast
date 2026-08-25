@@ -251,7 +251,9 @@ Two details that will otherwise cost an afternoon:
 
 - Artifacts travel as zips and **do not preserve the executable bit**, hence the
   `chmod +x` step.
-- The job currently uses `secrets.GITHUB_TOKEN`, which is provided read-only to
-  fork pull requests and can read public repositories. The `if:` guard skipping
-  fork PRs is a fallback for `secrets.GH_TOKEN`; if `GITHUB_TOKEN` proves
-  sufficient, the guard can be deleted and forks get full coverage.
+- The job uses the built-in `secrets.GITHUB_TOKEN`, which is provided read-only
+  to pull requests from forks and can read public repositories. Verified
+  sufficient for the live scenarios in CI, so there is **no fork guard** and
+  forks run the full suite. If a scenario ever needs `secrets.GH_TOKEN`, a guard
+  skipping fork pull requests must come back — `secrets.*` is not exposed to
+  them, and the job would fail rather than skip.

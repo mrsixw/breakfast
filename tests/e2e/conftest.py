@@ -178,6 +178,13 @@ def _stdout_contains(result, text):
     assert text in result.stdout, f"stdout was:\n{result.stdout}"
 
 
+@then(parsers.parse('stdout does not contain "{text}"'))
+def _stdout_lacks(result, text):
+    assert (
+        text not in result.stdout
+    ), f"{text!r} leaked onto stdout, which the shell evaluates:\n{result.stdout}"
+
+
 @then(parsers.parse('stderr contains "{text}"'))
 def _stderr_contains(result, text):
     assert text in result.stderr, f"stderr was:\n{result.stderr}"

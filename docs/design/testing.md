@@ -85,6 +85,31 @@ everything in the directory, so an untagged feature file can never leak into
 > `PytestRemovedIn10Warning` about `FixtureDef(baseid=...)`, which will need
 > revisiting before pytest 10.
 
+## When to add a scenario
+
+Ask what a unit test **structurally cannot see**. If the answer is "nothing",
+the test belongs in `tests/test_cli.py`.
+
+Worth a scenario:
+
+- A new or changed **exit code**, or a new user-facing error path.
+- Anything about **stdout versus stderr** — `CliRunner` merges them.
+- A new **subcommand**, or a change to how the artifact is packaged or invoked.
+- Anything touching **disk** — cache layers, config generation, state files.
+- **Ordering** properties, such as a guard firing before any network call.
+- A new **output format**, or a change to an existing one's shape.
+
+Not worth one: filter permutations, formatting details, branch coverage. Those
+belong in the unit layer, where fixtures are free and no API calls are spent.
+
+Every live scenario costs real GitHub requests, so the suite stays deliberately
+small. A scenario that merely repeats what `tests/test_cli.py` already proves is
+worse than no scenario — it costs quota and implies coverage it does not add.
+
+If a scenario needs pull-request data the fixture repo does not have, the
+**inventory changes** — never the assertion. Adjusting an expected count to
+match drifted fixtures destroys the guarantee the whole layer rests on.
+
 ## Environment isolation
 
 The subprocess environment is an **allowlist**, not a blocklist: it starts empty

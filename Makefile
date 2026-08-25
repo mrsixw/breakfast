@@ -5,7 +5,7 @@ PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 DESTDIR ?=
 
-.PHONY: activate build version-bump release breakfast smoketest test lint docs-lint format man completions install uninstall
+.PHONY: activate build version-bump release breakfast smoketest test e2e e2e-ci lint docs-lint format man completions install uninstall
 
 .venv:
 	uv venv .venv
@@ -42,6 +42,21 @@ demo: breakfast .venv
 test: .venv
 	uv sync --extra test
 	uv run pytest -v
+
+# End-to-end: drives the built zipapp as a subprocess. Builds first so the
+# binary under test is always current. Live scenarios need GH_TOKEN.
+e2e: build
+	uv sync --extra test
+	BREAKFAST_E2E_REQUIRE=1 uv run pytest -v -m e2e tests/e2e
+
+# CI variant: deliberately does NOT depend on build, so it runs against the
+# artifact downloaded from the build job — the same bits the release ships.
+# Both REQUIRE flags turn "no binary" and "no token" into failures, not skips,
+# so the suite cannot silently rot to green.
+e2e-ci: .venv
+	uv sync --extra test
+	BREAKFAST_E2E_REQUIRE=1 BREAKFAST_E2E_REQUIRE_LIVE=1 \
+		uv run pytest -v -m e2e tests/e2e
 
 lint: .venv docs-lint
 	uv sync --extra lint

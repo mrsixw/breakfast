@@ -24,6 +24,7 @@ breakfast = "breakfast.cli:breakfast"
 [project.optional-dependencies]
 test = [
   "pytest",
+  "pytest-bdd>=8.1,<9",
   "requests-mock",
   "freezegun",
 ]
@@ -40,6 +41,7 @@ dev = [
   "click-man",
   "freezegun",
   "pytest",
+  "pytest-bdd>=8.1,<9",
   "requests-mock",
   "ruff",
   "shiv",
@@ -50,6 +52,18 @@ where = ["src"]
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+# End-to-end scenarios drive the built zipapp and need `make build` (and, for
+# the live ones, a token). Excluded by default so a bare `pytest` stays fast
+# and offline; `make e2e` passes `-m e2e` on the command line, which wins.
+addopts = "-m 'not e2e'"
+markers = [
+  "e2e: drives the built ./breakfast zipapp as a subprocess (needs `make build`)",
+  "live: hits the real GitHub API against the frozen fixture repo (needs a token)",
+]
 
 [tool.black]
 line-length = 88

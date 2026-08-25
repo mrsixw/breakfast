@@ -35,6 +35,7 @@ Thanks for your interest in contributing to **breakfast**! This guide covers set
   - `ui.py` — Terminal formatting and progress emojis
   - `updater.py` — Version checking and caching
 - `tests/` — module-specific pytest suite
+  - `tests/e2e/` — end-to-end suite driving the built binary against real GitHub
 - `pyproject.toml` — project metadata, dependencies, tool config
 - `VERSION` — static file containing the current version string
 - `Makefile` — build, test, lint, and format targets
@@ -54,10 +55,22 @@ Thanks for your interest in contributing to **breakfast**! This guide covers set
 ### Running Tests
 
 ```bash
-make test        # uv run pytest -v
+make test        # unit + CLI tests. Offline and fast.
+make e2e         # end-to-end: builds the zipapp, then drives it against real GitHub
 ```
 
-Tests use `pytest` with `monkeypatch` for mocking and `click.testing.CliRunner` for CLI tests.
+There are three layers, described in full in [docs/design/testing.md](docs/design/testing.md):
+
+- **Unit and CLI tests** (`tests/*.py`) use `pytest` with `monkeypatch` for mocking and `click.testing.CliRunner` for CLI tests. These are what `make test` runs.
+- **End-to-end tests** (`tests/e2e/`) are [pytest-bdd](https://pytest-bdd.readthedocs.io/) `.feature` files that run the built `./breakfast` zipapp as a subprocess against the real GitHub API. They are excluded from `make test` by default.
+
+The rule for deciding where a new test goes: **if it monkeypatches `breakfast.*`, it is a unit test** and belongs in `tests/`.
+
+`make e2e` needs a built binary (it runs `make build` for you) and, for the scenarios tagged `@live`, a `GH_TOKEN`. Without either it *skips* with an explanation rather than failing, so it is safe to run in a fresh clone. To run just the offline end-to-end scenarios:
+
+```bash
+make build && uv run pytest -v -m "e2e and not live" tests/e2e
+```
 
 ### Linting and Formatting
 

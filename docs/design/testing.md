@@ -1,0 +1,250 @@
+# Testing Strategy
+
+How breakfast is tested, and — more usefully — which layer a new test belongs in.
+
+## The layers
+
+| Layer | Location | Runs the binary? | Network? | Command |
+| --- | --- | --- | --- | --- |
+| Unit | `tests/test_*.py` | no | no | `make test` |
+| CLI | `tests/test_cli.py` | no (in-process `CliRunner`) | no (monkeypatched) | `make test` |
+| End-to-end | `tests/e2e/` | **yes**, the built zipapp as a subprocess | **yes**, real GitHub | `make e2e` |
+
+### The rule
+
+**If it monkeypatches `breakfast.*`, it is a unit test.** It belongs in `tests/`,
+not `tests/e2e/`.
+
+This rule exists because the distinction was lost once already. The first
+attempt at issue [#99](https://github.com/mrsixw/breakfast/issues/99) delivered
+31 tests in a directory called `integration/` that used `CliRunner` with the
+GitHub API monkeypatched — architecturally identical to the CLI tests they sat
+beside, and structurally unable to satisfy what the issue asked for. Two of them
+conceded in comments that they could not verify their own names, because
+`CliRunner` merges stdout and stderr.
+
+### What end-to-end buys that the other layers cannot
+
+- Real process exit codes, not `Result.exit_code`.
+- Genuinely separate stdout and stderr, so the project's stream discipline is
+  actually testable.
+- The **shiv zipapp itself** — packaging, the `utils/preamble.py` Python-version
+  guard, the console entry point.
+- Real files on disk: the cache, and `--init-config` output.
+- Cross-process behaviour: one run writes the cache, the next reads it.
+- Real HTTP: auth headers, pagination, retries, rate-limit handling — all of
+  `api.py` that the mocked layer replaces wholesale.
+
+## Running them
+
+```bash
+make test      # unit + CLI. Offline, fast. e2e is excluded by default.
+make e2e       # builds the zipapp, then runs everything in tests/e2e
+make e2e-ci    # CI variant: uses an already-built binary, fails instead of skipping
+
+uv run pytest -v -m "e2e and not live" tests/e2e   # offline e2e subset
+```
+
+`make test` stays offline because `addopts = "-m 'not e2e'"` in
+`pyproject.toml`. A bare `uv run pytest` inherits that. `make e2e` passes
+`-m e2e` on the command line, which overrides it.
+
+### Skips versus failures
+
+Locally, a missing zipapp or token **skips** with an actionable message. In CI,
+`BREAKFAST_E2E_REQUIRE` and `BREAKFAST_E2E_REQUIRE_LIVE` turn both into hard
+failures, so the suite cannot quietly rot to green.
+
+| Variable | Effect |
+| --- | --- |
+| `BREAKFAST_E2E_BINARY` | Path to the zipapp under test (default: `./breakfast`) |
+| `BREAKFAST_E2E_REQUIRE` | Fail rather than skip when the zipapp is missing |
+| `BREAKFAST_E2E_REQUIRE_LIVE` | Fail rather than skip when no token is set |
+| `BREAKFAST_E2E_TIMEOUT` | Per-invocation subprocess timeout in seconds (default 90) |
+
+## Why the tests are written in Gherkin
+
+`tests/e2e/` uses [pytest-bdd](https://pytest-bdd.readthedocs.io/). The
+`.feature` files describe behaviour in terms of what a user runs and what they
+see, which suits a layer whose entire subject is observable CLI behaviour. It
+also makes the boundary unmistakable: nothing in `tests/e2e/` looks like the
+mocked suites, so the two are hard to confuse again.
+
+Step definitions live in `tests/e2e/conftest.py`; each `test_*.py` module is
+three lines binding one feature file.
+
+A feature-level tag such as `@e2e` becomes a pytest marker on every scenario in
+that file. As a backstop, a `pytest_collection_modifyitems` hook stamps `e2e` on
+everything in the directory, so an untagged feature file can never leak into
+`make test`.
+
+> **Note on `AGENTS.md`'s "documented APIs, not internals" rule:** pytest-bdd
+> reaches into `_pytest` privates. Our own code touches only its public
+> `scenario`, `scenarios`, `given`, `when`, `then` and `parsers`. pytest-bdd
+> 8.1.0 is verified working against the locked pytest 9.1.1; it does emit a
+> `PytestRemovedIn10Warning` about `FixtureDef(baseid=...)`, which will need
+> revisiting before pytest 10.
+
+## Environment isolation
+
+The subprocess environment is an **allowlist**, not a blocklist: it starts empty
+and copies only `PATH` (the zipapp shebang is `#!/usr/bin/env python3`) and
+`TMPDIR`. Starting from nothing is what makes the "no token is set" scenarios
+trustworthy.
+
+Four traps this closes, each found the hard way:
+
+- **`XDG_*` must be absolute.** `xdg._xdg_override` silently ignores relative
+  paths and falls back to `Path.home()` — which would write into your real cache.
+- **`COLUMNS` must be pinned.** `renderers` calls `shutil.get_terminal_size()`,
+  which honours `COLUMNS`; unset in a pipe it falls back to 80 and the table
+  starts *dropping columns*.
+- **cwd must be a temp directory.** `xdg.get_config_paths()[0]` is
+  `Path.cwd() / ".breakfast.toml"`, so a stray file in the repo root would
+  change results.
+- **`SHIV_ROOT` is session-scoped.** Otherwise each scenario re-extracts the
+  1.3 MB zipapp into a fresh `HOME`.
+
+Also set: `BREAKFAST_NO_UPDATE_CHECK=1` (or every run hits the releases API),
+`TZ=UTC` and `LC_ALL=C.UTF-8`.
+
+Assert on stderr with `in`, never equality — `cli.py` emits seasonal easter eggs
+on certain dates. They are gated on colour, so `--no-colour` suppresses them.
+
+## The fixture repository
+
+Live scenarios query **`mrsixw/breakfast-fixtures`**, a frozen repository whose
+pull requests never change. That is what lets scenarios assert exact counts
+rather than vague invariants.
+
+> **Never modify it.** Every count below is asserted in
+> `tests/e2e/features/pr_listing.feature`.
+
+| # | Title | State | Draft | Labels |
+| --- | --- | --- | --- | --- |
+| 1 | Open PR with no labels | open | no | — |
+| 2 | Open PR labelled bug | open | no | `bug` |
+| 3 | Open PR labelled enhancement | open | no | `enhancement` |
+| 4 | Open PR with two labels | open | no | `bug`, `wip` |
+| 5 | Draft PR awaiting work | open | yes | — |
+| 6 | Second draft PR | open | yes | `enhancement` |
+| 7 | Closed without merging | closed | no | — |
+| 8 | Merged fixture PR | merged | no | — |
+
+Derived expectations: default (open) **6** · `--no-drafts` **4** ·
+`--drafts-only` **2** · `--label bug` **2** · `--exclude-label bug` **4** ·
+`--fetch-state all` **8** · `--filter-author mrsixw` **6** ·
+`--filter-author octocat` **0** · `--ignore-author mrsixw` **0**.
+
+A **canary scenario** asserts the whole inventory in one place, so drift
+produces one obvious failure rather than eight confusing ones.
+
+### Why scoped `-o mrsixw:breakfast-fixtures`
+
+`api.get_github_prs` paginates *every* repository belonging to an owner
+(`GRAPHQL_REPOSITORY_PAGE_SIZE = 25`) and applies repo filters client-side
+afterwards. `mrsixw` has ~48 repos, so each live scenario costs two GraphQL
+pages, rising by one per 25 new repos. The scoped syntax keeps the *result* set
+correct; it does not reduce the pagination cost. A dedicated organisation with a
+single repository would cost one page permanently — worth revisiting if the
+budget ever tightens.
+
+The filter is a substring/glob match, and `breakfast` does not contain
+`breakfast-fixtures`, so only the fixture repo matches.
+
+### What a single author cannot cover
+
+All fixture PRs are authored by `mrsixw`, so these cannot be *discriminated*
+end-to-end: `--filter-reviewer` (you cannot request review from yourself),
+`--needs-my-review`, `--filter-approval approved` (you cannot approve your own
+PR), and multi-bucket `--summarise-user-prs`.
+
+The suite proves the *wiring* instead, via positive/negative pairs —
+`--filter-author mrsixw` → 6 versus `--filter-author octocat` → 0 demonstrates
+that the option reaches the filter and the filter reaches the renderer, which is
+what end-to-end owes you. Multi-author combinatorics stay in `tests/test_cli.py`,
+where fixtures are free.
+
+Adding a `breakfast-fixture-bot` machine account would unlock the rest. It costs
+a second credential to manage and is tracked separately.
+
+### Recreating it from scratch
+
+```bash
+gh repo create mrsixw/breakfast-fixtures --public \
+  --description "Frozen PR fixtures for breakfast's end-to-end suite. Do not modify."
+cd "$(mktemp -d)" && gh repo clone mrsixw/breakfast-fixtures && cd breakfast-fixtures
+
+printf '# breakfast-fixtures\n\n> [!WARNING]\n> Frozen fixtures for the breakfast end-to-end suite. Changing anything here\n> breaks CI on mrsixw/breakfast. See docs/design/testing.md in that repo.\n' > README.md
+git add README.md && git commit -m "docs: add fixture warning" && git push
+
+gh label create wip --color ededed --force
+for l in bug enhancement; do gh label create "$l" --force 2>/dev/null || true; done
+
+# Eight branches, one commit each, then eight PRs.
+n=1
+for title in \
+  "Open PR with no labels" "Open PR labelled bug" \
+  "Open PR labelled enhancement" "Open PR with two labels" \
+  "Draft PR awaiting work" "Second draft PR" \
+  "Closed without merging" "Merged fixture PR"; do
+  git checkout -q main && git checkout -q -b "fixture-$n"
+  echo "$title" > "fixture-$n.txt"
+  git add . && git commit -q -m "$title" && git push -q -u origin "fixture-$n"
+  if [ "$n" -eq 5 ] || [ "$n" -eq 6 ]; then
+    gh pr create --draft --title "$title" --body "Frozen fixture. Do not modify."
+  else
+    gh pr create --title "$title" --body "Frozen fixture. Do not modify."
+  fi
+  n=$((n+1))
+done
+
+gh pr edit 2 --add-label bug
+gh pr edit 3 --add-label enhancement
+gh pr edit 4 --add-label bug --add-label wip
+gh pr edit 6 --add-label enhancement
+gh pr close 7
+gh pr merge 8 --merge
+
+# Freeze it. Archiving is the strongest lock available: archived repos are
+# read-only and accept no new PRs, but existing ones stay queryable — the
+# GraphQL query has no isArchived filter.
+gh repo edit mrsixw/breakfast-fixtures --enable-issues=false --enable-wiki=false
+gh api -X PUT repos/mrsixw/breakfast-fixtures/vulnerability-alerts 2>/dev/null || true
+gh api -X DELETE repos/mrsixw/breakfast-fixtures/vulnerability-alerts
+gh repo archive mrsixw/breakfast-fixtures --yes
+```
+
+Verify afterwards with `make e2e` — the canary scenario will report any mismatch
+against the table above.
+
+## Cost and flakiness
+
+Roughly 70 API requests per full live run: each scenario costs ~2 GraphQL
+repository pages plus one REST call per pull request. Against 5000/hour that is
+comfortable, but note CI triggers on both `push` and `pull_request`, so a branch
+push runs it twice.
+
+`--checks` and `--approvals` are deliberately **not** exercised live: both are
+per-PR GraphQL and would multiply the cost for little return.
+
+`api.py` already retries `{502, 503, 504}` up to `MAX_RETRIES`, which absorbs
+most transient failures; a 90-second subprocess timeout sits on top.
+`pytest-rerunfailures` is deliberately **not** used — it converts real breakage
+into intermittent noise. A failure should be read, not retried.
+
+## CI
+
+The `e2e` job runs `needs: [build]` and `release` is gated behind it, which is
+issue #99's "post-build but before release". It downloads the artifact the
+`build` job produced rather than rebuilding, so the bits under test are the bits
+that ship.
+
+Two details that will otherwise cost an afternoon:
+
+- Artifacts travel as zips and **do not preserve the executable bit**, hence the
+  `chmod +x` step.
+- The job currently uses `secrets.GITHUB_TOKEN`, which is provided read-only to
+  fork pull requests and can read public repositories. The `if:` guard skipping
+  fork PRs is a fallback for `secrets.GH_TOKEN`; if `GITHUB_TOKEN` proves
+  sufficient, the guard can be deleted and forks get full coverage.

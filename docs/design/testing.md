@@ -80,10 +80,25 @@ everything in the directory, so an untagged feature file can never leak into
 
 > **Note on `AGENTS.md`'s "documented APIs, not internals" rule:** pytest-bdd
 > reaches into `_pytest` privates. Our own code touches only its public
-> `scenario`, `scenarios`, `given`, `when`, `then` and `parsers`. pytest-bdd
-> 8.1.0 is verified working against the locked pytest 9.1.1; it does emit a
-> `PytestRemovedIn10Warning` about `FixtureDef(baseid=...)`, which will need
-> revisiting before pytest 10.
+> `scenario`, `scenarios`, `given`, `when`, `then` and `parsers`.
+
+### Why `pytest` is pinned below 10
+
+pytest-bdd 8.1.0 — the latest release — calls
+`FixtureManager._register_fixture` and `FixtureDef(baseid=...)`, both of which
+pytest 9 already flags as `PytestRemovedIn10Warning`. On pytest 10 the suite
+would stop collecting entirely, and because `release` is gated on the `e2e` job
+that blocks releases rather than merely failing a test.
+
+Nothing else pins pytest, so `uv` would be free to resolve 10 on any `uv sync`
+and the first sign would be a red job on an unrelated pull request. The pin in
+the `test` and `dev` extras makes the constraint deliberate instead.
+
+**Remove the pin** once pytest-bdd ships a release that no longer uses those
+APIs. Tracked in [#454](https://github.com/mrsixw/breakfast/issues/454).
+
+The warnings are deliberately **not** filtered. They are the signal that the
+upstream fix has landed: when they stop appearing, the pin can go.
 
 ## When to add a scenario
 

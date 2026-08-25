@@ -23,7 +23,13 @@ breakfast = "breakfast.cli:breakfast"
 
 [project.optional-dependencies]
 test = [
-  "pytest",
+  # Pinned below 10: pytest-bdd 8.1.0 (the latest release) calls
+  # FixtureManager._register_fixture and FixtureDef(baseid=...), both of which
+  # pytest 9 flags as PytestRemovedIn10Warning. On pytest 10 the e2e suite
+  # would stop collecting, and since `release` is gated on the e2e job that
+  # blocks releases rather than merely failing a test. Remove this pin once
+  # pytest-bdd ships a release that no longer uses them — see issue #454.
+  "pytest<10",
   "pytest-bdd>=8.1,<9",
   "requests-mock",
   "freezegun",
@@ -40,7 +46,7 @@ dev = [
   "black",
   "click-man",
   "freezegun",
-  "pytest",
+  "pytest<10",  # see the note in the `test` extra, and issue #454
   "pytest-bdd>=8.1,<9",
   "requests-mock",
   "ruff",

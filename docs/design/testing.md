@@ -75,7 +75,7 @@ The layout:
 tests/e2e/
   conftest.py          fixtures and the collection hook, nothing else
   steps/
-    process.py         running the binary, and its streams
+    steps.py           running the binary, and its streams
     fixture_repo.py    assertions about the frozen fixture repo
   features/            the .feature files
   test_e2e.py          scenarios("features") — binds all of them

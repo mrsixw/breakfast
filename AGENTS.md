@@ -57,9 +57,9 @@ path unless `core.symlinks=true` and Developer Mode are both enabled.
 
 ## Testing
 - **Three layers, and the rule that separates them** (see [docs/design/testing.md](docs/design/testing.md)):
-  - Unit and CLI tests (`tests/*.py`) use `pytest` with `monkeypatch` and `click.testing.CliRunner`. Offline and fast. `make test`.
+  - Unit and CLI tests (`tests/*.py`) use `pytest` with `monkeypatch`, `requests-mock`, `freezegun` and `click.testing.CliRunner`. Offline and fast. `make test`.
   - End-to-end tests (`tests/e2e/`) are pytest-bdd `.feature` files that drive the **built `./breakfast` zipapp as a subprocess** against real GitHub. `make e2e`. **Never mocked.**
-  - **If it monkeypatches `breakfast.*`, it is a unit test** and belongs in `tests/`, not `tests/e2e/`. Do not add `CliRunner` tests to `tests/e2e/`.
+  - **If it fakes any part of the system under test, it is a unit test** — `monkeypatch`, `requests-mock`, `freezegun` and `CliRunner` all replace something the end-to-end layer exists to exercise for real. It belongs in `tests/`, not `tests/e2e/`.
 - The fixture repo `mrsixw/breakfast-fixtures` is frozen and archived. Its PRs are asserted by exact count. **Never modify it.**
 - Run `make test` before committing. Run `make e2e` when changing CLI behaviour, packaging, or the cache.
 - **Add an end-to-end scenario when the change is one only the real binary can prove.** Ask what a unit test structurally cannot see. Add one for:

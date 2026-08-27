@@ -171,8 +171,8 @@ produces one obvious failure rather than eight confusing ones.
 afterwards. `mrsixw` has ~48 repos, so each live scenario costs two GraphQL
 pages, rising by one per 25 new repos. The scoped syntax keeps the *result* set
 correct; it does not reduce the pagination cost. A dedicated organisation with a
-single repository would cost one page permanently — worth revisiting if the
-budget ever tightens.
+single repository would cost one page permanently — tracked as
+[#456](https://github.com/mrsixw/breakfast/issues/456).
 
 The filter is a substring/glob match, and `breakfast` does not contain
 `breakfast-fixtures`, so only the fixture repo matches.
@@ -191,60 +191,52 @@ what end-to-end owes you. Multi-author combinatorics stay in `tests/test_cli.py`
 where fixtures are free.
 
 Adding a `breakfast-fixture-bot` machine account would unlock the rest. It costs
-a second credential to manage and is tracked separately.
+a second credential to manage and is tracked in
+[#452](https://github.com/mrsixw/breakfast/issues/452).
 
 ### Recreating it from scratch
 
+The inventory is built by [`utils/setup_fixture_org.sh`](../../utils/setup_fixture_org.sh),
+not by copy-pasting a recipe out of this document. The script is the executable
+form of the table above: it creates the repository, the three labels, the eight
+branches and their pull requests, applies the labels, closes fixture 7, merges
+fixture 8, and then **verifies** the result really is six open / eight total /
+two drafts before it will let you freeze anything.
+
 ```bash
-gh repo create mrsixw/breakfast-fixtures --public \
-  --description "Frozen PR fixtures for breakfast's end-to-end suite. Do not modify."
-cd "$(mktemp -d)" && gh repo clone mrsixw/breakfast-fixtures && cd breakfast-fixtures
+# See what it would do, touching nothing.
+./utils/setup_fixture_org.sh <org> --dry-run
 
-printf '# breakfast-fixtures\n\n> [!WARNING]\n> Frozen fixtures for the breakfast end-to-end suite. Changing anything here\n> breaks CI on mrsixw/breakfast. See docs/design/testing.md in that repo.\n' > README.md
-git add README.md && git commit -m "docs: add fixture warning" && git push
+# Provision for real.
+./utils/setup_fixture_org.sh <org>
 
-gh label create wip --color ededed --force
-for l in bug enhancement; do gh label create "$l" --force 2>/dev/null || true; done
-
-# Eight branches, one commit each, then eight PRs.
-n=1
-for title in \
-  "Open PR with no labels" "Open PR labelled bug" \
-  "Open PR labelled enhancement" "Open PR with two labels" \
-  "Draft PR awaiting work" "Second draft PR" \
-  "Closed without merging" "Merged fixture PR"; do
-  git checkout -q main && git checkout -q -b "fixture-$n"
-  echo "$title" > "fixture-$n.txt"
-  git add . && git commit -q -m "$title" && git push -q -u origin "fixture-$n"
-  if [ "$n" -eq 5 ] || [ "$n" -eq 6 ]; then
-    gh pr create --draft --title "$title" --body "Frozen fixture. Do not modify."
-  else
-    gh pr create --title "$title" --body "Frozen fixture. Do not modify."
-  fi
-  n=$((n+1))
-done
-
-gh pr edit 2 --add-label bug
-gh pr edit 3 --add-label enhancement
-gh pr edit 4 --add-label bug --add-label wip
-gh pr edit 6 --add-label enhancement
-gh pr close 7
-gh pr merge 8 --merge
-
-# Freeze it. Archiving is the strongest lock available: archived repos are
-# read-only and accept no new PRs, but existing ones stay queryable — the
-# GraphQL query has no isArchived filter.
-gh api -X DELETE repos/mrsixw/breakfast-fixtures/vulnerability-alerts
-gh repo edit mrsixw/breakfast-fixtures --enable-issues=false --enable-wiki=false
-gh repo archive mrsixw/breakfast-fixtures --yes
+# Only once `make e2e` is green against the new fixtures:
+./utils/setup_fixture_org.sh <org> --archive
 ```
 
+Three things the script does that a fenced code block could not:
+
+- It **refuses** to run against `mrsixw/breakfast-fixtures`. That repo is frozen
+  and asserted by exact count, so the guard is unconditional and not overridable
+  by any flag.
+- It reads each pull request number back from `gh` instead of assuming they are
+  numbered 1 through 8. One stray pull request would otherwise shift every later
+  `gh pr edit` onto the wrong target — silently, since the labels would still
+  apply cleanly to whatever they hit.
+- It refuses to seed a repository that already holds pull requests, so a second
+  run cannot quietly double the inventory.
+
+GitHub has no API for creating an organisation, so the organisation itself must
+exist before you start — see [organizations/plan](https://github.com/organizations/plan).
+The script checks for it and says so rather than failing eight steps later.
+
 Archive **last**, after verifying with `make e2e` — an archived repo is
-read-only, so a mistake in the inventory would need unarchiving to fix. Settings
-changes are also rejected once archived, which is why the Dependabot and
-issues/wiki steps come first. Archiving makes those largely redundant anyway (no
-bot can open a pull request on a read-only repo), but they cost nothing and
-document the intent.
+read-only, so a mistake in the inventory would need unarchiving to fix. That is
+why `--archive` is opt-in rather than the default. Settings changes are also
+rejected once archived, which is why the flag turns off Dependabot alerts,
+issues and the wiki *before* it archives. Archiving makes those largely
+redundant anyway (no bot can open a pull request on a read-only repo), but they
+cost nothing and document the intent.
 
 Archiving does **not** hide the pull requests: the suite was re-run after
 archiving and all 25 scenarios still pass, confirming the GraphQL query has no

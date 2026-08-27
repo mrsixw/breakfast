@@ -1,4 +1,4 @@
-"""Steps about running the binary and inspecting its streams.
+"""The general step definitions: running the binary, inspecting its streams.
 
 Nothing here knows what a pull request is. Steps that do belong in
 ``fixture_repo``.

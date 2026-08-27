@@ -23,7 +23,7 @@ import pytest
 # invisible until its namespace is pulled in here. Replace these with named
 # imports and every scenario fails to find its steps.
 from .steps.fixture_repo import *  # noqa: F401,F403
-from .steps.process import *  # noqa: F401,F403
+from .steps.steps import *  # noqa: F401,F403
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BINARY = REPO_ROOT / "breakfast"

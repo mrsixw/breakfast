@@ -4,6 +4,7 @@ Feature: Caching across separate processes
   what an in-process test cannot exercise.
 
   Scenario: A warm cache serves an offline run identically
+    Given the cache directory is empty
     When I run `breakfast -o mrsixw:breakfast-fixtures --cache --format json --no-colour`
     Then the exit code is 0
     And the cache directory holds a "prs_*.json" file
@@ -11,6 +12,7 @@ Feature: Caching across separate processes
     And a second offline run prints byte-identical output
 
   Scenario: Debug summary reports real API activity
+    Given the cache directory is empty
     When I run `breakfast -o mrsixw:breakfast-fixtures --api-stats --no-colour`
     Then the exit code is 0
     And stderr contains "Debug summary"

@@ -7,21 +7,20 @@ How breakfast is tested, and — more usefully — which layer a new test belong
 | Layer | Location | Runs the binary? | Network? | Command |
 | --- | --- | --- | --- | --- |
 | Unit | `tests/test_*.py` | no | no | `make test` |
-| CLI | `tests/test_cli.py` | no (in-process `CliRunner`) | no (monkeypatched) | `make test` |
+| CLI | `tests/test_cli.py` | no (in-process `CliRunner`) | no (faked) | `make test` |
 | End-to-end | `tests/e2e/` | **yes**, the built zipapp as a subprocess | **yes**, real GitHub | `make e2e` |
 
 ### The rule
 
-**If it monkeypatches `breakfast.*`, it is a unit test.** It belongs in `tests/`,
-not `tests/e2e/`.
+**If it fakes any part of the system under test, it is a unit test.** It belongs
+in `tests/`, not `tests/e2e/`.
 
-This rule exists because the distinction was lost once already. The first
-attempt at issue [#99](https://github.com/mrsixw/breakfast/issues/99) delivered
-31 tests in a directory called `integration/` that used `CliRunner` with the
-GitHub API monkeypatched — architecturally identical to the CLI tests they sat
-beside, and structurally unable to satisfy what the issue asked for. Two of them
-conceded in comments that they could not verify their own names, because
-`CliRunner` merges stdout and stderr.
+Faking means `monkeypatch`, but equally `requests-mock`, `freezegun` or
+`CliRunner` — each replaces something this layer exists to exercise for real:
+the network, the clock, the process boundary.
+
+The distinction was lost once already, which is why it is written down rather
+than assumed. See [#99](https://github.com/mrsixw/breakfast/issues/99).
 
 ### What end-to-end buys that the other layers cannot
 
@@ -70,8 +69,27 @@ see, which suits a layer whose entire subject is observable CLI behaviour. It
 also makes the boundary unmistakable: nothing in `tests/e2e/` looks like the
 mocked suites, so the two are hard to confuse again.
 
-Step definitions live in `tests/e2e/conftest.py`; each `test_*.py` module is
-three lines binding one feature file.
+The layout:
+
+```text
+tests/e2e/
+  conftest.py          fixtures and the collection hook, nothing else
+  steps/
+    process.py         running the binary, and its streams
+    fixture_repo.py    assertions about the frozen fixture repo
+  features/            the .feature files
+  test_e2e.py          scenarios("features") — binds all of them
+```
+
+`scenarios()` walks directories, so **one** binding module covers every feature
+file; there is no reason for one per feature.
+
+`conftest.py` ends with `from .steps.… import *`, and those star imports are
+load-bearing. `@given`/`@when`/`@then` register a step by injecting a pytest
+fixture into the *defining* module's namespace under a generated name
+(`pytestbdd_stepdef_*`). pytest only scans conftest and test modules for
+fixtures, so a step in a plain module stays invisible until that namespace is
+pulled in. Rewrite them as named imports and every scenario loses its steps.
 
 A feature-level tag such as `@e2e` becomes a pytest marker on every scenario in
 that file. As a backstop, a `pytest_collection_modifyitems` hook stamps `e2e` on

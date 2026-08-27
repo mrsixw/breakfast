@@ -97,7 +97,10 @@ SLUG="${ORG}/${REPO}"
 
 # 🛡️  The existing fixtures are frozen and asserted by exact count. Refuse to
 #     point this script at them, whatever else the arguments say.
-if [[ "${SLUG}" == "mrsixw/breakfast-fixtures" ]]; then
+#     Compared lowercased because GitHub logins are case-insensitive, and via
+#     tr rather than ${SLUG,,} because macOS still ships bash 3.2. 🍎
+SLUG_LOWER="$(printf '%s' "${SLUG}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${SLUG_LOWER}" == "mrsixw/breakfast-fixtures" ]]; then
   die "Refusing to touch mrsixw/breakfast-fixtures — it is frozen. 🧊
    See docs/design/testing.md. Provision a new org instead."
 fi
@@ -142,6 +145,18 @@ if gh repo view "${SLUG}" >/dev/null 2>&1; then
    and break the exact-count assertions. Delete the repo, or pass --repo NAME
    to seed a different one."
   fi
+
+  # 🥴 Branches but no pull requests means a previous run died between the
+  #    push and the `gh pr create`. Re-pushing those branches would be a
+  #    non-fast-forward, and this script will not force push. Say so plainly.
+  STALE="$(gh api "repos/${SLUG}/branches" --paginate \
+    --jq '[.[] | select(.name | startswith("fixture-"))] | length' 2>/dev/null || echo 0)"
+  if [[ "${STALE}" != "0" ]]; then
+    die "${SLUG} has ${STALE} fixture-* branches but no pull requests. 🥴
+   That is the wreckage of an incomplete run. Re-pushing them would need a
+   force push, which this script will not do.
+   Delete the repository and re-run, or pass --repo NAME to seed a fresh one."
+  fi
 else
   run gh repo create "${SLUG}" --public \
     --description "Frozen PR fixtures for breakfast's end-to-end suite. Do not modify."
@@ -155,7 +170,7 @@ fi
 step "📝" "Seeding the warning README"
 
 WORKTREE="$(mktemp -d)"
-trap 'rm -rf "${WORKTREE}"' EXIT
+trap 'cd / && rm -rf "${WORKTREE}"' EXIT
 info "scratch clone: ${WORKTREE}"
 
 if [[ "${DRY_RUN}" == "true" ]]; then
@@ -168,7 +183,9 @@ else
     "${REPO}" > README.md
 
   git add README.md
-  git commit --quiet -m "docs: add fixture warning"
+  # 🔁 On a re-run the README is already there and identical, so nothing gets
+  #    staged and `git commit` would exit 1 — fatal under `set -e`.
+  git diff --cached --quiet || git commit --quiet -m "docs: add fixture warning"
   git branch --move main 2>/dev/null || true
   git push --quiet -u origin main
   ok "README pushed, main branch established"
@@ -240,6 +257,9 @@ for index in "${!TITLES[@]}"; do
   git commit --quiet -m "${title}"
   git push --quiet -u origin "${branch}"
 
+  # 🥸 The expansion below looks like a typo but is not: under `set -u`,
+  #    bash 3.2 treats "${arr[@]}" on an empty array as an unbound variable.
+  #    "${arr[@]+"${arr[@]}"}" expands to nothing instead of exploding.
   draft_flag=()
   [[ ${n} -eq 5 || ${n} -eq 6 ]] && draft_flag=(--draft)
 

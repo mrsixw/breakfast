@@ -217,14 +217,16 @@ two drafts before it will let you freeze anything.
 Three things the script does that a fenced code block could not:
 
 - It **refuses** to run against `mrsixw/breakfast-fixtures`. That repo is frozen
-  and asserted by exact count, so the guard is unconditional and not overridable
-  by any flag.
+  and asserted by exact count, so the guard is unconditional, case-insensitive
+  and not overridable by any flag.
 - It reads each pull request number back from `gh` instead of assuming they are
   numbered 1 through 8. One stray pull request would otherwise shift every later
   `gh pr edit` onto the wrong target — silently, since the labels would still
   apply cleanly to whatever they hit.
 - It refuses to seed a repository that already holds pull requests, so a second
-  run cannot quietly double the inventory.
+  run cannot quietly double the inventory — and refuses one holding orphaned
+  `fixture-*` branches from a half-finished run, because re-pushing those would
+  need a force push.
 
 GitHub has no API for creating an organisation, so the organisation itself must
 exist before you start — see [organizations/plan](https://github.com/organizations/plan).

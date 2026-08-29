@@ -6,6 +6,14 @@ belongs in ``tests/``. See ``docs/design/testing.md``.
 
 Step definitions live in ``steps/``; only fixtures and the collection hook
 belong in this file.
+
+**On the name.** ``conftest.py`` is not a name we chose and cannot be changed:
+pytest hardcodes it. It is the only filename pytest will load fixtures and hooks
+from without registering a plugin, and it applies them to every test in its
+directory and below. Hence ``pytest_collection_modifyitems`` in particular has
+to live here — hooks are picked up from ``conftest.py`` and plugins, nowhere
+else. Read it as "configuration for the tests in this directory"; the file is a
+pytest interface, not a description of its contents.
 """
 
 import os

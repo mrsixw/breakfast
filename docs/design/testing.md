@@ -84,6 +84,14 @@ tests/e2e/
 `scenarios()` walks directories, so **one** binding module covers every feature
 file; there is no reason for one per feature.
 
+`conftest.py` is the odd name in that tree, and it is not one we picked —
+pytest hardcodes it. It is the only filename pytest loads fixtures and hooks
+from without a registered plugin, and what it defines applies to every test in
+its directory and below. That is why `pytest_collection_modifyitems` lives
+there specifically: hooks come from `conftest.py` and plugins, nowhere else.
+Everything that *could* move out already has, which is what the `steps/`
+package is.
+
 `conftest.py` ends with `from .steps.… import *`, and those star imports are
 load-bearing. `@given`/`@when`/`@then` register a step by injecting a pytest
 fixture into the *defining* module's namespace under a generated name

@@ -13,3 +13,4 @@ Each document captures the problem, proposed solution, and implementation approa
 | [PR Caching](pr-caching.md) | Proposed | [#45](https://github.com/mrsixw/breakfast/issues/45) |
 | [Text User Interface](tui.md) | Proposed | [#46](https://github.com/mrsixw/breakfast/issues/46) |
 | [Pluggable Seasonal Calendars](pluggable-calendars.md) | Implemented | [#196](https://github.com/mrsixw/breakfast/issues/196) |
+| [Testing Strategy](testing.md) | Implemented | [#99](https://github.com/mrsixw/breakfast/issues/99) |

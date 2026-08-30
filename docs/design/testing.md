@@ -106,10 +106,50 @@ everything in the directory, so an untagged feature file can never leak into
 
 > **Note on `AGENTS.md`'s "documented APIs, not internals" rule:** pytest-bdd
 > reaches into `_pytest` privates. Our own code touches only its public
-> `scenario`, `scenarios`, `given`, `when`, `then` and `parsers`. pytest-bdd
-> 8.1.0 is verified working against the locked pytest 9.1.1; it does emit a
-> `PytestRemovedIn10Warning` about `FixtureDef(baseid=...)`, which will need
-> revisiting before pytest 10.
+> `scenario`, `scenarios`, `given`, `when`, `then` and `parsers`.
+
+### Why `pytest` is pinned below 10
+
+pytest-bdd 8.1.0 — the latest release — calls
+`FixtureManager._register_fixture` and `FixtureDef(baseid=...)`, both of which
+pytest 9 already flags as `PytestRemovedIn10Warning`. On pytest 10 the suite
+would stop collecting entirely, and because `release` is gated on the `e2e` job
+that blocks releases rather than merely failing a test.
+
+Nothing else pins pytest, so `uv` would be free to resolve 10 on any `uv sync`
+and the first sign would be a red job on an unrelated pull request. The pin in
+the `test` and `dev` extras makes the constraint deliberate instead.
+
+### How everything else is pinned
+
+That pin was the first, and for a while the only one, which made it look
+arbitrary. Every dependency now carries a floor and a ceiling:
+
+- **Floor** — the version currently in `uv.lock`, the one actually tested. A
+  lock refresh cannot silently resolve backwards to something never exercised.
+- **Ceiling** — the next breaking bump. The next major, or the next *minor* for
+  0.x projects like `ruff`, `wcwidth`, `tabulate` and `click-man`, where minors
+  are where breakage lives.
+
+`uv.lock` already pins exact versions, and CI runs `uv sync`, so installs are
+reproducible with or without these ranges. The ranges do a different job: they
+bound what `uv lock` may resolve *to* when it is next regenerated. `pytest<10`
+is the case that motivated them — a major bump landing on an unrelated pull
+request and reading as that change's fault.
+
+The `pytest` ceiling is the one exception to the rule above: it is not "the next
+major after the tested version" by coincidence but by necessity, for the
+pytest-bdd reason given above.
+
+The trade: ceilings on the four runtime dependencies constrain anyone installing
+`breakfast` as a library. For a CLI that ships as a zipapp, bounding what the
+released artifact can be built against is worth more than that flexibility.
+
+**Remove the pin** once pytest-bdd ships a release that no longer uses those
+APIs. Tracked in [#454](https://github.com/mrsixw/breakfast/issues/454).
+
+The warnings are deliberately **not** filtered. They are the signal that the
+upstream fix has landed: when they stop appearing, the pin can go.
 
 ## When to add a scenario
 

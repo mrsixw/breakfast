@@ -687,6 +687,8 @@ reviewers = true
 
 Add a "Labels" column showing the labels applied to each PR. Shows up to 2 labels, then `+N` overflow (e.g. `bug, enhancement +1`). Off by default.
 
+Each label name is a **hyperlink** to that repository's filtered pull request search — clicking `bug` opens `https://github.com/<owner>/<repo>/pulls?q=is:pr+is:open+label:"bug"`, i.e. every open PR in that repo carrying the label. In `--format markdown` the labels are emitted as `[name](url)` links. CSV, JSON and `--template` output keep plain label names, since those formats are meant for machines.
+
 ```text
 $ breakfast -o my-org -r platform --show-labels
 Fetching my-org PRs...🥐...Done

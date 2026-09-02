@@ -29,6 +29,16 @@ Feature: Listing pull requests from live GitHub
     And stdout is valid JSON
     And every entry has the fields "repo,title,author,url,state"
 
+  # A label column is only worth having if it links somewhere real. The anchor
+  # is emitted whether or not stdout is a terminal, so this layer can prove the
+  # OSC 8 payload and its URL actually reach the stream from the built binary.
+  Scenario: The labels column links each label to a filtered PR search
+    When I run `breakfast -o mrsixw:breakfast-fixtures --show-labels --no-colour`
+    Then the exit code is 0
+    And stdout contains "bug"
+    And stdout contains "pulls?q=is%3Apr+is%3Aopen+label%3A%22bug%22"
+    And stdout contains "pulls?q=is%3Apr+is%3Aopen+label%3A%22enhancement%22"
+
   Scenario Outline: Filters narrow the result set
     When I run `breakfast -o mrsixw:breakfast-fixtures <flags> --format json --no-colour`
     Then the exit code is 0

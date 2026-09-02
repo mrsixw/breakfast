@@ -49,7 +49,7 @@ The default output is a colour-coded terminal table with the following columns:
 | Head Branch | Source branch the PR was raised from (only with `--head-branch`) — clickable link to the branch on GitHub |
 | Base Branch | Target branch the PR merges into (only with `--base-branch`) — clickable link to the branch on GitHub |
 | Reviewers | Requested reviewers for the PR (only with `--reviewers`) |
-| Labels | Labels applied to the PR (only with `--show-labels`) |
+| Labels | Labels applied to the PR, each linked to that repo's filtered PR search (only with `--show-labels`) |
 | Mergeable? | Whether the PR can be merged cleanly. `✅` means truly ready (`clean`); `⚠️` means no conflicts but not ready (`behind`, `unstable`, or `blocked`); `❌` means conflicts exist. Also shows `🏁 merged`, `🚫 closed`, or `⏳ computing` as appropriate |
 | Link | Clickable link to the PR |
 

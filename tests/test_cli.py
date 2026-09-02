@@ -679,6 +679,40 @@ def _stub_labelled_prs(monkeypatch):
     monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
 
 
+def test_cli_markdown_labels_are_links(monkeypatch):
+    _stub_labelled_prs(monkeypatch)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--show-labels", "--format", "markdown"],
+    )
+
+    assert result.exit_code == 0
+    assert "[bug](https://github.com/org/repo/pulls?q=" in result.stdout
+
+
+def test_cli_csv_and_json_labels_stay_plain(monkeypatch):
+    """Machine-readable formats must not gain hyperlink markup."""
+    _stub_labelled_prs(monkeypatch)
+    runner = CliRunner()
+
+    csv_out = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--show-labels", "--format", "csv"]
+    )
+    assert csv_out.exit_code == 0
+    assert "github.com/org/repo/pulls" not in csv_out.stdout
+    assert "area/api|bug" in csv_out.stdout
+
+    json_out = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--show-labels", "--format", "json"]
+    )
+    assert json_out.exit_code == 0
+    assert "pulls?q=" not in json_out.stdout
+    parsed = json.loads(json_out.stdout)
+    assert ["area/api", "bug"] in [p["labels"] for p in parsed]
+
+
 def test_cli_label_accepts_glob_pattern(monkeypatch):
     _stub_labelled_prs(monkeypatch)
 

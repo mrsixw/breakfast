@@ -636,6 +636,260 @@ def test_cli_filter_author_cli_replaces_config(monkeypatch, tmp_path):
     assert "Alice PR" not in result.stdout
 
 
+def _stub_labelled_prs(monkeypatch):
+    """Three PRs with distinct label sets, for label-filtering CLI tests.
+
+    PR 1: area/api + bug     PR 2: area/cli     PR 3: docs + wip
+    """
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+
+    labels_by_number = {
+        1: [{"name": "area/api"}, {"name": "bug"}],
+        2: [{"name": "area/cli"}],
+        3: [{"name": "docs"}, {"name": "wip"}],
+    }
+    titles = {1: "Api PR", 2: "Cli PR", 3: "Docs PR"}
+
+    def fake_get_prs(_org, _repo_filter, _state="open"):
+        return [f"https://github.com/org/repo/pull/{n}" for n in (1, 2, 3)]
+
+    def fake_api_request(path):
+        number = int(path.rsplit("/", 1)[-1])
+        return {
+            "base": {"repo": {"name": "repo"}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": titles[number],
+            "user": {"login": "alice"},
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": f"https://github.com/org/repo/pull/{number}",
+            "number": number,
+            "labels": labels_by_number[number],
+        }
+
+    monkeypatch.setattr(cli, "get_github_prs", fake_get_prs)
+    monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
+
+
+def test_cli_label_accepts_glob_pattern(monkeypatch):
+    _stub_labelled_prs(monkeypatch)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--label", "area/*"]
+    )
+
+    assert result.exit_code == 0
+    assert "Api PR" in result.stdout
+    assert "Cli PR" in result.stdout
+    assert "Docs PR" not in result.stdout
+
+
+def test_cli_exclude_label_accepts_glob_pattern(monkeypatch):
+    _stub_labelled_prs(monkeypatch)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--exclude-label", "area/*"]
+    )
+
+    assert result.exit_code == 0
+    assert "Docs PR" in result.stdout
+    assert "Api PR" not in result.stdout
+    assert "Cli PR" not in result.stdout
+
+
+def test_cli_label_match_all_narrows_results(monkeypatch):
+    """--label-match all requires every pattern; the default any keeps both PRs."""
+    _stub_labelled_prs(monkeypatch)
+    runner = CliRunner()
+    args = ["-o", "org", "-r", "repo", "--label", "area/*", "--label", "bug"]
+
+    result_any = runner.invoke(cli.breakfast, args)
+    assert result_any.exit_code == 0
+    assert "Api PR" in result_any.stdout
+    assert "Cli PR" in result_any.stdout
+
+    result_all = runner.invoke(cli.breakfast, [*args, "--label-match", "all"])
+    assert result_all.exit_code == 0
+    assert "Api PR" in result_all.stdout
+    assert "Cli PR" not in result_all.stdout
+
+
+def test_cli_label_config_key_applies(monkeypatch, tmp_path):
+    _stub_labelled_prs(monkeypatch)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('label = ["docs"]')
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["--config", str(cfg_file), "-o", "org", "-r", "repo"]
+    )
+
+    assert result.exit_code == 0
+    assert "Docs PR" in result.stdout
+    assert "Api PR" not in result.stdout
+
+
+def test_cli_label_replaces_config_list(monkeypatch, tmp_path):
+    """A CLI --label replaces the config list, as --filter-author does."""
+    _stub_labelled_prs(monkeypatch)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('label = ["docs"]')
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["--config", str(cfg_file), "-o", "org", "-r", "repo", "--label", "bug"],
+    )
+
+    assert result.exit_code == 0
+    assert "Api PR" in result.stdout
+    assert "Docs PR" not in result.stdout
+
+
+def test_cli_label_match_config_key_applies(monkeypatch, tmp_path):
+    _stub_labelled_prs(monkeypatch)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('label-match = "all"')
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        [
+            "--config",
+            str(cfg_file),
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--label",
+            "area/*",
+            "--label",
+            "bug",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Api PR" in result.stdout
+    assert "Cli PR" not in result.stdout
+
+
+def test_cli_label_match_non_string_config_warns_and_falls_back(monkeypatch, tmp_path):
+    """A non-string label-match warns on stderr instead of crashing with a traceback."""
+    _stub_labelled_prs(monkeypatch)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text("label-match = true")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["--config", str(cfg_file), "-o", "org", "-r", "repo", "--label", "bug"],
+    )
+
+    assert result.exit_code == 0
+    assert "label-match" in result.stderr
+    # Fell back to "any", so the bug PR is still shown.
+    assert "Api PR" in result.stdout
+
+
+def test_cli_label_match_unknown_value_config_warns_and_falls_back(
+    monkeypatch, tmp_path
+):
+    """An unrecognised label-match value warns rather than silently meaning 'any'."""
+    _stub_labelled_prs(monkeypatch)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('label-match = "every"')
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        ["--config", str(cfg_file), "-o", "org", "-r", "repo", "--label", "bug"],
+    )
+
+    assert result.exit_code == 0
+    assert "every" in result.stderr
+    assert "Api PR" in result.stdout
+
+
+def test_cli_label_match_config_value_is_case_insensitive(monkeypatch, tmp_path):
+    _stub_labelled_prs(monkeypatch)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('label-match = "ALL"')
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        [
+            "--config",
+            str(cfg_file),
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--label",
+            "area/*",
+            "--label",
+            "bug",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "label-match" not in result.stderr
+    assert "Api PR" in result.stdout
+    assert "Cli PR" not in result.stdout
+
+
+def test_cli_exclude_label_config_key_applies(monkeypatch, tmp_path):
+    _stub_labelled_prs(monkeypatch)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('exclude-label = ["wip"]')
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["--config", str(cfg_file), "-o", "org", "-r", "repo"]
+    )
+
+    assert result.exit_code == 0
+    assert "Api PR" in result.stdout
+    assert "Docs PR" not in result.stdout
+
+
+def test_cli_exclude_label_appends_to_config_list(monkeypatch, tmp_path):
+    """A CLI --exclude-label adds to the config list rather than replacing it."""
+    _stub_labelled_prs(monkeypatch)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('exclude-label = ["wip"]')
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast,
+        [
+            "--config",
+            str(cfg_file),
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--exclude-label",
+            "area/cli",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Api PR" in result.stdout
+    assert "Cli PR" not in result.stdout  # from the CLI flag
+    assert "Docs PR" not in result.stdout  # still excluded by the config key
+
+
 def test_cli_show_config_includes_filter_author(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)

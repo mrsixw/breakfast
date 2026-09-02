@@ -47,7 +47,7 @@ from .config import (
     parse_columns_config,
     update_config,
 )
-from .constants import BREAKFAST_ITEMS
+from .constants import BREAKFAST_ITEMS, HEADER_STYLE_CHOICES
 from .logger import configure as configure_logging
 from .logger import logger
 from .renderers import (
@@ -667,6 +667,15 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     help="Include a column showing labels for each PR.",
 )
 @click.option(
+    "--header-style",
+    type=click.Choice(["full", "short", "emoji", "short_emoji"], case_sensitive=False),
+    default=None,
+    help=(
+        "Table header style: full (default), short abbreviations, emoji, or"
+        " short_emoji (emoji plus abbreviation)."
+    ),
+)
+@click.option(
     "--status-style",
     type=click.Choice(["emoji", "ascii"], case_sensitive=False),
     default=None,
@@ -985,6 +994,7 @@ def breakfast(
     reviewers,
     show_labels,
     status_style,
+    header_style,
     limit,
     workers,
     max_title_length,
@@ -1243,6 +1253,21 @@ def breakfast(
     )
     if status_style is None:
         status_style = str(cfg.get("status-style", "emoji")).lower()
+    if header_style is None:
+        header_style = str(cfg.get("header-style", "full")).lower()
+        if header_style not in HEADER_STYLE_CHOICES:
+            click.echo(
+                click.style(
+                    f"Warning: unrecognised header-style '{cfg.get('header-style')}'"
+                    " in config — expected 'full', 'short', 'emoji' or"
+                    " 'short_emoji'. Falling back to 'full'.",
+                    fg="yellow",
+                ),
+                err=True,
+            )
+            header_style = "full"
+    else:
+        header_style = header_style.lower()
     max_title_length = (
         max_title_length
         if max_title_length is not None
@@ -2078,6 +2103,7 @@ def breakfast(
             colour_index=colour_index,
             max_title_length=max_title_length,
             column_specs=column_specs,
+            header_style=header_style,
             stdout_is_tty=_stdout_is_tty(),
         )
 

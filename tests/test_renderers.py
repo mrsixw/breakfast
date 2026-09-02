@@ -586,3 +586,87 @@ def test_format_labels_overflow_suffix_survives_linking():
     labels = [{"name": "a"}, {"name": "b"}, {"name": "c"}, {"name": "d"}]
     out = renderers.format_labels(labels, owner="acme", repo="widgets")
     assert renderers._strip_ansi(out) == "a, b +2"
+
+
+def _wide_row():
+    """A row whose long PR Title crowds out the more useful Labels column."""
+    return {
+        "Repo": "breakfast-fixtures",
+        "PR Title": "Open PR with a really quite long descriptive title",
+        "Author": "mrsixw",
+        "Files": "1",
+        "Commits": "1",
+        "Comments": "0",
+        "Labels": "bug, wip",
+        "Link": "PR-4",
+    }
+
+
+def test_autofit_clamps_title_so_labels_survive():
+    """PR Title must shrink to its floor rather than bail and let Labels be dropped.
+
+    _truncate_col used to `return pr_data` untouched when the exact target fell
+    below min_len, so the title kept full width while Labels was dropped instead.
+    """
+    fitted = renderers._auto_fit(
+        [_wide_row()], terminal_width=72, explicit_max_title_length=None
+    )
+
+    assert "Labels" in fitted[0], "Labels was dropped in favour of a long title"
+    assert renderers._visible_width(fitted[0]["PR Title"]) < 50
+
+
+def test_autofit_respects_explicit_max_title_length():
+    """An explicit --max-title-length still disables the automatic title shrink."""
+    rows = [_wide_row()]
+    fitted = renderers._auto_fit(rows, terminal_width=72, explicit_max_title_length=30)
+    assert fitted[0]["PR Title"] == rows[0]["PR Title"]
+
+
+def test_header_style_short_renames_headers():
+    rows = [_wide_row()]
+    styled = renderers.apply_header_style(rows, "short")
+    assert "Cnv" in styled[0] and "Comments" not in styled[0]
+    assert "Fls" in styled[0] and "Files" not in styled[0]
+    assert "Cmt" in styled[0] and "Commits" not in styled[0]
+
+
+def test_header_style_emoji_replaces_every_header():
+    rows = [_wide_row()]
+    styled = renderers.apply_header_style(rows, "emoji")
+    # Identity columns are restyled too, not just the numeric ones.
+    for original in ("Repo", "PR Title", "Author", "Files", "Comments", "Link"):
+        assert original not in styled[0], f"{original} was left unstyled"
+    assert len(styled[0]) == len(rows[0])
+
+
+def test_header_style_short_emoji_pairs_emoji_with_abbreviation():
+    styled = renderers.apply_header_style([_wide_row()], "short_emoji")
+    joined = " ".join(styled[0])
+    assert "Fls" in joined and "Cnv" in joined
+    assert any(ord(ch) > 0x2100 for ch in joined), "expected emoji in the headers"
+
+
+def test_header_style_full_is_identity():
+    rows = [_wide_row()]
+    assert renderers.apply_header_style(rows, "full") == rows
+
+
+def test_table_width_measures_styled_headers():
+    """The fitter must see the narrower styled headers, or the saving is wasted."""
+    rows = [_wide_row()]
+    labels = renderers.HEADER_STYLES["short"]
+    assert renderers._table_width(rows, header_labels=labels) < renderers._table_width(
+        rows
+    )
+
+
+def test_header_style_saving_lets_a_column_survive():
+    """Reclaimed header width should let a column live that would otherwise die."""
+    rows = [_wide_row()]
+    width = 74
+    plain = renderers._auto_fit(rows, width, None)
+    styled = renderers._auto_fit(
+        rows, width, None, header_labels=renderers.HEADER_STYLES["emoji"]
+    )
+    assert len(styled[0]) >= len(plain[0])

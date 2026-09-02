@@ -713,6 +713,85 @@ def test_cli_csv_and_json_labels_stay_plain(monkeypatch):
     assert ["area/api", "bug"] in [p["labels"] for p in parsed]
 
 
+def test_cli_header_style_short_shortens_headers(monkeypatch):
+    _stub_labelled_prs(monkeypatch)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--header-style", "short"]
+    )
+
+    assert result.exit_code == 0
+    assert "Cnv" in result.stdout
+    assert "Comments" not in result.stdout
+
+
+def test_cli_header_style_defaults_to_full(monkeypatch):
+    """Default output must be unchanged for existing users."""
+    _stub_labelled_prs(monkeypatch)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert "Comments" in result.stdout
+
+
+def test_cli_header_style_config_key_applies(monkeypatch, tmp_path):
+    _stub_labelled_prs(monkeypatch)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('header-style = "short"')
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["--config", str(cfg_file), "-o", "org", "-r", "repo"]
+    )
+
+    assert result.exit_code == 0
+    assert "Cnv" in result.stdout
+
+
+def test_cli_header_style_bad_config_warns_and_falls_back(monkeypatch, tmp_path):
+    _stub_labelled_prs(monkeypatch)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text("header-style = true")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["--config", str(cfg_file), "-o", "org", "-r", "repo"]
+    )
+
+    assert result.exit_code == 0
+    # Must be the fallback warning, not the generic unknown-config-key warning:
+    # header-style is a known key, so only the value can be at fault.
+    assert "unrecognised header-style" in result.stderr
+    assert "Falling back to 'full'" in result.stderr
+    assert "Comments" in result.stdout
+
+
+def test_cli_explicit_column_header_beats_header_style(monkeypatch, tmp_path):
+    """A per-column header in the columns list wins over the preset."""
+    _stub_labelled_prs(monkeypatch)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text(
+        'header-style = "short"\n'
+        'columns = [{name = "repo"}, {name = "title"}, '
+        '{name = "comments", header = "CHAT"}]\n'
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.breakfast, ["--config", str(cfg_file), "-o", "org", "-r", "repo"]
+    )
+
+    assert result.exit_code == 0
+    assert "CHAT" in result.stdout
+    assert "Cnv" not in result.stdout
+    # The preset must still be active on the columns that did not override it,
+    # otherwise this passes merely because header-style did nothing at all.
+    assert "Title" in result.stdout and "PR Title" not in result.stdout
+
+
 def test_cli_label_accepts_glob_pattern(monkeypatch):
     _stub_labelled_prs(monkeypatch)
 

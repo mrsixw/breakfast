@@ -15,6 +15,8 @@ __all__ = [
     "GITHUB_GRAPHQL_URL",
     "GRAPHQL_REPOSITORY_PAGE_SIZE",
     "HANUKKAH_START",
+    "HEADER_STYLES",
+    "HEADER_STYLE_CHOICES",
     "HOLI_DATES",
     "HOLI_RAINBOW",
     "LEGENDARY_AGE_THRESHOLD_DAYS",
@@ -83,20 +85,92 @@ COLUMN_DISPLAY_NAMES: dict[str, str] = {
     "link": "Link",
 }
 
+# Header presets for --header-style. Keys are canonical display names; values are
+# the header actually printed. "full" is the identity and so has no entry here.
+# The fitter's own late renames (Comments -> Cmt, Approved -> Apr, Mergeable? ->
+# Mrg) are included so a styled table still matches DROPPABLE_COLUMNS.
+HEADER_STYLES: dict[str, dict[str, str]] = {
+    "short": {
+        "Org": "Org",
+        "Repo": "Repo",
+        "PR Title": "Title",
+        "Author": "Author",
+        "State": "St",
+        "Files": "Fls",
+        "Commits": "Cmt",
+        "+/-": "+/-",
+        "Comments": "Cnv",
+        "Age": "Age",
+        "Checks": "Chk",
+        "Approved": "Apr",
+        "Head Branch": "Head",
+        "Base Branch": "Base",
+        "Reviewers": "Rev",
+        "Labels": "Lbl",
+        "Mergeable?": "Mrg",
+        "Link": "Link",
+    },
+    "emoji": {
+        "Org": "🏢",
+        "Repo": "📦",
+        "PR Title": "📝",
+        "Author": "👤",
+        "State": "🚩",
+        "Files": "📄",
+        "Commits": "🔨",
+        "+/-": "➕➖",
+        "Comments": "💬",
+        "Age": "⏳",
+        "Checks": "🚦",
+        "Approved": "👍",
+        "Head Branch": "🌿",
+        "Base Branch": "🎯",
+        "Reviewers": "👀",
+        "Labels": "🏷️",
+        "Mergeable?": "🔀",
+        "Link": "🔗",
+    },
+    "short_emoji": {
+        "Org": "🏢 Org",
+        "Repo": "📦 Repo",
+        "PR Title": "📝 Title",
+        "Author": "👤 Author",
+        "State": "🚩 St",
+        "Files": "📄 Fls",
+        "Commits": "🔨 Cmt",
+        "+/-": "➕➖",
+        "Comments": "💬 Cnv",
+        "Age": "⏳ Age",
+        "Checks": "🚦 Chk",
+        "Approved": "👍 Apr",
+        "Head Branch": "🌿 Head",
+        "Base Branch": "🎯 Base",
+        "Reviewers": "👀 Rev",
+        "Labels": "🏷️ Lbl",
+        "Mergeable?": "🔀 Mrg",
+        "Link": "🔗 Link",
+    },
+}
+
+HEADER_STYLE_CHOICES = ["full", "short", "emoji", "short_emoji"]
+
 DROPPABLE_COLUMNS = [
     "State",
     "Commits",
     "Files",
     "+/-",
     "Cmt",
+    "Comments",
     "Age",
     "Checks",
     "Apr",
+    "Approved",
     "Reviewers",
     "Labels",
     "Head Branch",
     "Base Branch",
     "Mrg",
+    "Mergeable?",
 ]
 
 # ── UI & Theming ───────────────────────────────────────────────────────────

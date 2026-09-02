@@ -16,6 +16,7 @@ from .api import get_pr_age_days
 from .constants import (
     COLUMN_DISPLAY_NAMES,
     DROPPABLE_COLUMNS,
+    HEADER_STYLES,
     LEGENDARY_AGE_THRESHOLD_DAYS,
     LEGENDARY_COMMENT_THRESHOLD,
     LEGENDARY_EMOJI,
@@ -32,6 +33,7 @@ from .ui import (
 )
 
 __all__ = [
+    "apply_header_style",
     "format_labels",
     "format_reviewers",
     "is_legendary",
@@ -281,7 +283,7 @@ def _styled_hyperlink(url, styled_text):
     return prefix + generate_terminal_url_anchor(url, plain) + suffix
 
 
-def _table_width(rows):
+def _table_width(rows, header_labels=None):
     """Return visual table width without rendering the full table.
 
     Replicates the border line width of tabulate's outline format.
@@ -299,11 +301,14 @@ def _table_width(rows):
             (_visible_width(str(row.get(h, ""))) for row in rows),
             default=0,
         )
-        total += max(_visible_width(h) + 4, cell_max + 2) + 1
+        # Rows stay keyed by canonical name through fitting; measure the header
+        # that will actually be printed so a styled table reclaims the width.
+        shown = (header_labels or {}).get(h, h)
+        total += max(_visible_width(shown) + 4, cell_max + 2) + 1
     return total
 
 
-def _truncate_col(pr_data, key, terminal_width, min_len=8):
+def _truncate_col(pr_data, key, terminal_width, min_len=8, header_labels=None):
     """Shrink a text column to help the table fit within terminal_width.
 
     For PR Title, calculates the exact available space from overhead.
@@ -315,11 +320,18 @@ def _truncate_col(pr_data, key, terminal_width, min_len=8):
 
     if key == "PR Title":
         # Exact calculation: measure overhead with a placeholder title
-        overhead = _table_width([{**pr_data[0], key: "X" * min_len}]) - min_len
-        limit = terminal_width - overhead
+        overhead = (
+            _table_width(
+                [{**pr_data[0], key: "X" * min_len}], header_labels=header_labels
+            )
+            - min_len
+        )
+        # Clamp to the floor rather than giving up: bailing here left the title at
+        # full width while later steps dropped more useful columns instead.
+        limit = max(terminal_width - overhead, min_len)
     else:
         # Excess-based: shrink the longest value by however much the table overflows
-        excess = _table_width(pr_data) - terminal_width
+        excess = _table_width(pr_data, header_labels=header_labels) - terminal_width
         if excess <= 0:
             return pr_data
         current_max = max(_visible_width(row[key]) for row in pr_data)
@@ -349,44 +361,86 @@ def _compress_styled(styled_text):
     return styled_text.replace(plain, compressed, 1)
 
 
-def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
+def _auto_fit(pr_data, terminal_width, explicit_max_title_length, header_labels=None):
     """Progressively compress the table to fit within terminal_width."""
     if not pr_data:
         return pr_data
 
     def fits():
-        return _table_width(pr_data) <= terminal_width
+        return _table_width(pr_data, header_labels=header_labels) <= terminal_width
 
     # 1. Auto-truncate PR Title (skip if caller already applied an explicit limit)
     if explicit_max_title_length is None:
-        pr_data = _truncate_col(pr_data, "PR Title", terminal_width, min_len=10)
+        pr_data = _truncate_col(
+            pr_data,
+            "PR Title",
+            terminal_width,
+            min_len=10,
+            header_labels=header_labels,
+        )
 
     if fits():
         return pr_data
 
     # 2. Truncate Author
-    pr_data = _truncate_col(pr_data, "Author", terminal_width, min_len=8)
+    pr_data = _truncate_col(
+        pr_data,
+        "Author",
+        terminal_width,
+        min_len=8,
+        header_labels=header_labels,
+    )
     if fits():
         return pr_data
 
     # 2b. Truncate Reviewers / Labels
-    pr_data = _truncate_col(pr_data, "Reviewers", terminal_width, min_len=8)
+    pr_data = _truncate_col(
+        pr_data,
+        "Reviewers",
+        terminal_width,
+        min_len=8,
+        header_labels=header_labels,
+    )
     if fits():
         return pr_data
-    pr_data = _truncate_col(pr_data, "Labels", terminal_width, min_len=8)
+    pr_data = _truncate_col(
+        pr_data,
+        "Labels",
+        terminal_width,
+        min_len=8,
+        header_labels=header_labels,
+    )
     if fits():
         return pr_data
 
     # 3. Truncate Head Branch / Base Branch (before Repo — branches matter less)
-    pr_data = _truncate_col(pr_data, "Head Branch", terminal_width, min_len=8)
+    pr_data = _truncate_col(
+        pr_data,
+        "Head Branch",
+        terminal_width,
+        min_len=8,
+        header_labels=header_labels,
+    )
     if fits():
         return pr_data
-    pr_data = _truncate_col(pr_data, "Base Branch", terminal_width, min_len=8)
+    pr_data = _truncate_col(
+        pr_data,
+        "Base Branch",
+        terminal_width,
+        min_len=8,
+        header_labels=header_labels,
+    )
     if fits():
         return pr_data
 
     # 4. Truncate Repo (last text column — repo identity should stay readable longest)
-    pr_data = _truncate_col(pr_data, "Repo", terminal_width, min_len=8)
+    pr_data = _truncate_col(
+        pr_data,
+        "Repo",
+        terminal_width,
+        min_len=8,
+        header_labels=header_labels,
+    )
     if fits():
         return pr_data
 
@@ -408,7 +462,9 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
         return pr_data
 
     # 5b. Rename "Mergeable?" → "Mrg" (shorter header)
-    if "Mergeable?" in pr_data[0]:
+    # Skip under a --header-style preset: the styled headers are already short,
+    # and renaming the canonical key here would defeat the style lookup.
+    if not header_labels and "Mergeable?" in pr_data[0]:
         pr_data = [
             {("Mrg" if k == "Mergeable?" else k): v for k, v in row.items()}
             for row in pr_data
@@ -433,7 +489,9 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
         return pr_data
 
     # 7. Rename "Comments" → "Cmt" (shorter header)
-    if "Comments" in pr_data[0]:
+    # Skip under a --header-style preset: the styled headers are already short,
+    # and renaming the canonical key here would defeat the style lookup.
+    if not header_labels and "Comments" in pr_data[0]:
         pr_data = [
             {("Cmt" if k == "Comments" else k): v for k, v in row.items()}
             for row in pr_data
@@ -442,7 +500,9 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
         return pr_data
 
     # 7b. Rename "Approved" → "Apr" (shorter header)
-    if "Approved" in pr_data[0]:
+    # Skip under a --header-style preset: the styled headers are already short,
+    # and renaming the canonical key here would defeat the style lookup.
+    if not header_labels and "Approved" in pr_data[0]:
         pr_data = [
             {("Apr" if k == "Approved" else k): v for k, v in row.items()}
             for row in pr_data
@@ -460,10 +520,25 @@ def _auto_fit(pr_data, terminal_width, explicit_max_title_length):
     return pr_data
 
 
+def apply_header_style(pr_data, header_style):
+    """Rename row keys to the headers for *header_style*.
+
+    Rows are keyed by canonical display name throughout fitting; this is the
+    final step that swaps in the printed header. ``"full"`` is the identity.
+    """
+    labels = HEADER_STYLES.get(header_style or "full")
+    if not labels or not pr_data:
+        return pr_data
+    return [
+        {labels.get(key, key): value for key, value in row.items()} for row in pr_data
+    ]
+
+
 def _apply_column_specs(
     pr_data: list[dict],
     column_specs: list[dict],
     multi_org: bool,
+    header_style: str | None = None,
 ) -> tuple[list[dict], tuple | None]:
     """Reorder, filter, and rename columns per user column specs.
 
@@ -499,7 +574,11 @@ def _apply_column_specs(
             continue
         if display_key not in first:
             continue
-        header = spec["header"] if spec["header"] else display_key
+        # An explicit per-column header always beats the --header-style preset.
+        styled = HEADER_STYLES.get(header_style or "full", {}).get(
+            display_key, display_key
+        )
+        header = spec["header"] if spec["header"] else styled
         ordered.append((display_key, header, spec["align"]))
 
     if not ordered:
@@ -979,6 +1058,7 @@ def render_table(
     colour_index,
     max_title_length,
     column_specs,
+    header_style=None,
     reviewers=False,
     show_labels=False,
     stdout_is_tty=None,
@@ -1105,13 +1185,20 @@ def render_table(
         ]
     if stdout_is_tty and pr_data:
         terminal_width = shutil.get_terminal_size().columns
-        pr_data = _auto_fit(pr_data, terminal_width, max_title_length)
+        pr_data = _auto_fit(
+            pr_data,
+            terminal_width,
+            max_title_length,
+            header_labels=HEADER_STYLES.get(header_style or "full"),
+        )
 
     colalign = None
     if column_specs:
         pr_data, colalign = _apply_column_specs(
-            pr_data, column_specs, len(organizations) > 1
+            pr_data, column_specs, len(organizations) > 1, header_style=header_style
         )
+    else:
+        pr_data = apply_header_style(pr_data, header_style)
 
     click.echo(
         tabulate(

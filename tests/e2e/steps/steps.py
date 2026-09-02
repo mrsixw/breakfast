@@ -24,6 +24,19 @@ def _bogus_token(cli_env, value):
     cli_env["GH_TOKEN"] = value
 
 
+@given(parsers.parse('the config file contains "{line}"'))
+def _config_line(sandbox, line):
+    """Append one line to the sandbox config, creating it on first use.
+
+    Repeat the step to build up a multi-line file. Use TOML's single-quoted
+    literal strings for values, so the Gherkin double quotes stay unambiguous.
+    """
+    path = sandbox["config"] / "breakfast" / "config.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+
+
 @when(parsers.parse("I run `breakfast {args}`"), target_fixture="result")
 def _run_with_args(run_breakfast, args):
     return run_breakfast(shlex.split(args))

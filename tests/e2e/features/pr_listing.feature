@@ -41,6 +41,11 @@ Feature: Listing pull requests from live GitHub
       | --drafts-only                      | 2     |
       | --label bug                        | 2     |
       | --exclude-label bug                | 4     |
+      | --label 'b*'                       | 2     |
+      | --exclude-label 'w*'               | 5     |
+      | --label bug --label wip            | 2     |
+      | --label bug --label wip --label-match all | 1 |
+      | --label bug --label enhancement --label-match all | 0 |
       | --filter-author mrsixw             | 6     |
       | --filter-author octocat            | 0     |
       | --ignore-author mrsixw             | 0     |

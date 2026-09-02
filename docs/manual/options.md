@@ -225,21 +225,65 @@ breakfast -o my-org --filter-reviewer alice --filter-reviewer bob
 
 ### `--label`
 
-Only show PRs that have a specific label. Matching is **case-insensitive**. Repeat the flag to require any of the given labels (OR logic).
+Only show PRs that have a specific label. Matching is **case-insensitive** and supports
+**glob patterns** (`*`, `?`, `[`), using the same syntax as `--repo-filter`. Repeat the flag
+to match any of the given labels (OR logic — see `--label-match` to require all of them).
 
 ```bash
 breakfast -o my-org --label bug                          # only PRs labelled "bug"
 breakfast -o my-org --label bug --label enhancement      # PRs with "bug" OR "enhancement"
+breakfast -o my-org --label 'area/*'                     # every area/… label
+```
+
+Enable in config:
+
+```toml
+label = ["bug", "area/*"]
+```
+
+Passing `--label` on the command line **replaces** the config list for that run, so a one-off
+filter does not have to fight your saved defaults.
+
+> A label whose name literally contains `*`, `?` or `[` cannot be matched exactly, as those
+> characters are interpreted as glob metacharacters.
+
+### `--label-match`
+
+Control whether `--label` requires **any** of the given labels (the default) or **all** of
+them. Choices: `any`, `all`.
+
+```bash
+# PRs that are both a bug AND high priority
+breakfast -o my-org --label bug --label priority-high --label-match all
+```
+
+Enable in config:
+
+```toml
+label-match = "all"
 ```
 
 ### `--exclude-label`
 
-Exclude PRs that have a specific label. Matching is **case-insensitive**. Repeat to exclude any of the given labels.
+Exclude PRs that have a specific label. Matching is **case-insensitive** and glob-aware, the
+same as `--label`. Repeat to exclude any of the given labels. A PR is hidden if it carries
+**any** excluded label, whatever `--label-match` is set to.
 
 ```bash
 breakfast -o my-org --exclude-label wip                  # hide WIP PRs
 breakfast -o my-org --exclude-label wip --exclude-label blocked
+breakfast -o my-org --exclude-label 'wip*'               # wip, wip-backend, wip/ui…
 ```
+
+Enable in config:
+
+```toml
+exclude-label = ["wip", "do-not-merge"]
+```
+
+Unlike `--label`, passing `--exclude-label` on the command line **adds to** the config list
+rather than replacing it — exclusions are additive, so your saved "never show me this" rules
+keep applying.
 
 ### `--filter-stale`
 

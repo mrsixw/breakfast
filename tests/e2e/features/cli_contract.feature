@@ -80,6 +80,19 @@ Feature: breakfast CLI contract
     And stdout does not contain "deprecated"
     And stderr contains "deprecated"
 
+  # A bad value in a config file must degrade to a warning and still run. Two
+  # things here are invisible to CliRunner: that the warning lands on stderr
+  # while stdout stays clean, and that it fires before any network call is
+  # attempted. Costs no API requests, so it earns its place cheaply.
+  Scenario: A malformed label-match in config warns on stderr and falls back
+    Given no GitHub token is set
+    And the config file contains "label-match = 'every'"
+    When I run `breakfast --owner acme --no-colour`
+    Then the exit code is 1
+    And stderr contains "unrecognised label-match"
+    And stderr contains "Falling back to 'any'"
+    And stdout is empty
+
   Scenario: Generating a config writes a real file
     Given no GitHub token is set
     When I run `breakfast --init-config`

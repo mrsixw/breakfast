@@ -494,6 +494,106 @@ def test_filter_pr_details_exclude_label_case_insensitive():
     assert [r["id"] for r in result] == [2]
 
 
+def test_filter_pr_details_filter_label_glob():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "area/api"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "area/cli"}]},
+        {**_make_pr(pr_id=3), "labels": [{"name": "team/platform"}]},
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_label=("area/*",))
+    assert {r["id"] for r in result} == {1, 2}
+
+
+def test_filter_pr_details_filter_label_glob_case_insensitive():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "Area/API"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "docs"}]},
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_label=("AREA/*",))
+    assert [r["id"] for r in result] == [1]
+
+
+def test_filter_pr_details_exclude_label_glob():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "wip-backend"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "ready"}]},
+    ]
+
+    result = config.filter_pr_details(pr_details, [], exclude_label=("wip*",))
+    assert [r["id"] for r in result] == [2]
+
+
+def test_filter_pr_details_label_match_all_requires_every_label():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "bug"}, {"name": "priority-high"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "bug"}]},
+        {**_make_pr(pr_id=3), "labels": [{"name": "priority-high"}]},
+    ]
+
+    result = config.filter_pr_details(
+        pr_details, [], filter_label=("bug", "priority-high"), label_match="all"
+    )
+    assert [r["id"] for r in result] == [1]
+
+
+def test_filter_pr_details_label_match_all_with_glob():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "area/api"}, {"name": "bug"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "area/api"}]},
+    ]
+
+    result = config.filter_pr_details(
+        pr_details, [], filter_label=("area/*", "bug"), label_match="all"
+    )
+    assert [r["id"] for r in result] == [1]
+
+
+def test_filter_pr_details_label_match_defaults_to_any():
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "bug"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "priority-high"}]},
+    ]
+
+    result = config.filter_pr_details(
+        pr_details, [], filter_label=("bug", "priority-high")
+    )
+    assert {r["id"] for r in result} == {1, 2}
+
+
+def test_filter_pr_details_exclude_label_keeps_any_semantics_under_match_all():
+    """exclude-label hides a PR carrying ANY excluded label, even under match=all."""
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "bug"}, {"name": "wip"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "bug"}]},
+    ]
+
+    result = config.filter_pr_details(
+        pr_details,
+        [],
+        filter_label=("bug",),
+        exclude_label=("wip", "blocked"),
+        label_match="all",
+    )
+    assert [r["id"] for r in result] == [2]
+
+
+def test_filter_pr_details_label_matching_uses_casefold():
+    """Unicode caseless matching: German ss/SS compare equal under casefold."""
+    pr_details = [
+        {**_make_pr(pr_id=1), "labels": [{"name": "Stra\u00dfe"}]},
+        {**_make_pr(pr_id=2), "labels": [{"name": "docs"}]},
+    ]
+
+    result = config.filter_pr_details(pr_details, [], filter_label=("STRASSE",))
+    assert [r["id"] for r in result] == [1]
+
+
+def test_label_filter_keys_are_known_config_keys():
+    assert {"label", "label-match", "exclude-label"} <= config.KNOWN_KEYS
+
+
 def _make_pr_dated(pr_id, created_at, updated_at):
     return {
         "id": pr_id,
@@ -839,6 +939,19 @@ def test_load_config_wraps_scalar_ignore_author_to_list(tmp_path, monkeypatch):
 def test_known_keys_contains_filter_author():
     """filter-author is registered so load_config does not warn on it."""
     assert "filter-author" in config.KNOWN_KEYS
+
+
+def test_load_config_wraps_scalar_label_to_list(tmp_path, monkeypatch):
+    """A scalar label value is wrapped in a list, like the other list keys."""
+    cfg_file = tmp_path / ".breakfast.toml"
+    cfg_file.write_text('label = "bug"\nexclude-label = "wip"')
+    monkeypatch.setattr(config.click, "echo", lambda msg, **kw: None)
+    monkeypatch.setattr(config.click, "style", lambda msg, **kw: msg)
+
+    result = config.load_config(str(cfg_file))
+
+    assert result["label"] == ["bug"]
+    assert result["exclude-label"] == ["wip"]
 
 
 def test_load_config_wraps_scalar_filter_author_to_list(tmp_path, monkeypatch):

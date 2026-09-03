@@ -914,17 +914,23 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     "filter_label",
     multiple=True,
     help=(
-        "Only show PRs that have this label (repeatable, case-insensitive)."
-        " e.g. --label bug --label enhancement"
+        "Only show PRs that have this label (repeatable, case-insensitive,"
+        " glob patterns allowed). e.g. --label bug --label 'area/*'"
     ),
 )
 @click.option(
     "--exclude-label",
     multiple=True,
     help=(
-        "Exclude PRs that have this label (repeatable, case-insensitive)."
-        " e.g. --exclude-label wip"
+        "Exclude PRs that have this label (repeatable, case-insensitive,"
+        " glob patterns allowed). e.g. --exclude-label wip"
     ),
+)
+@click.option(
+    "--label-match",
+    type=click.Choice(["any", "all"], case_sensitive=False),
+    default=None,
+    help="Whether --label requires any (default) or all of the given labels.",
 )
 @click.option(
     "--filter-stale",
@@ -1113,6 +1119,7 @@ def breakfast(
     filter_reviewer,
     filter_label,
     exclude_label,
+    label_match,
     filter_stale,
     filter_inactive,
     legendary,
@@ -1272,6 +1279,27 @@ def breakfast(
         filter_authors = list(filter_author)
     else:
         filter_authors = cfg.get("filter-author", [])
+
+    # A CLI --label replaces the config list for the same reason --filter-author
+    # does; --exclude-label appends, as exclusions are additive.
+    filter_label = list(filter_label) if filter_label else cfg.get("label", [])
+    exclude_label = list(exclude_label) + cfg.get("exclude-label", [])
+    if label_match is None:
+        cfg_label_match = str(cfg.get("label-match", "any")).lower()
+        if cfg_label_match not in {"any", "all"}:
+            click.echo(
+                click.style(
+                    f"Warning: unrecognised label-match '{cfg.get('label-match')}'"
+                    " in config — expected 'any' or 'all'."
+                    " Falling back to 'any'.",
+                    fg="yellow",
+                ),
+                err=True,
+            )
+            cfg_label_match = "any"
+        label_match = cfg_label_match
+    else:
+        label_match = label_match.lower()
 
     mine_only = mine_only if mine_only is not None else cfg.get("mine-only", False)
     needs_my_review = (
@@ -2209,6 +2237,7 @@ def breakfast(
         search_title=search,
         filter_reviewer=effective_filter_reviewer,
         filter_label=filter_label,
+        label_match=label_match,
         exclude_label=exclude_label,
         filter_stale=filter_stale,
         filter_inactive=filter_inactive,

@@ -6,6 +6,7 @@ import shutil
 import string
 import sys
 import time
+import urllib.parse
 
 import click
 import wcwidth
@@ -34,6 +35,7 @@ __all__ = [
     "format_labels",
     "format_reviewers",
     "is_legendary",
+    "label_search_url",
     "render_csv",
     "render_json",
     "render_markdown",
@@ -76,7 +78,10 @@ def _strip_ansi(s):
     return _ANSI_RE.sub("", str(s))
 
 
-def _format_overflow_list(values: list[str], limit: int = 2) -> str:
+_OVERFLOW_LIMIT = 2
+
+
+def _format_overflow_list(values: list[str], limit: int = _OVERFLOW_LIMIT) -> str:
     """Format a list of strings with +N overflow rule."""
     if not values:
         return "-"
@@ -95,10 +100,65 @@ def format_reviewers(
     return _format_overflow_list(logins + team_slugs)
 
 
-def format_labels(labels_list: list[dict] | None) -> str:
-    """Format label names with +N overflow rule."""
+def _label_repo_coords(pr_detail):
+    """Return (owner, repo) for a PR, falling back to parsing its html_url.
+
+    ``base.repo.owner`` is present on real GitHub payloads but not guaranteed,
+    so mirror the org-name fallback used when building the Org column.
+    """
+    base_repo = pr_detail.get("base", {}).get("repo", {}) or {}
+    owner = (base_repo.get("owner") or {}).get("login")
+    repo = base_repo.get("name")
+    if owner and repo:
+        return owner, repo
+    parts = str(pr_detail.get("html_url", "")).split("/")
+    if len(parts) > 4:
+        return owner or parts[3], repo or parts[4]
+    return None, None
+
+
+def label_search_url(owner: str, repo: str, label: str) -> str:
+    """Return the GitHub search URL for open PRs in *owner/repo* carrying *label*."""
+    query = urllib.parse.quote_plus(f'is:pr is:open label:"{label}"')
+    return f"https://github.com/{owner}/{repo}/pulls?q={query}"
+
+
+def format_labels(
+    labels_list: list[dict] | None,
+    owner: str | None = None,
+    repo: str | None = None,
+    style: str = "terminal",
+    colourise=None,
+) -> str:
+    """Format label names with the +N overflow rule.
+
+    With *owner* and *repo* supplied, each label name becomes a link to that
+    repo's filtered PR search — an OSC 8 anchor for ``style="terminal"`` or a
+    Markdown link for ``style="markdown"``. Without them the names stay plain,
+    which is what the CSV, JSON and template renderers want.
+
+    *colourise* optionally styles each label name before it is linked.
+    """
     names = [lbl["name"] for lbl in (labels_list or []) if "name" in lbl]
-    return _format_overflow_list(names)
+    if not (owner and repo):
+        return _format_overflow_list(names)
+
+    def _link(name: str) -> str:
+        url = label_search_url(owner, repo, name)
+        if style == "markdown":
+            return f"[{name}]({url})"
+        if colourise is not None:
+            # _styled_hyperlink keeps the ANSI outside the anchor, which
+            # tabulate's OSC 8 parser requires of link text.
+            return _styled_hyperlink(url, colourise(name))
+        return generate_terminal_url_anchor(url, name)
+
+    # Overflow is computed on the plain names, then only the survivors are linked.
+    shown = names[:_OVERFLOW_LIMIT]
+    linked = _format_overflow_list([_link(n) for n in shown])
+    if len(names) > _OVERFLOW_LIMIT:
+        return f"{linked} +{len(names) - _OVERFLOW_LIMIT}"
+    return linked
 
 
 def _visible_width(s):
@@ -131,6 +191,46 @@ def _osc8_to_markdown(s):
     return _strip_ansi(result)
 
 
+def _truncate_multi_anchor(value, limit):
+    """Truncate a cell containing several OSC 8 hyperlinks to *limit* visible cells.
+
+    Walks the cell as alternating unlinked and linked segments, re-emitting each
+    with its own URL until the budget runs out, then appends an ellipsis.
+    """
+    budget = limit - 1  # reserve one cell for the ellipsis
+    out = []
+    pos = 0
+    for match in _OSC8_ANY_RE.finditer(value):
+        for text, url in (
+            (value[pos : match.start()], None),
+            (match.group("text"), match.group("url")),
+        ):
+            if not text:
+                continue
+
+            def _emit(fragment):
+                if url is None:
+                    return fragment
+                return generate_terminal_url_anchor(url, fragment)
+
+            width = _visible_width(text)
+            if width <= budget:
+                out.append(_emit(text))
+                budget -= width
+                continue
+            kept = _slice_by_width(text, budget)
+            if kept:
+                out.append(_emit(kept))
+            return "".join(out) + "…"
+        pos = match.end()
+
+    tail = value[pos:]
+    if tail:
+        kept = _slice_by_width(_strip_ansi(tail), budget)
+        out.append(kept)
+    return "".join(out) + "…"
+
+
 def _truncate_formatted_text(value, limit):
     """Truncate visible text while preserving ANSI and OSC 8 wrappers.
 
@@ -146,6 +246,14 @@ def _truncate_formatted_text(value, limit):
         return value
 
     truncated = _slice_by_width(plain, limit - 1) + "…"
+
+    # A cell may hold several hyperlinks (the Labels column links each label
+    # separately). Truncate segment by segment so every surviving fragment keeps
+    # its own target: the single-anchor path below would otherwise re-emit the
+    # whole cell under the first URL and silently drop the rest.
+    if len(_OSC8_ANY_RE.findall(str(value))) > 1:
+        return _truncate_multi_anchor(str(value), limit)
+
     osc_match = _OSC8_FULL_RE.match(str(value))
     if osc_match:
         return (
@@ -544,7 +652,13 @@ def render_markdown(
                 pr_detail.get("requested_teams"),
             )
         if show_labels:
-            row["Labels"] = format_labels(pr_detail.get("labels"))
+            _md_owner, _md_repo = _label_repo_coords(pr_detail)
+            row["Labels"] = format_labels(
+                pr_detail.get("labels"),
+                owner=_md_owner,
+                repo=_md_repo,
+                style="markdown",
+            )
         row["Mergeable?"] = _osc8_to_markdown(
             format_mergeable_status(
                 pr_detail.get("mergeable"),
@@ -960,7 +1074,13 @@ def render_table(
                 )
             )
         if show_labels:
-            row["Labels"] = _seasonal_colour(format_labels(pr_detail.get("labels")))
+            _lbl_owner, _lbl_repo = _label_repo_coords(pr_detail)
+            row["Labels"] = format_labels(
+                pr_detail.get("labels"),
+                owner=_lbl_owner,
+                repo=_lbl_repo,
+                colourise=_seasonal_colour,
+            )
         row["Mergeable?"] = format_mergeable_status(
             pr_detail.get("mergeable"),
             pr_detail.get("mergeable_state"),

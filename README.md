@@ -42,6 +42,7 @@ breakfast -o my-org -r my-app --filter-state open
 breakfast -o my-org -r my-app --filter-check fail --filter-check pending
 breakfast -o my-org -r my-app --filter-approval approved
 breakfast -o my-org -r my-app --label bug --label enhancement
+breakfast -o my-org -r my-app --label 'area/*' --label bug --label-match all
 breakfast -o my-org -r my-app --exclude-label wip
 breakfast -o my-org -r my-app --filter-reviewer alice
 breakfast -o my-org -r my-app --filter-stale 30
@@ -101,8 +102,9 @@ breakfast update
 - `--filter-check`: Only show PRs with this CI result (`pass`, `fail`, `pending`, `none`). Repeatable. Implies `--checks`.
 - `--filter-approval`: Only show PRs with this review status (`approved`, `pending`, `changes`). Repeatable.
 - `--filter-mergeable`: Only show PRs with this mergeable status (`clean`, `conflict`, `unknown`). Repeatable — OR logic.
-- `--label`: Only show PRs that have this label (case-insensitive, repeatable — OR logic).
-- `--exclude-label`: Hide PRs that have this label (case-insensitive, repeatable).
+- `--label`: Only show PRs that have this label (case-insensitive, glob patterns allowed, repeatable — OR logic by default).
+- `--label-match`: Whether `--label` requires `any` (default) or `all` of the given labels.
+- `--exclude-label`: Hide PRs that have this label (case-insensitive, glob patterns allowed, repeatable).
 - `--filter-reviewer`: Only show PRs with this user as a requested reviewer (case-insensitive, repeatable — OR logic).
 - `--filter-stale`: Only show PRs older than N days.
 - `--filter-inactive`: Only show PRs not updated in the last N days.

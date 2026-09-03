@@ -56,12 +56,25 @@ path unless `core.symlinks=true` and Developer Mode are both enabled.
 - `make build` — build a shiv executable
 
 ## Testing
-- Tests use `pytest` with `monkeypatch` for mocking and `click.testing.CliRunner` for CLI tests.
-- Run `make test` before committing.
+- **Three layers, and the rule that separates them** (see [docs/design/testing.md](docs/design/testing.md)):
+  - Unit and CLI tests (`tests/*.py`) use `pytest` with `monkeypatch`, `requests-mock`, `freezegun` and `click.testing.CliRunner`. Offline and fast. `make test`.
+  - End-to-end tests (`tests/e2e/`) are pytest-bdd `.feature` files that drive the **built `./breakfast` zipapp as a subprocess** against real GitHub. `make e2e`. **Never mocked.**
+  - **If it fakes any part of the system under test, it is a unit test** — `monkeypatch`, `requests-mock`, `freezegun` and `CliRunner` all replace something the end-to-end layer exists to exercise for real. It belongs in `tests/`, not `tests/e2e/`.
+- The fixture repo `mrsixw/breakfast-fixtures` is frozen and archived. Its PRs are asserted by exact count. **Never modify it.**
+- Run `make test` before committing. Run `make e2e` when changing CLI behaviour, packaging, or the cache.
+- **Add an end-to-end scenario when the change is one only the real binary can prove.** Ask what a unit test structurally cannot see. Add one for:
+  - a new or changed **exit code**, or a new user-facing error path;
+  - anything about **stdout versus stderr** — `CliRunner` merges them, so only the e2e layer can prove the split;
+  - a new **subcommand**, or a change to how the built artifact is packaged or invoked;
+  - anything writing to or reading from **disk** — cache layers, config generation, state files;
+  - **ordering** properties, e.g. that a guard fires before any network call;
+  - a new **output format**, or a change to an existing one's shape.
+- **Do not** add one for filter permutations, formatting details or branch coverage. Those belong in `tests/test_cli.py`, where fixtures are free and no API calls are spent. Every live scenario costs real GitHub requests, so the suite stays small and each scenario earns its place.
+- Live scenarios assert exact counts against the frozen fixture repo. If a scenario needs PR data the repo does not have, the inventory must change — see `docs/design/testing.md`; the repo is archived and needs unarchiving to amend. Never adjust an assertion to match drifted fixtures.
 - **Test-driven development (red, green, refactor):** When adding tests for a bug fix or new feature, write the failing test **first**, run it and confirm it goes red, then write the code to make it green, then refactor. A test that has never been seen to fail proves nothing — it may assert behaviour that was already correct, or be miswired and pass regardless. Report the red run, not just the green one.
 - If a fix was written before its tests (e.g. rule discovered mid-task), prove the tests red retroactively: `git stash push <source file>`, run the suite, confirm the failures, then `git stash pop`.
 - **Testing with Cache:** Since caching is implemented, all manual testing must be performed both *with* the cache enabled and *without* the cache (e.g., clearing the cache or disabling it).
-- **Real App Testing:** Always perform a real, end-to-end test of the CLI application in the terminal, not just unit tests.
+- **Real App Testing:** Always perform a real, end-to-end test of the CLI application in the terminal, not just unit tests. `make e2e` is the automated form of this and should be run alongside it.
 
 ## Work Items
 - This project uses GitHub issues (not Jira). Reference the GitHub issue number in branch names and PR titles.

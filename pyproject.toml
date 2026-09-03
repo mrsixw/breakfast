@@ -11,11 +11,20 @@ requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Steve Williams" }]
+# Every dependency carries a floor and a ceiling. The floor is the version
+# currently in uv.lock — the one actually tested — so a lock refresh cannot
+# quietly resolve backwards. The ceiling is the next breaking bump: the next
+# major, or the next minor for 0.x projects, where minors are breaking.
+#
+# uv.lock already pins exact versions for reproducible installs. These ranges
+# do a different job: they bound what `uv lock` is allowed to resolve *to*.
+# Without them a refresh can jump a major on an unrelated pull request, and the
+# first sign is a red CI job that looks like that change's fault.
 dependencies = [
-  "click",
-  "requests",
-  "tabulate",
-  "wcwidth",
+  "click>=8.4,<9",
+  "requests>=2.34,<3",
+  "tabulate>=0.10,<0.11",
+  "wcwidth>=0.8,<0.9",
 ]
 
 [project.scripts]
@@ -23,26 +32,35 @@ breakfast = "breakfast.cli:breakfast"
 
 [project.optional-dependencies]
 test = [
-  "pytest",
-  "requests-mock",
-  "freezegun",
+  # The `<10` ceiling here is not the generic rule — it is load-bearing.
+  # pytest-bdd 8.1.0 (the latest release) calls FixtureManager._register_fixture
+  # and FixtureDef(baseid=...), both of which pytest 9 flags as
+  # PytestRemovedIn10Warning. On pytest 10 the e2e suite would stop collecting,
+  # and since `release` is gated on the e2e job that blocks releases rather than
+  # merely failing a test. Remove the pin once pytest-bdd ships a release that
+  # no longer uses them — see issue #454.
+  "pytest>=9.1,<10",
+  "pytest-bdd>=8.1,<9",
+  "requests-mock>=1.12,<2",
+  "freezegun>=1.5,<2",
 ]
 lint = [
-  "black",
-  "ruff",
+  "black>=26.5,<27",
+  "ruff>=0.16,<0.17",
 ]
 build = [
-  "shiv",
-  "click-man",
+  "shiv>=1.0,<2",
+  "click-man>=0.5,<0.6",
 ]
 dev = [
-  "black",
-  "click-man",
-  "freezegun",
-  "pytest",
-  "requests-mock",
-  "ruff",
-  "shiv",
+  "black>=26.5,<27",
+  "click-man>=0.5,<0.6",
+  "freezegun>=1.5,<2",
+  "pytest>=9.1,<10",  # see the note in the `test` extra, and issue #454
+  "pytest-bdd>=8.1,<9",
+  "requests-mock>=1.12,<2",
+  "ruff>=0.16,<0.17",
+  "shiv>=1.0,<2",
 ]
 
 [tool.setuptools.packages.find]
@@ -50,6 +68,18 @@ where = ["src"]
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+# End-to-end scenarios drive the built zipapp and need `make build` (and, for
+# the live ones, a token). Excluded by default so a bare `pytest` stays fast
+# and offline; `make e2e` passes `-m e2e` on the command line, which wins.
+addopts = "-m 'not e2e'"
+markers = [
+  "e2e: drives the built ./breakfast zipapp as a subprocess (needs `make build`)",
+  "live: hits the real GitHub API against the frozen fixture repo (needs a token)",
+]
 
 [tool.black]
 line-length = 88

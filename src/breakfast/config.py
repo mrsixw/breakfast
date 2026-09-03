@@ -1,4 +1,5 @@
 import difflib
+import fnmatch
 import os
 import re
 import tomllib
@@ -86,6 +87,23 @@ _DEFAULT_CONFIG_CONTENT = """\
 # passing --filter-author on the command line replaces this list for that run.
 # Equivalent to: --filter-author alice --filter-author bob
 # filter-author = ["alice", "bob"]
+
+# Labels a PR must carry to appear (case-insensitive). Supports glob patterns
+# (* ? [), so "area/*" matches every area label. By default a PR needs only one
+# of them — see label-match. Passing --label on the command line replaces this
+# list for that run.
+# Equivalent to: --label bug --label "area/*"
+# label = ["bug", "area/*"]
+
+# Whether "label" requires any or all of the listed labels. Choices: any, all.
+# Equivalent to: --label-match all
+# label-match = "any"
+
+# Labels that hide a PR from the output (case-insensitive, same glob syntax as
+# label). A PR is hidden if it carries any of them, whatever label-match is set
+# to. Passing --exclude-label on the command line adds to this list.
+# Equivalent to: --exclude-label wip --exclude-label do-not-merge
+# exclude-label = ["wip", "do-not-merge"]
 
 # Show only PRs authored by the currently authenticated GitHub user
 # (determined from GITHUB_TOKEN). Useful for a personal morning view.
@@ -367,7 +385,13 @@ def _key_present_in_file(key: str, content: str) -> bool:
     return bool(re.search(pattern, content, re.MULTILINE))
 
 
-_LIST_KEYS = {"filter-author", "ignore-author", "exclude-repos"}
+_LIST_KEYS = {
+    "filter-author",
+    "ignore-author",
+    "exclude-repos",
+    "label",
+    "exclude-label",
+}
 
 _VALID_COLUMN_NAMES = frozenset(
     {
@@ -657,6 +681,25 @@ def normalize_author_logins(author_logins):
     return {login.strip().lower() for login in author_logins if login and login.strip()}
 
 
+def _label_matches(pr_detail, patterns):
+    """Return True if any label on *pr_detail* matches any of *patterns*.
+
+    Matching is case-insensitive and glob-aware (``*``, ``?``, ``[``). A pattern
+    containing no glob metacharacter therefore behaves as an exact match.
+
+    ``fnmatchcase`` is used on pre-casefolded strings rather than ``fnmatch``:
+    the latter applies ``os.path.normcase``, which would make matching
+    case-insensitive on macOS but case-sensitive on Linux. ``casefold`` rather
+    than ``lower`` so non-ASCII labels compare caselessly too (``ß`` == ``SS``).
+    """
+    names = [lb["name"].casefold() for lb in pr_detail.get("labels", [])]
+    return any(
+        fnmatch.fnmatchcase(name, pattern.casefold())
+        for pattern in patterns
+        for name in names
+    )
+
+
 def filter_pr_details(
     pr_details,
     ignore_authors,
@@ -674,6 +717,7 @@ def filter_pr_details(
     search_title=None,
     filter_reviewer=None,
     filter_label=None,
+    label_match="any",
     exclude_label=None,
     filter_stale=None,
     filter_inactive=None,
@@ -699,8 +743,13 @@ def filter_pr_details(
         approval_statuses: Approval states keyed by PR ID.
         search_title: Case-insensitive title regular expression.
         filter_reviewer: Requested reviewer logins to include.
-        filter_label: PR labels to include.
-        exclude_label: PR labels to exclude.
+        filter_label: PR label patterns to include. Matching is
+            case-insensitive and supports glob patterns (``*``, ``?``, ``[``).
+        label_match: ``"any"`` (default) keeps a PR matching at least one
+            *filter_label* pattern; ``"all"`` requires every pattern to match.
+        exclude_label: PR label patterns to exclude. Matching follows the same
+            rules as *filter_label*. A PR is always dropped when it carries any
+            excluded label, regardless of *label_match*.
         filter_stale: Minimum PR age in days.
         filter_inactive: Minimum PR inactivity in days.
 
@@ -774,13 +823,16 @@ def filter_pr_details(
             if not any(rv.lower() in reviewers for rv in filter_reviewer):
                 continue
         if filter_label:
-            pr_labels = {lb["name"].lower() for lb in pr_detail.get("labels", [])}
-            if not any(lbl.lower() in pr_labels for lbl in filter_label):
+            if label_match == "all":
+                matched = all(
+                    _label_matches(pr_detail, (pattern,)) for pattern in filter_label
+                )
+            else:
+                matched = _label_matches(pr_detail, filter_label)
+            if not matched:
                 continue
-        if exclude_label:
-            pr_labels = {lb["name"].lower() for lb in pr_detail.get("labels", [])}
-            if any(lbl.lower() in pr_labels for lbl in exclude_label):
-                continue
+        if exclude_label and _label_matches(pr_detail, exclude_label):
+            continue
         if filter_stale is not None and get_pr_age_days(pr_detail) < filter_stale:
             continue
         if filter_inactive is not None:

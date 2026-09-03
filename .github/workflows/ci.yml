@@ -68,6 +68,55 @@ jobs:
       - name: Verify binary version
         run: utils/check_binary_version.sh
 
+      - name: Upload binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: breakfast-zipapp
+          path: breakfast
+          if-no-files-found: error
+          retention-days: 1
+
+  e2e:
+    name: End-to-end
+    runs-on: ubuntu-latest
+    needs: [build]
+    # Issue #99: post-build, before release. Runs against the artifact the
+    # build job produced rather than rebuilding, so the bits under test are
+    # the bits that ship.
+    #
+    # No fork guard: the live scenarios only read the public fixture repo, and
+    # the built-in GITHUB_TOKEN is provided (read-only) to pull requests from
+    # forks. Verified sufficient in CI, so forks get the full suite. If this
+    # ever needs secrets.GH_TOKEN, a guard skipping fork PRs must come back —
+    # secrets.* are not exposed to them.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: "latest"
+
+      - name: Download binary
+        uses: actions/download-artifact@v8
+        with:
+          name: breakfast-zipapp
+
+      # Artifacts travel as zips and do not preserve the executable bit.
+      - name: Restore executable bit
+        run: chmod +x breakfast
+
+      - name: Run end-to-end suite
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: make e2e-ci
+
   spell:
     runs-on: ubuntu-latest
     steps:
@@ -160,7 +209,7 @@ jobs:
   release:
     if: "github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore: bump version')"
     runs-on: ubuntu-latest
-    needs: [build, man, completions]
+    needs: [build, e2e, man, completions]
     permissions:
       contents: write
     steps:

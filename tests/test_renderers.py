@@ -504,3 +504,85 @@ def test_autofit_truncates_reviewers_and_labels():
     for row in fitted:
         assert "Reviewers" not in row
         assert "Labels" not in row
+
+
+def _anchor(url, text):
+    """Build an OSC 8 hyperlink the way generate_terminal_url_anchor does."""
+    return f"\033]8;;{url}\033\\{text}\033]8;;\033\\"
+
+
+def test_truncate_formatted_text_handles_multiple_anchors():
+    """A cell of several hyperlinks truncates by visible width, keeping each URL.
+
+    Regression guard: the single-anchor fast path returned such cells untruncated,
+    which blew out table rows at narrow widths (cf. #163).
+    """
+    cell = (
+        _anchor("https://example.com/a", "alpha")
+        + ", "
+        + _anchor("https://example.com/b", "bravo")
+    )
+    assert renderers._visible_width(renderers._strip_ansi(cell)) == 12
+
+    out = renderers._truncate_formatted_text(cell, 8)
+
+    assert renderers._visible_width(renderers._strip_ansi(out)) <= 8
+    assert renderers._strip_ansi(out).endswith("…")
+    # The surviving segment keeps its own hyperlink target.
+    assert "https://example.com/a" in out
+
+
+def test_truncate_formatted_text_does_not_relink_second_anchor_to_the_first():
+    """Text from the second link must never point at the first link's URL.
+
+    The single-anchor fast path used to swallow both anchors and re-emit the cell
+    as one link carrying only the first URL, so "bra…" (part of "bravo") navigated
+    to alpha's target.
+    """
+    cell = (
+        _anchor("https://example.com/a", "alpha")
+        + ", "
+        + _anchor("https://example.com/b", "bravo")
+    )
+
+    out = renderers._truncate_formatted_text(cell, 11)
+
+    assert renderers._strip_ansi(out) == "alpha, bra…"
+    # The surviving part of "bravo" must still belong to bravo's URL.
+    assert "https://example.com/b" in out
+
+
+def test_truncate_formatted_text_multi_anchor_noop_when_it_fits():
+    cell = (
+        _anchor("https://example.com/a", "alpha")
+        + ", "
+        + _anchor("https://example.com/b", "bravo")
+    )
+    assert renderers._truncate_formatted_text(cell, 50) == cell
+
+
+def test_format_labels_links_builds_quoted_pr_search_url():
+    labels = [{"name": "bug"}, {"name": "area/api gateway"}]
+
+    out = renderers.format_labels(labels, owner="acme", repo="widgets")
+
+    assert "https://github.com/acme/widgets/pulls?q=" in out
+    # Label names are URL-quoted: the space and slash must not appear raw in the URL.
+    assert "area%2Fapi+gateway" in out or "area%2Fapi%20gateway" in out
+    assert "label" in out
+    # Visible text is still the plain label names.
+    assert "bug" in renderers._strip_ansi(out)
+    assert "area/api gateway" in renderers._strip_ansi(out)
+
+
+def test_format_labels_without_repo_stays_plain_text():
+    """CSV/JSON callers pass no repo, so they keep plain names."""
+    out = renderers.format_labels([{"name": "bug"}, {"name": "docs"}])
+    assert out == "bug, docs"
+    assert "\033" not in out
+
+
+def test_format_labels_overflow_suffix_survives_linking():
+    labels = [{"name": "a"}, {"name": "b"}, {"name": "c"}, {"name": "d"}]
+    out = renderers.format_labels(labels, owner="acme", repo="widgets")
+    assert renderers._strip_ansi(out) == "a, b +2"

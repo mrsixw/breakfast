@@ -43,6 +43,31 @@ breakfast -o my-org -r my-app \
   --ignore-author renovate[bot]
 ```
 
+### Slice by label
+
+Show the Labels column and narrow the table to the labels you care about. Matching is
+case-insensitive and understands glob patterns, which suits `area/…` or `team/…` conventions:
+
+```bash
+# Everything owned by one area, with the labels visible
+breakfast -o my-org --show-labels --label 'area/*'
+
+# High-priority bugs only — --label-match all requires BOTH labels
+breakfast -o my-org --show-labels --label bug --label priority-high --label-match all
+
+# Hide work in progress, however it is spelled
+breakfast -o my-org --exclude-label 'wip*' --exclude-label do-not-merge
+```
+
+Make the noisy exclusions permanent in your config file, then reach for `--label` per run:
+
+```toml
+exclude-label = ["wip", "do-not-merge"]
+```
+
+A CLI `--exclude-label` **adds to** that list, while a CLI `--label` **replaces** any
+configured `label` list — so saved exclusions keep applying while one-off filters stay sharp.
+
 ### Morning triage: PRs waiting on you
 
 The most actionable morning view — show only PRs where you are a requested reviewer, sorted oldest-first so the most overdue appear at the top:

@@ -31,6 +31,7 @@ __all__ = [
     "GitHubGraphQLResourceLimitError",
     "GitHubRateLimitError",
     "OwnerNotFoundError",
+    "clear_api_request_stop_event",
     "fetch_pr_detail",
     "get_api_stats",
     "get_approval_status",
@@ -46,6 +47,8 @@ __all__ = [
     "make_github_graphql_request",
     "make_paginated_github_api_request",
     "match_exclude_repos",
+    "reset_api_stats",
+    "set_api_request_stop_event",
 ]
 
 

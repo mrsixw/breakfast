@@ -13,6 +13,7 @@ from .xdg import get_cache_dir
 __all__ = [
     "cache_path",
     "graphql_cache_path",
+    "identity_cache_path",
     "make_cache_key",
     "parse_ttl",
     "read_cached_user_login",

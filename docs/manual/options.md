@@ -708,6 +708,44 @@ Enable in config:
 show-labels = true
 ```
 
+### `--header-style`
+
+Choose how table column headers are rendered. A column is never narrower than its own header,
+so shorter headers reclaim real width — `Comments` (8 characters) forces a 12-column slot to
+show a single digit.
+
+| Value | Headers |
+| --- | --- |
+| `full` | **Default.** `Files`, `Commits`, `Comments`, `Approved`, `Mergeable?` |
+| `short` | `Fls`, `Cmt`, `Cnv`, `Apr`, `Mrg` |
+| `emoji` | 📄, 🔨, 💬, 👍, 🔀 — every column, including 📦 Repo, 📝 Title, 👤 Author, 🔗 Link |
+| `short_emoji` | Emoji plus abbreviation, e.g. `📄 Fls`, `💬 Cnv` |
+
+```bash
+breakfast -o my-org --header-style short
+breakfast -o my-org --header-style emoji --show-labels
+```
+
+Enable in config:
+
+```toml
+header-style = "emoji"
+```
+
+The reclaimed width is fed into the auto-fitter, so a narrow terminal keeps **more** columns.
+Against the demo repo at 72 columns, `emoji` retains seven columns where `full` retains six.
+
+> `short_emoji` is *wider* than `full` for columns whose real name is already short — `📦 Repo`
+> is six cells against `Repo`'s four. It trades width for legibility; use `short` or `emoji`
+> when space is the priority.
+
+A per-column `header` in a custom `columns` list always wins over the preset:
+
+```toml
+header-style = "short"
+columns = [{name = "repo"}, {name = "comments", header = "CHAT"}]
+```
+
 ### `--status-style`
 
 Choose how the `Checks`, `Approved`, and `Mergeable?` columns are rendered in table output.
@@ -787,6 +825,11 @@ The table is compressed progressively, in order of least impact:
 6. **Comments** header is shortened to `"Cmt"`
 6b. **Approved** header is shortened to `"Apr"`
 7. Low-priority columns are dropped entirely: State, Commits, Files, +/-, Cmt, Age, Checks, Approved/Apr
+
+> **Narrow terminals now shorten the PR title before sacrificing a column.** The title
+> truncation used to give up entirely when it could not reach its target, keeping the title at
+> full width while more useful columns such as Labels were dropped instead. It now shrinks to
+> its floor first.
 
 Auto-fit is a no-op when output is piped or redirected (not a TTY), so `--json` and scripting workflows are unaffected.
 

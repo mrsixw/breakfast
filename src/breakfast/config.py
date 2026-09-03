@@ -207,6 +207,16 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Equivalent to: --status-style emoji|ascii
 # status-style = "emoji"
 
+# Style of the table column headers.
+#   full         - Files, Commits, Comments, Approved, Mergeable?  (default)
+#   short        - Fls, Cmt, Cnv, Apr, Mrg
+#   emoji        - a single emoji per column
+#   short_emoji  - emoji plus abbreviation, e.g. "\U0001f4c4 Fls"
+# Shorter headers reclaim width, since a column is never narrower than its
+# header. A per-column "header" in the columns list still wins over this.
+# Equivalent to: --header-style full|short|emoji|short_emoji
+# header-style = "full"
+
 # A little something extra for the observant. 🌟
 # seasonal-colours = true
 

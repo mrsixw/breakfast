@@ -40,7 +40,13 @@ stub() {
     printf '#!/usr/bin/env bash\n'
     # shellcheck disable=SC2016  # Deliberate: this is the generated stub's own
     # source. "$*" and ${STUB_LOG} must expand when the stub runs, not now.
+    #
+    # Two logs. The flat one is readable and is what most assertions match
+    # against; the argv one keeps argument boundaries, so a quoting bug that
+    # splits "Open PR labelled bug" into three arguments cannot hide in it.
     printf 'printf "%%s\\n" "$*" >> "${STUB_LOG}/%s.log"\n' "${name}"
+    # shellcheck disable=SC2016  # Same again: generated source, not this shell's.
+    printf 'printf "%%s\\n" "--" "$@" >> "${STUB_LOG}/%s.argv.log"\n' "${name}"
     cat
   } > "${STUB_BIN}/${name}"
   chmod +x "${STUB_BIN}/${name}"
@@ -71,6 +77,18 @@ assert_called() {
   if ! calls "$1" | grep -qF -- "$2"; then
     printf 'expected %s to be called with: %s\n' "$1" "$2" >&2
     printf 'actual calls:\n%s\n' "$(calls "$1")" >&2
+    return 1
+  fi
+}
+
+# assert_called_arg <name> <exact argument> — fail unless the stub received
+# that string as one whole argument. `assert_called` matches the flattened
+# command line, so it cannot tell one quoted argument from several unquoted
+# ones; this can.
+assert_called_arg() {
+  if ! grep -qxF -- "$2" "${STUB_LOG}/$1.argv.log" 2>/dev/null; then
+    printf 'expected %s to receive the single argument: %s\n' "$1" "$2" >&2
+    printf 'actual arguments:\n%s\n' "$(cat "${STUB_LOG}/$1.argv.log" 2>/dev/null)" >&2
     return 1
   fi
 }
@@ -142,10 +160,26 @@ install_fake_gh() {
 
   FAKE_GH_FIXTURES="${BATS_TEST_TMPDIR}/fixtures.txt"
   FAKE_GH_ARCHIVED="${BATS_TEST_TMPDIR}/archived.txt"
+  FAKE_GH_EXISTS="${BATS_TEST_TMPDIR}/exists.txt"
   printf '%s\n' "${FIXTURE_INVENTORY}" > "${FAKE_GH_FIXTURES}"
   printf 'true\n' > "${FAKE_GH_ARCHIVED}"
-  export FAKE_GH_FIXTURES FAKE_GH_ARCHIVED
+  printf 'true\n' > "${FAKE_GH_EXISTS}"
+  export FAKE_GH_FIXTURES FAKE_GH_ARCHIVED FAKE_GH_EXISTS
 }
+
+# fake_empty_repo — an organisation with nothing in it yet, as the seeding path
+# expects to find. `gh repo create` flips it into existence.
+fake_empty_repo() {
+  printf 'false\n' > "${FAKE_GH_EXISTS}"
+  printf 'false\n' > "${FAKE_GH_ARCHIVED}"
+  printf '' > "${FAKE_GH_FIXTURES}"
+}
+
+# fixture_titles — every title in the fake inventory, in creation order.
+fixture_titles() { cut -d'|' -f2 "${FAKE_GH_FIXTURES}"; }
+
+# fixture_count — how many pull requests the fake holds.
+fixture_count() { grep -c . "${FAKE_GH_FIXTURES}" || true; }
 
 # A git stub for the scratch clone. It never talks to a remote; the clone just
 # creates the directory the script cd's into.

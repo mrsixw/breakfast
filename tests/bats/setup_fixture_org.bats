@@ -152,7 +152,7 @@ setup() {
 }
 
 @test "updating refuses a repository that does not exist" {
-  export FAKE_GH_REPO_MISSING=1
+  fake_empty_repo
 
   run "${SCRIPT}" "${FIXTURE_ARGS[@]}" --update --dry-run
 
@@ -377,7 +377,9 @@ STUB
   run_with_tty "UNFREEZE" "${SCRIPT}" "${FIXTURE_ARGS[@]}" --update
 
   [ "$status" -eq 0 ]
-  assert_called gh "--title Open PR labelled enhancement"
+  # The title must arrive as one argument. Unquoted it would become three, and
+  # the fixture would be titled "Open" — which the flat call log cannot see.
+  assert_called_arg gh "Open PR labelled enhancement"
   assert_called gh "--add-label enhancement"
 }
 
@@ -452,6 +454,116 @@ STUB
   [ "$(archived_state)" = "true" ]
 }
 
+
+# ---------------------------------------------------------------------------
+# 🌱 Seeding a fresh repository
+# ---------------------------------------------------------------------------
+#
+# The path that actually builds the inventory the live suite depends on. The
+# fake applies every mutation, so these assert the *result*, not the commands.
+
+@test "seeding builds the whole documented inventory" {
+  fake_empty_repo
+
+  run "${SCRIPT}" someorg --repo scratch
+
+  [ "$status" -eq 0 ]
+  assert_called gh "repo create someorg/scratch --public"
+  # The description contains spaces and an apostrophe; it must be one argument.
+  assert_called_arg gh "Frozen PR fixtures for breakfast's end-to-end suite. Do not modify."
+  [ "$(fixture_count)" = "8" ]
+  [ "$(fixture_titles)" = "Open PR with no labels
+Open PR labelled bug
+Open PR labelled enhancement
+Open PR with two labels
+Draft PR awaiting work
+Second draft PR
+Closed without merging
+Merged fixture PR" ]
+}
+
+@test "seeding labels, drafts, closes and merges the right fixtures" {
+  fake_empty_repo
+
+  run "${SCRIPT}" someorg --repo scratch
+
+  [ "$status" -eq 0 ]
+  [ "$(fixture_row 1)" = "1|Open PR with no labels|OPEN|false|" ]
+  [ "$(fixture_row 2)" = "2|Open PR labelled bug|OPEN|false|bug" ]
+  [ "$(fixture_row 3)" = "3|Open PR labelled enhancement|OPEN|false|enhancement" ]
+  [ "$(fixture_row 4)" = "4|Open PR with two labels|OPEN|false|bug,wip" ]
+  [ "$(fixture_row 5)" = "5|Draft PR awaiting work|OPEN|true|" ]
+  [ "$(fixture_row 6)" = "6|Second draft PR|OPEN|true|enhancement" ]
+  [ "$(fixture_row 7)" = "7|Closed without merging|CLOSED|false|" ]
+  [ "$(fixture_row 8)" = "8|Merged fixture PR|MERGED|false|" ]
+}
+
+@test "seeding creates the three labels the fixtures need" {
+  fake_empty_repo
+
+  run "${SCRIPT}" someorg --repo scratch
+
+  [ "$status" -eq 0 ]
+  assert_called gh "label create wip"
+  assert_called gh "label create bug"
+  assert_called gh "label create enhancement"
+}
+
+@test "seeding verifies the counts it produced" {
+  fake_empty_repo
+
+  run "${SCRIPT}" someorg --repo scratch
+
+  [ "$status" -eq 0 ]
+  assert_output_contains "open=6 (want 6)   all=8 (want 8)   drafts=2 (want 2)"
+  assert_output_contains "inventory matches"
+}
+
+@test "seeding leaves the repository writeable until --archive is passed" {
+  # Archiving before `make e2e` is green would need unarchiving to fix, which
+  # is why it is opt-in.
+  fake_empty_repo
+
+  run "${SCRIPT}" someorg --repo scratch
+
+  [ "$status" -eq 0 ]
+  [ "$(archived_state)" = "false" ]
+  assert_output_contains "not archiving (pass --archive once 'make e2e' is green)"
+}
+
+@test "--archive freezes the repository once the inventory checks out" {
+  fake_empty_repo
+
+  run "${SCRIPT}" someorg --repo scratch --archive
+
+  [ "$status" -eq 0 ]
+  [ "$(archived_state)" = "true" ]
+  assert_called gh "repo archive someorg/scratch --yes"
+}
+
+@test "--archive turns off the noise sources before freezing" {
+  # Settings changes are rejected once archived, so they have to come first.
+  fake_empty_repo
+
+  run "${SCRIPT}" someorg --repo scratch --archive
+
+  [ "$status" -eq 0 ]
+  assert_called gh "api -X DELETE repos/someorg/scratch/vulnerability-alerts"
+  assert_called gh "repo edit someorg/scratch --enable-issues=false --enable-wiki=false"
+}
+
+@test "seeding never touches the archive when the inventory is wrong" {
+  # The freeze must not happen over a broken inventory.
+  fake_empty_repo
+  export FAKE_GH_IGNORE_WRITES=1
+
+  run "${SCRIPT}" someorg --repo scratch --archive
+
+  [ "$status" -ne 0 ]
+  assert_output_contains "Inventory does not match"
+  refute_called gh "repo archive"
+}
+
 # ---------------------------------------------------------------------------
 # 🌀 Dry run
 # ---------------------------------------------------------------------------
@@ -475,7 +587,7 @@ STUB
 }
 
 @test "a seeding dry run creates no repository" {
-  export FAKE_GH_REPO_MISSING=1
+  fake_empty_repo
 
   run "${SCRIPT}" someorg --repo scratch --dry-run
 

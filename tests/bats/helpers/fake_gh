@@ -10,10 +10,11 @@
 # State lives in two files, both set up by the test:
 #   ${FAKE_GH_FIXTURES}  one row per pull request: number|title|state|draft|labels
 #   ${FAKE_GH_ARCHIVED}  "true" or "false"
+#   ${FAKE_GH_EXISTS}    "true" or "false" — flipped to true by `gh repo create`,
+#                        so the seeding path can be driven all the way through
 #
 # Knobs, all read from the environment:
 #   FAKE_GH_ORG_MISSING        `gh api orgs/X` fails
-#   FAKE_GH_REPO_MISSING       `gh repo view` fails
 #   FAKE_GH_STALE_BRANCHES     how many fixture-* branches the repo has
 #   FAKE_GH_ARCHIVE_FAILS      `gh repo archive` fails (and leaves it thawed)
 #   FAKE_GH_ARCHIVE_SILENT     archive "succeeds" but the repo stays thawed
@@ -25,9 +26,11 @@
 set -uo pipefail
 
 printf '%s\n' "$*" >> "${STUB_LOG}/gh.log"
+printf '%s\n' "--" "$@" >> "${STUB_LOG}/gh.argv.log"
 
 FIXTURES="${FAKE_GH_FIXTURES}"
 ARCHIVED="${FAKE_GH_ARCHIVED}"
+EXISTS="${FAKE_GH_EXISTS}"
 
 field() { printf '%s' "$1" | cut -d'|' -f"$2"; }
 row_by_number() { grep "^$1|" "${FIXTURES}" 2>/dev/null | head -1; }
@@ -62,10 +65,13 @@ case "${1:-}" in
   repo)
     case "${2:-}" in
       view)
-        [[ -n "${FAKE_GH_REPO_MISSING:-}" ]] && exit 1
+        [[ "$(cat "${EXISTS}")" != "true" ]] && exit 1
         [[ "${args}" == *"isArchived"* ]] && cat "${ARCHIVED}"
         exit 0 ;;
-      create)    exit 0 ;;
+      create)
+        printf 'true\n' > "${EXISTS}"
+        printf 'false\n' > "${ARCHIVED}"   # a fresh repo is not archived
+        exit 0 ;;
       edit)      exit 0 ;;
       unarchive)
         printf 'false\n' > "${ARCHIVED}"   # applied server-side...
@@ -109,7 +115,8 @@ case "${1:-}" in
       create)
         # Mint the next number, and record what was asked for.
         title="$(printf '%s' "${args}" | sed -n 's/.*--title \(.*\) --body.*/\1/p')"
-        n=$(($(cut -d'|' -f1 "${FIXTURES}" | sort -n | tail -1) + 1))
+        highest="$(cut -d'|' -f1 "${FIXTURES}" | sort -n | tail -1)"
+        n=$(( ${highest:-0} + 1 ))
         draft=false
         [[ "${args}" == *"--draft"* ]] && draft=true
         printf '%s|%s|OPEN|%s|\n' "${n}" "${title}" "${draft}" >> "${FIXTURES}"

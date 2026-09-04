@@ -224,7 +224,7 @@ survey_inventory() {
 # ---------------------------------------------------------------------------
 #
 # 🧊 If we thawed the repo, refreezing is not optional and not conditional on
-#    success. An abandoned run that leaves the fixtures writeable is the one
+#    success. An abandoned run that leaves the fixtures writable is the one
 #    outcome worse than a failed update, so this hangs off EXIT and catches
 #    `die`, an unexpected `set -e` abort, and Ctrl-C alike.
 
@@ -247,7 +247,7 @@ cleanup() {
       printf '   ✅ archived again — the fixtures are read-only\n'
     else
       printf '   💥 \033[1;31mCOULD NOT CONFIRM %s IS ARCHIVED (state: %s)\033[0m\n' "${SLUG}" "${state}" >&2
-      printf '   \033[1;31mThe fixtures may still be WRITEABLE. Freeze them by hand, now:\033[0m\n' >&2
+      printf '   \033[1;31mThe fixtures may still be WRITABLE. Freeze them by hand, now:\033[0m\n' >&2
       printf '\n       gh repo archive %s --yes\n\n' "${SLUG}" >&2
       # 🚨 Never exit 0 on an unconfirmed refreeze: a green exit is exactly how
       #    automation, or a tired human, decides it is safe to walk away.
@@ -311,7 +311,7 @@ if [[ "${UPDATE}" == "true" ]]; then
   # 🛡️  Archived is the fixtures' resting state, and finding them any other way
   #     means something is already wrong: a previous run died before its trap,
   #     or somebody unfroze them by hand and wandered off. Either way the repo
-  #     may have drifted while it was writeable, so stop and let a human look.
+  #     may have drifted while it was writable, so stop and let a human look.
   if [[ "${IS_ARCHIVED}" != "true" ]]; then
     die "${SLUG} is NOT archived. 🔥
    The fixtures are supposed to sit frozen between repairs, so finding them
@@ -331,7 +331,7 @@ if [[ "${UPDATE}" == "true" ]]; then
 
   # printf, not a heredoc: `cat` would print the colour escapes literally. 🎨
   printf '\n'
-  printf '   \033[1;33m⚠️  ⚠️  ⚠️   THE FIXTURES ARE ABOUT TO BECOME WRITEABLE   ⚠️  ⚠️  ⚠️\033[0m\n\n'
+  printf '   \033[1;33m⚠️  ⚠️  ⚠️   THE FIXTURES ARE ABOUT TO BECOME WRITABLE   ⚠️  ⚠️  ⚠️\033[0m\n\n'
   printf '   %s backs every scenario in tests/e2e/, and those\n' "${SLUG}"
   printf '   scenarios assert exact pull request counts. While it is unfrozen, any\n'
   printf '   stray click, script or bot that touches it can break CI on mrsixw/breakfast.\n\n'

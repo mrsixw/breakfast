@@ -296,12 +296,23 @@ a live hazard to CI:
 - It **asserts the repository is archived** before it starts. Finding it thawed
   means an earlier run never refroze it, and the inventory may have drifted
   while it was writeable — so the script stops and tells a human to look.
+- It **surveys the live inventory while the repository is still read-only**, and
+  refuses to thaw one holding duplicate or undocumented pull requests. Neither
+  can be deleted through the API, so discovering them halfway through a repair
+  would be the worst of both worlds.
 - It prints the exact `gh repo unarchive` command it is about to run, and will
   not run it until you type `UNFREEZE` at an interactive prompt. There is no
   non-interactive escape hatch: with no terminal, it refuses.
 - The refreeze hangs off an `EXIT` trap, so it fires on success, on any failure,
-  and on Ctrl-C alike. If the refreeze itself fails, the script shouts and
-  prints the `gh repo archive` command for you to run by hand.
+  and on Ctrl-C alike. The trap is armed *before* the unarchive request is sent,
+  not after it succeeds: a transport failure can still have applied the change
+  server-side.
+- The trap does not trust `gh repo archive`'s exit status — archiving an already
+  archived repository is an error too. It asks the repository what state it is
+  actually in, and if that is anything but archived it shouts, prints the manual
+  `gh repo archive` command, and **exits 75 even when the repair itself
+  succeeded**. A green exit is how a tired human decides it is safe to walk
+  away, so an unconfirmed refreeze must never produce one.
 - It leaves `main` alone. Update mode only reconciles pull requests; it will not
   rewrite the README of a repository it just unfroze.
 

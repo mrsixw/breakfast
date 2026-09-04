@@ -131,6 +131,95 @@ info "mode:    $([[ "${UPDATE}" == "true" ]] && echo 'update (reconcile)' || ech
 info "dry-run: ${DRY_RUN}   archive-at-end: ${ARCHIVE}"
 
 # ---------------------------------------------------------------------------
+# 🍳 The eight fixtures
+# ---------------------------------------------------------------------------
+#
+# The inventory below is asserted verbatim by tests/e2e/features/pr_listing.feature.
+# 🔗 Keep it in lockstep with the table in docs/design/testing.md.
+#
+#   #  Title                          State   Draft  Labels
+#   1  Open PR with no labels         open    no     —
+#   2  Open PR labelled bug           open    no     bug
+#   3  Open PR labelled enhancement   open    no     enhancement
+#   4  Open PR with two labels        open    no     bug, wip
+#   5  Draft PR awaiting work         open    yes    —
+#   6  Second draft PR                open    yes    enhancement
+#   7  Closed without merging         closed  no     —
+#   8  Merged fixture PR              merged  no     —
+
+TITLES=(
+  "Open PR with no labels"
+  "Open PR labelled bug"
+  "Open PR labelled enhancement"
+  "Open PR with two labels"
+  "Draft PR awaiting work"
+  "Second draft PR"
+  "Closed without merging"
+  "Merged fixture PR"
+)
+# Parallel arrays, not an associative one: bash 3.2 has no `declare -A`. 🍎
+STATES=( OPEN OPEN OPEN OPEN OPEN OPEN CLOSED MERGED )
+DRAFTS=( false false false false true true false false )
+LABELS=( "" "bug" "enhancement" "bug wip" "" "enhancement" "" "" )
+
+# Sorted, comma-joined label list — the shape `gh` hands back, so the two can
+# be compared as plain strings.
+csv_of() {
+  local out="" item
+  for item in $(printf '%s\n' $1 | sort); do
+    [[ -z "${item}" ]] && continue
+    out="${out:+${out},}${item}"
+  done
+  printf '%s' "${out}"
+}
+
+# One line per matching pull request: "number state isDraft labelcsv".
+# Titles are fixed strings with no quotes, so interpolating one into the jq
+# filter is safe — `gh --jq` has no --arg to do it properly.
+lookup_pr() {
+  # 🙅 No `|| true`: an auth or API failure here would otherwise read as "that
+  #    fixture is missing", and the caller would cheerfully create a duplicate.
+  #    A failure must abort the run instead.
+  gh pr list --repo "${SLUG}" --state all --limit 100 \
+    --json number,title,state,isDraft,labels \
+    --jq "[.[] | select(.title == \"$1\")] | .[0] // empty
+          | \"\(.number) \(.state) \(.isDraft) \((.labels | map(.name) | sort | join(\",\")))\"" \
+    || die "Could not list pull requests on ${SLUG}. 🛰️
+   gh failed, so the inventory cannot be trusted. Nothing further was changed."
+}
+
+# 🔬 Is the live repository one this script can reconcile at all? Extra or
+#    duplicated pull requests cannot be deleted through the API, so discovering
+#    them *after* mutating half the inventory would be the worst of both
+#    worlds. This runs before the thaw, and reads only.
+survey_inventory() {
+  local live total documented=0 count title
+
+  live="$(gh pr list --repo "${SLUG}" --state all --limit 200 --json title --jq '.[].title')" \
+    || die "Could not list pull requests on ${SLUG}. 🛰️ Nothing was changed."
+  total="$(printf '%s\n' "${live}" | grep -c . || true)"
+
+  for title in "${TITLES[@]}"; do
+    count="$(printf '%s\n' "${live}" | grep -Fxc -- "${title}" || true)"
+    if [[ "${count}" -gt 1 ]]; then
+      die "${SLUG} holds ${count} pull requests titled '${title}'. 👯
+   Reconciling by title cannot tell them apart, and a duplicate cannot be
+   deleted through the API. Sort this out by hand — nothing was changed."
+    fi
+    documented=$((documented + count))
+  done
+
+  if [[ "${total}" -ne "${documented}" ]]; then
+    die "${SLUG} holds $((total - documented)) pull request(s) the inventory does
+   not describe. 👽 They cannot be deleted through the API, and they would
+   break the exact-count assertions. Sort this out by hand — nothing was
+   changed."
+  fi
+
+  ok "live inventory is reconcilable: ${total} pull request(s), no strays, no duplicates"
+}
+
+# ---------------------------------------------------------------------------
 # 🧹 Cleanup — the single exit path
 # ---------------------------------------------------------------------------
 #
@@ -143,16 +232,26 @@ UNARCHIVED="false"
 WORKTREE=""
 
 cleanup() {
-  local rc=$?
-  if [[ "${UNARCHIVED}" == "true" ]]; then
+  local rc=$? state
+  if [[ "${UNARCHIVED}" != "false" ]]; then
     UNARCHIVED="false"   # never recurse if the archive call itself fails
     printf '\n\033[1;36m🧊 Refreezing %s\033[0m\n' "${SLUG}"
-    if gh repo archive "${SLUG}" --yes >/dev/null 2>&1; then
+
+    # Archiving an already-archived repo is an error, and so is a transport
+    # failure — the two are indistinguishable from the exit status. Ask the
+    # repository what state it is actually in instead of trusting either.
+    gh repo archive "${SLUG}" --yes >/dev/null 2>&1 || true
+    state="$(gh repo view "${SLUG}" --json isArchived --jq '.isArchived' 2>/dev/null || echo unknown)"
+
+    if [[ "${state}" == "true" ]]; then
       printf '   ✅ archived again — the fixtures are read-only\n'
     else
-      printf '   💥 \033[1;31mCOULD NOT RE-ARCHIVE %s\033[0m\n' "${SLUG}" >&2
-      printf '   \033[1;31mThe fixtures are still WRITEABLE. Freeze them by hand, now:\033[0m\n' >&2
+      printf '   💥 \033[1;31mCOULD NOT CONFIRM %s IS ARCHIVED (state: %s)\033[0m\n' "${SLUG}" "${state}" >&2
+      printf '   \033[1;31mThe fixtures may still be WRITEABLE. Freeze them by hand, now:\033[0m\n' >&2
       printf '\n       gh repo archive %s --yes\n\n' "${SLUG}" >&2
+      # 🚨 Never exit 0 on an unconfirmed refreeze: a green exit is exactly how
+      #    automation, or a tired human, decides it is safe to walk away.
+      [[ "${rc}" -eq 0 ]] && rc=75
     fi
   fi
   if [[ -n "${WORKTREE}" ]]; then
@@ -226,6 +325,10 @@ if [[ "${UPDATE}" == "true" ]]; then
   fi
   ok "${SLUG} is archived — the expected resting state"
 
+  # 🔬 Survey before thawing. Everything this script can*not* fix should be
+  #    discovered while the repository is still read-only.
+  survey_inventory
+
   # printf, not a heredoc: `cat` would print the colour escapes literally. 🎨
   printf '\n'
   printf '   \033[1;33m⚠️  ⚠️  ⚠️   THE FIXTURES ARE ABOUT TO BECOME WRITEABLE   ⚠️  ⚠️  ⚠️\033[0m\n\n'
@@ -249,8 +352,14 @@ if [[ "${UPDATE}" == "true" ]]; then
     read -r CONFIRM
     [[ "${CONFIRM}" == "UNFREEZE" ]] || die "Not confirmed — nothing was touched. 🧊"
 
+    # ⏰ Armed *before* the call, not after: if gh fails at the transport layer
+    #    the unarchive may still have landed server-side, and a signal can
+    #    arrive mid-request. The trap must owe us a refreeze from the moment
+    #    the request leaves, not from the moment it is confirmed. Refreezing a
+    #    repo that was never thawed is harmless — cleanup checks the real state.
+    UNARCHIVED="pending"
     gh repo unarchive "${SLUG}" --yes >/dev/null
-    UNARCHIVED="true"   # ⏰ from here on, the cleanup trap owes us a refreeze
+    UNARCHIVED="true"
     ok "${SLUG} is unfrozen — the clock is ticking ⏱️"
   fi
 fi
@@ -344,60 +453,6 @@ for label in bug enhancement; do
   run gh label create "${label}" --repo "${SLUG}" --force
 done
 did "wip, bug, enhancement ready"
-
-# ---------------------------------------------------------------------------
-# 🍳 The eight fixtures
-# ---------------------------------------------------------------------------
-#
-# The inventory below is asserted verbatim by tests/e2e/features/pr_listing.feature.
-# 🔗 Keep it in lockstep with the table in docs/design/testing.md.
-#
-#   #  Title                          State   Draft  Labels
-#   1  Open PR with no labels         open    no     —
-#   2  Open PR labelled bug           open    no     bug
-#   3  Open PR labelled enhancement   open    no     enhancement
-#   4  Open PR with two labels        open    no     bug, wip
-#   5  Draft PR awaiting work         open    yes    —
-#   6  Second draft PR                open    yes    enhancement
-#   7  Closed without merging         closed  no     —
-#   8  Merged fixture PR              merged  no     —
-
-TITLES=(
-  "Open PR with no labels"
-  "Open PR labelled bug"
-  "Open PR labelled enhancement"
-  "Open PR with two labels"
-  "Draft PR awaiting work"
-  "Second draft PR"
-  "Closed without merging"
-  "Merged fixture PR"
-)
-# Parallel arrays, not an associative one: bash 3.2 has no `declare -A`. 🍎
-STATES=( OPEN OPEN OPEN OPEN OPEN OPEN CLOSED MERGED )
-DRAFTS=( false false false false true true false false )
-LABELS=( "" "bug" "enhancement" "bug wip" "" "enhancement" "" "" )
-
-# Sorted, comma-joined label list — the shape `gh` hands back, so the two can
-# be compared as plain strings.
-csv_of() {
-  local out="" item
-  for item in $(printf '%s\n' $1 | sort); do
-    [[ -z "${item}" ]] && continue
-    out="${out:+${out},}${item}"
-  done
-  printf '%s' "${out}"
-}
-
-# One line per matching pull request: "number state isDraft labelcsv".
-# Titles are fixed strings with no quotes, so interpolating one into the jq
-# filter is safe — `gh --jq` has no --arg to do it properly.
-lookup_pr() {
-  gh pr list --repo "${SLUG}" --state all --limit 100 \
-    --json number,title,state,isDraft,labels \
-    --jq "[.[] | select(.title == \"$1\")] | .[0] // empty
-          | \"\(.number) \(.state) \(.isDraft) \((.labels | map(.name) | sort | join(\",\")))\"" \
-    2>/dev/null || true
-}
 
 step "🍳" "$([[ "${UPDATE}" == "true" ]] && echo 'Reconciling the eight pull requests' || echo 'Cooking eight pull requests')"
 

@@ -4,7 +4,7 @@
 #    fixtures.
 #
 # Two failure modes make this the script most worth testing in the repository:
-# it can leave the fixture repository **writeable**, and it can drift an
+# it can leave the fixture repository **writable**, and it can drift an
 # inventory the live suite asserts by exact count. Both are covered below.
 #
 # `gh` is a stateful fake (tests/bats/helpers/fake_gh) that applies the
@@ -164,7 +164,7 @@ setup() {
   run "${SCRIPT}" "${FIXTURE_ARGS[@]}" --update --dry-run
 
   assert_output_contains "gh repo unarchive mrsixw/breakfast-fixtures --yes"
-  assert_output_contains "THE FIXTURES ARE ABOUT TO BECOME WRITEABLE"
+  assert_output_contains "THE FIXTURES ARE ABOUT TO BECOME WRITABLE"
 }
 
 @test "it refuses to unfreeze without an interactive terminal" {
@@ -231,7 +231,7 @@ STUB
 
   [ "$status" -eq 75 ]
   assert_output_contains "COULD NOT CONFIRM"
-  assert_output_contains "still be WRITEABLE"
+  assert_output_contains "still be WRITABLE"
 }
 
 @test "it does not trust a successful-looking archive that changed nothing" {
@@ -519,7 +519,7 @@ Merged fixture PR" ]
   assert_output_contains "inventory matches"
 }
 
-@test "seeding leaves the repository writeable until --archive is passed" {
+@test "seeding leaves the repository writable until --archive is passed" {
   # Archiving before `make e2e` is green would need unarchiving to fix, which
   # is why it is opt-in.
   fake_empty_repo

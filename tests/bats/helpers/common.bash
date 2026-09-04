@@ -26,6 +26,13 @@ common_setup() {
   PATH="${STUB_BIN}:${PATH}"
   HOME="${FAKE_HOME}"
 
+  # 🧼 The tests must not inherit the environment they happen to run in. CI sets
+  #    GITHUB_HEAD_REF and GITHUB_REF_NAME, which two of the release-script
+  #    tests treat as the thing under test; inheriting them made those tests
+  #    pass locally and fail on Actions. Tokens go too, so nothing here could
+  #    authenticate against real GitHub even if a stub were missed.
+  unset GITHUB_HEAD_REF GITHUB_REF_NAME GITHUB_TOKEN GH_TOKEN GITHUB_ACTIONS CI
+
   export PATH HOME STUB_BIN STUB_LOG FAKE_HOME
 }
 

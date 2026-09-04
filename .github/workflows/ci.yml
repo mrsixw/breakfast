@@ -45,9 +45,20 @@ jobs:
       - name: Run lint
         run: make lint
 
+  bats:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # bats arrives through npx, so node is the only prerequisite. The suite
+      # itself is offline: every script it drives has gh, git and curl stubbed.
+      - name: Run the shell test suite
+        run: make bats
+
   build:
     runs-on: ubuntu-latest
-    needs: [test, lint]
+    needs: [test, lint, bats]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -162,7 +173,7 @@ jobs:
 
   completions:
     runs-on: ubuntu-latest
-    needs: [test, lint]
+    needs: [test, lint, bats]
     steps:
       - name: Checkout
         uses: actions/checkout@v7

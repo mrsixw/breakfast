@@ -8,6 +8,7 @@ How breakfast is tested, and — more usefully — which layer a new test belong
 | --- | --- | --- | --- | --- |
 | Unit | `tests/test_*.py` | no | no | `make test` |
 | CLI | `tests/test_cli.py` | no (in-process `CliRunner`) | no (faked) | `make test` |
+| Shell | `tests/bats/` | n/a — it tests the *scripts* | no (stubbed) | `make bats` |
 | End-to-end | `tests/e2e/` | **yes**, the built zipapp as a subprocess | **yes**, real GitHub | `make e2e` |
 
 ### The rule
@@ -38,6 +39,7 @@ than assumed. See [#99](https://github.com/mrsixw/breakfast/issues/99).
 
 ```bash
 make test      # unit + CLI. Offline, fast. e2e is excluded by default.
+make bats      # the shell scripts. Offline, fast.
 make e2e       # builds the zipapp, then runs everything in tests/e2e
 make e2e-ci    # CI variant: uses an already-built binary, fails instead of skipping
 
@@ -60,6 +62,53 @@ failures, so the suite cannot quietly rot to green.
 | `BREAKFAST_E2E_REQUIRE` | Fail rather than skip when the zipapp is missing |
 | `BREAKFAST_E2E_REQUIRE_LIVE` | Fail rather than skip when no token is set |
 | `BREAKFAST_E2E_TIMEOUT` | Per-invocation subprocess timeout in seconds (default 90) |
+
+## The shell layer
+
+Python is not the only thing this repository ships. `install.sh` is the
+published `curl | bash` install path, and `utils/` holds the scripts that cut
+releases and provision the end-to-end fixtures. They went untested for as long
+as they did because `tests/` is a pytest suite and has no way to harness a shell
+script — see [#466](https://github.com/mrsixw/breakfast/issues/466).
+
+[bats](https://github.com/bats-core/bats-core) fills that gap, and
+[shellcheck](https://www.shellcheck.net) covers the static half. Both arrive
+through `npx`, exactly as `markdownlint-cli2` does, so there is nothing to
+install by hand:
+
+```bash
+make bats        # the shell test suite
+make shellcheck  # static analysis (also part of `make lint`)
+```
+
+### How the scripts are driven
+
+Each test runs the **real script as a subprocess** with its collaborators — `gh`,
+`git`, `curl`, `tar`, `install` — replaced by stubs on `PATH`, and with `HOME`
+redirected into the test's temporary directory. Nothing reaches the network, and
+an installer test cannot scribble on the machine running it.
+
+`tests/bats/helpers/common.bash` provides the machinery: `stub` writes an
+executable that records its arguments before running a body, so a test can
+assert *what the script asked for* rather than only what it printed.
+
+Two helpers are worth knowing about:
+
+- **`helpers/fake_gh`** is a stateful fake rather than a stub. The fixture
+  provisioner reads its own writes — it reconciles a pull request, then counts
+  the inventory to check the result — so a fake that logged mutations without
+  applying them would let a broken reconcile loop still pass verification.
+- **`helpers/run_pty.py`** runs a script on a real pseudo-terminal. Anything
+  that gates on `[[ -t 0 ]]` and prompts with `read` cannot be tested through a
+  pipe, and `script(1)` takes incompatible arguments on macOS and Linux.
+  Python's `pty` module behaves the same on both.
+
+### By the project's own rule, this is a unit layer
+
+It fakes part of the system under test, so it belongs in `tests/`, not
+`tests/e2e/`. The scripts it covers mostly *cannot* be exercised for real
+without cutting a release or writing to the frozen fixture repository, which is
+precisely why the stubs earn their place here.
 
 ## Why the tests are written in Gherkin
 

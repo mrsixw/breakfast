@@ -1,11 +1,14 @@
 .ONESHELL:
 SHELL = /bin/bash
 
+SHELL_SOURCES := install.sh $(wildcard utils/*.sh) \
+	tests/bats/helpers/common.bash tests/bats/helpers/fake_gh
+
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 DESTDIR ?=
 
-.PHONY: activate build version-bump release breakfast smoketest test e2e e2e-ci lint docs-lint format man completions install uninstall
+.PHONY: activate build version-bump release breakfast smoketest test e2e e2e-ci bats lint docs-lint shellcheck format man completions install uninstall
 
 .venv:
 	uv venv .venv
@@ -58,13 +61,23 @@ e2e-ci: .venv
 	BREAKFAST_E2E_REQUIRE=1 BREAKFAST_E2E_REQUIRE_LIVE=1 \
 		uv run pytest -v -m e2e tests/e2e
 
-lint: .venv docs-lint
+lint: .venv docs-lint shellcheck
 	uv sync --extra lint
 	uv run ruff check .
 	uv run black --check .
 
 docs-lint:
 	npx --yes markdownlint-cli2 "docs/**/*.md" "README.md" "CONTRIBUTING.md"
+
+# Static analysis for every shell script we ship, plus the test helpers, which
+# are shell too and just as capable of being wrong.
+shellcheck:
+	npx --yes shellcheck $(SHELL_SOURCES)
+
+# The shell test suite. bats and shellcheck both arrive via npx, exactly as
+# markdownlint-cli2 does above — nothing to install by hand.
+bats:
+	npx --yes bats tests/bats
 
 format: .venv
 	uv sync --extra lint

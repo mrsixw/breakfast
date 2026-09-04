@@ -51,17 +51,20 @@ path unless `core.symlinks=true` and Developer Mode are both enabled.
 
 ## Common Commands
 - `make test` — run tests (`uv run pytest -v`)
+- `make bats` — run the shell script tests (`npx --yes bats tests/bats`)
+- `make shellcheck` — static analysis for every shell script (part of `make lint`)
 - `make lint` — check linting and formatting (`ruff check` + `black --check`)
 - `make format` — auto-fix lint and formatting (`ruff check --fix` + `black`)
 - `make build` — build a shiv executable
 
 ## Testing
-- **Three layers, and the rule that separates them** (see [docs/design/testing.md](docs/design/testing.md)):
+- **Four layers, and the rule that separates them** (see [docs/design/testing.md](docs/design/testing.md)):
   - Unit and CLI tests (`tests/*.py`) use `pytest` with `monkeypatch`, `requests-mock`, `freezegun` and `click.testing.CliRunner`. Offline and fast. `make test`.
+  - Shell tests (`tests/bats/`) drive each shell script as a subprocess with `gh`, `git` and `curl` stubbed and `HOME` redirected. Offline and fast. `make bats`.
   - End-to-end tests (`tests/e2e/`) are pytest-bdd `.feature` files that drive the **built `./breakfast` zipapp as a subprocess** against real GitHub. `make e2e`. **Never mocked.**
   - **If it fakes any part of the system under test, it is a unit test** — `monkeypatch`, `requests-mock`, `freezegun` and `CliRunner` all replace something the end-to-end layer exists to exercise for real. It belongs in `tests/`, not `tests/e2e/`.
 - The fixture repo `mrsixw/breakfast-fixtures` is frozen and archived. Its PRs are asserted by exact count. **Never modify it.**
-- Run `make test` before committing. Run `make e2e` when changing CLI behaviour, packaging, or the cache.
+- Run `make test` before committing. Run `make bats` when changing a shell script, and `make e2e` when changing CLI behaviour, packaging, or the cache.
 - **Add an end-to-end scenario when the change is one only the real binary can prove.** Ask what a unit test structurally cannot see. Add one for:
   - a new or changed **exit code**, or a new user-facing error path;
   - anything about **stdout versus stderr** — `CliRunner` merges them, so only the e2e layer can prove the split;

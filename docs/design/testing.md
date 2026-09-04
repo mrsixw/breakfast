@@ -344,7 +344,7 @@ a live hazard to CI:
 
 - It **asserts the repository is archived** before it starts. Finding it thawed
   means an earlier run never refroze it, and the inventory may have drifted
-  while it was writeable — so the script stops and tells a human to look.
+  while it was writable — so the script stops and tells a human to look.
 - It **surveys the live inventory while the repository is still read-only**, and
   refuses to thaw one holding duplicate or undocumented pull requests. Neither
   can be deleted through the API, so discovering them halfway through a repair

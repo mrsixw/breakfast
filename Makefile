@@ -1,6 +1,10 @@
 .ONESHELL:
 SHELL = /bin/bash
 
+# Pinned to the version the CI spell job uses. Floating it would reintroduce
+# exactly the drift this target exists to remove.
+TYPOS_VERSION := 1.48.0
+
 SHELL_SOURCES := install.sh $(wildcard utils/*.sh) \
 	tests/bats/helpers/common.bash tests/bats/helpers/fake_gh
 
@@ -8,7 +12,7 @@ PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 DESTDIR ?=
 
-.PHONY: activate build version-bump release breakfast smoketest test e2e e2e-ci bats lint docs-lint shellcheck format man completions install uninstall
+.PHONY: activate build version-bump release breakfast smoketest test e2e e2e-ci bats lint docs-lint shellcheck spell format man completions install uninstall
 
 .venv:
 	uv venv .venv
@@ -61,7 +65,7 @@ e2e-ci: .venv
 	BREAKFAST_E2E_REQUIRE=1 BREAKFAST_E2E_REQUIRE_LIVE=1 \
 		uv run pytest -v -m e2e tests/e2e
 
-lint: .venv docs-lint shellcheck
+lint: .venv docs-lint shellcheck spell
 	uv sync --extra lint
 	uv run ruff check .
 	uv run black --check .
@@ -78,6 +82,11 @@ shellcheck:
 # markdownlint-cli2 does above — nothing to install by hand.
 bats:
 	npx --yes bats tests/bats
+
+# Spelling, the same check CI runs. uvx fetches typos on demand, the way npx
+# fetches the others; uv is already this project's package manager.
+spell:
+	uvx --from typos==$(TYPOS_VERSION) typos
 
 format: .venv
 	uv sync --extra lint

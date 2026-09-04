@@ -134,8 +134,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          version: "latest"
+
+      # `make spell` rather than the crate-ci/typos action, so the version
+      # pinned in the Makefile is the one that runs both here and locally.
       - name: Check spelling
-        uses: crate-ci/typos@v1.48.0
+        run: make spell
 
   docs-lint:
     runs-on: ubuntu-latest

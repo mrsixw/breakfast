@@ -53,6 +53,7 @@ path unless `core.symlinks=true` and Developer Mode are both enabled.
 - `make test` — run tests (`uv run pytest -v`)
 - `make bats` — run the shell script tests (`npx --yes bats tests/bats`)
 - `make shellcheck` — static analysis for every shell script (part of `make lint`)
+- `make spell` — spell check, the same `typos` version CI runs (part of `make lint`)
 - `make lint` — check linting and formatting (`ruff check` + `black --check`)
 - `make format` — auto-fix lint and formatting (`ruff check --fix` + `black`)
 - `make build` — build a shiv executable

@@ -80,9 +80,10 @@ make build && uv run pytest -v -m "e2e and not live" tests/e2e
 ### Linting and Formatting
 
 ```bash
-make lint        # ruff check + black --check + markdownlint + shellcheck
+make lint        # ruff check + black --check + markdownlint + shellcheck + typos
 make format      # ruff check --fix + black
 make shellcheck  # just the shell static analysis
+make spell       # just the spell check, the same one CI runs
 ```
 
 Run both `make test` and `make lint` before committing. If you touched a shell

@@ -166,7 +166,7 @@ LABELS=( "" "bug" "enhancement" "bug wip" "" "enhancement" "" "" )
 # be compared as plain strings.
 csv_of() {
   local out="" item
-  for item in $(printf '%s\n' $1 | sort); do
+  for item in $(printf '%s' "$1" | tr ' ' '\n' | sort); do
     [[ -z "${item}" ]] && continue
     out="${out:+${out},}${item}"
   done
@@ -479,7 +479,7 @@ for index in "${!TITLES[@]}"; do
     # ---- missing: create it -------------------------------------------------
     if [[ "${DRY_RUN}" == "true" ]]; then
       printf '      🌀 \033[2mwould branch %s, commit, push and open a PR\033[0m\n' "${branch}"
-      PR_NUMBER[${n}]="${n}"
+      PR_NUMBER[n]="${n}"
       continue
     fi
 
@@ -506,7 +506,7 @@ for index in "${!TITLES[@]}"; do
       --base main --head "${branch}" \
       --title "${title}" --body "🧊 Frozen fixture. Do not modify.")"
 
-    PR_NUMBER[${n}]="${url##*/}"
+    PR_NUMBER[n]="${url##*/}"
     info "→ created ${url}"
     have_state="OPEN"
     have_draft="${want_draft}"
@@ -515,11 +515,11 @@ for index in "${!TITLES[@]}"; do
     # ---- present: reconcile it ---------------------------------------------
     read -r have_number have_state have_draft have_labels <<<"${found}"
     have_labels="${have_labels:-}"
-    PR_NUMBER[${n}]="${have_number}"
+    PR_NUMBER[n]="${have_number}"
     info "→ #${have_number} ${have_state} draft=${have_draft} labels=[${have_labels}]"
   fi
 
-  num="${PR_NUMBER[${n}]}"
+  num="${PR_NUMBER[n]}"
 
   # 🚫 A merge cannot be undone from the API. If a fixture that is meant to be
   #    open or closed has been merged, no amount of reconciling fixes it.

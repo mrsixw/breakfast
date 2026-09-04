@@ -242,9 +242,9 @@ two drafts before it will let you freeze anything.
 
 Three things the script does that a fenced code block could not:
 
-- It **refuses** to run against `mrsixw/breakfast-fixtures`. That repo is frozen
-  and asserted by exact count, so the guard is unconditional, case-insensitive
-  and not overridable by any flag.
+- It **refuses** to seed `mrsixw/breakfast-fixtures`. That repo is frozen and
+  asserted by exact count, so the guard is case-insensitive and the only way
+  past it is `--update`, which repairs rather than seeds — see below.
 - It reads each pull request number back from `gh` instead of assuming they are
   numbered 1 through 8. One stray pull request would otherwise shift every later
   `gh pr edit` onto the wrong target — silently, since the labels would still
@@ -269,6 +269,45 @@ cost nothing and document the intent.
 Archiving does **not** hide the pull requests: the suite was re-run after
 archiving and all 25 scenarios still pass, confirming the GraphQL query has no
 `isArchived` filter.
+
+### Repairing the frozen fixtures
+
+Freezing the repository is not the same as never touching it again. If the
+inventory ever drifts — a label removed, a draft readied, a fixture deleted —
+the same script repairs it in place:
+
+```bash
+# See what it would change, touching nothing.
+./utils/setup_fixture_org.sh mrsixw --repo breakfast-fixtures --update --dry-run
+
+# Repair for real. Asks you to type UNFREEZE before it unarchives anything.
+./utils/setup_fixture_org.sh mrsixw --repo breakfast-fixtures --update
+```
+
+`--update` reconciles rather than seeds: for each of the eight fixtures it looks
+the pull request up **by title**, creates it if it is missing, and otherwise
+corrects its labels, its draft flag and its state until they match the table
+above. Nothing already correct is touched, so a run against undrifted fixtures
+is a read-only no-op.
+
+The unfreezing is deliberately noisy, because an unfrozen fixture repository is
+a live hazard to CI:
+
+- It **asserts the repository is archived** before it starts. Finding it thawed
+  means an earlier run never refroze it, and the inventory may have drifted
+  while it was writeable — so the script stops and tells a human to look.
+- It prints the exact `gh repo unarchive` command it is about to run, and will
+  not run it until you type `UNFREEZE` at an interactive prompt. There is no
+  non-interactive escape hatch: with no terminal, it refuses.
+- The refreeze hangs off an `EXIT` trap, so it fires on success, on any failure,
+  and on Ctrl-C alike. If the refreeze itself fails, the script shouts and
+  prints the `gh repo archive` command for you to run by hand.
+- It leaves `main` alone. Update mode only reconciles pull requests; it will not
+  rewrite the README of a repository it just unfroze.
+
+One drift it cannot repair: a fixture that has been **merged** when the
+inventory says it should be open or closed. A merge cannot be undone through the
+API, so the script dies and says the repository must be rebuilt elsewhere.
 
 ## Cost and flakiness
 

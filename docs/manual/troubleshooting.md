@@ -196,3 +196,21 @@ This indicates that your `breakfast.toml` (or `config.toml`) contains a key that
 - Double-check the option name against the default config template (which you can generate using `breakfast --init-config`).
 - If you made a typo, correct the key name in your configuration file.
 - If you have an outdated config file, you can run `breakfast --update-config` to append any missing options from the newest default template.
+
+## `Another breakfast shadows this install`
+
+The installer put the binary in `~/.local/bin`, but a different copy sits earlier in your `PATH` and wins every invocation. The installer names both paths and exits non-zero rather than reporting a success you cannot use.
+
+This is the usual cause of two otherwise baffling symptoms:
+
+- `breakfast completions bash` fails with `No such command 'completions'` — the shadowing copy predates the subcommand.
+- `breakfast update` appears to do nothing, because it updates a copy you never actually run.
+
+Confirm which binary you are running, then remove the rogue copy:
+
+```bash
+command -v breakfast        # the one that actually runs
+rm "$(command -v breakfast)"
+```
+
+Re-run `install.sh` afterwards to confirm the warning is gone. If you would rather keep the other copy, reorder `PATH` so `~/.local/bin` comes first instead.

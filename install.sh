@@ -168,11 +168,7 @@ resolve_path() {
 # blames the features that appear to be missing: `completions` reports "No such
 # command", `update` rewrites a copy they never invoke. Check what the shell
 # would actually resolve, not merely where we put the file.
-#
-# `hash -r` first: this shell ran ${EXECUTABLE_PATH} by absolute path earlier,
-# and a cached lookup here would describe bash's memory rather than PATH.
 SHADOW_STATUS=0
-hash -r 2>/dev/null || true
 RESOLVED_PATH="$(command -v "${BINARY_NAME}" 2>/dev/null || true)"
 if [ -n "${RESOLVED_PATH}" ] \
     && [ "$(resolve_path "${RESOLVED_PATH}")" != "$(resolve_path "${EXECUTABLE_PATH}")" ]; then

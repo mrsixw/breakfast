@@ -66,6 +66,16 @@ lint: .venv docs-lint
 docs-lint:
 	npx --yes markdownlint-cli2 "docs/**/*.md" "README.md" "CONTRIBUTING.md"
 
+# Spell check. CI installs the pinned binary first (see utils/install_typos.sh);
+# locally, install it however you like — `brew install typos-cli` is easiest.
+spell:
+	@command -v typos >/dev/null || { \
+		echo "typos not found. Install it with: brew install typos-cli"; \
+		echo "or run: utils/install_typos.sh <dir>"; \
+		exit 1; \
+	}
+	typos
+
 format: .venv
 	uv sync --extra lint
 	uv run ruff check --fix .

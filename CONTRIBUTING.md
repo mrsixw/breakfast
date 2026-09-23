@@ -77,9 +77,21 @@ make build && uv run pytest -v -m "e2e and not live" tests/e2e
 ```bash
 make lint        # ruff check + black --check
 make format      # ruff check --fix + black
+make spell       # typos, using the same config and version CI uses
 ```
 
 Run both `make test` and `make lint` before committing.
+
+`make spell` needs the `typos` binary. Install it however you like —
+`brew install typos-cli` is easiest — or use the same pinned installer CI does:
+
+```bash
+utils/install_typos.sh ~/.local/bin
+```
+
+CI installs it that way rather than using `crate-ci/typos`, because that
+action fetches its binary with a single unretried download; one transient
+failure there skips `man`, `release` and `verify-release`. See issue #458.
 
 ### Building
 

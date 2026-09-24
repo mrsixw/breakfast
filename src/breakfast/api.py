@@ -23,7 +23,9 @@ from .constants import (
     REQUEST_TIMEOUT,
     RETRY_STATUSES,
     SEARCH_EARLIEST_CREATED,
+    SEARCH_MAX_REPO_QUERIES,
     SEARCH_PAGE_SIZE,
+    SEARCH_REPOS_PER_QUERY,
     SEARCH_RESULT_LIMIT,
     SEARCH_SLICE_TARGET,
     SEARCH_WORKERS,
@@ -401,19 +403,55 @@ def _secondary_rate_limit_wait(response):
     return None
 
 
+# One pause shared by every worker: once GitHub signals a secondary rate limit,
+# no GraphQL request goes out until the wait it asked for has passed.
+_throttle_lock = threading.Lock()
+_throttle_until = 0.0
+
+
+def _wait_for_slow_down():
+    """Sleep until any pause GitHub asked for has passed.
+
+    Re-checks after each sleep, because another worker may have extended the
+    pause in the meantime.
+    """
+    while True:
+        with _throttle_lock:
+            remaining = _throttle_until - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(remaining)
+
+
+def _slow_down_for(seconds):
+    """Pause every GraphQL request for ``seconds``.
+
+    Returns:
+        bool: True if this call started a pause, False if one was already
+        running (it is extended if needed), so only one notice is shown when
+        several workers hit the limit together.
+    """
+    global _throttle_until
+    with _throttle_lock:
+        now = time.monotonic()
+        started = _throttle_until <= now
+        _throttle_until = max(_throttle_until, now + seconds)
+        return started
+
+
 def make_github_graphql_request(query, variables=None):
     headers = {
         "Authorization": f"Bearer {SECRET_GITHUB_TOKEN}",
         "Content-Type": "application/json",
     }
     payload = {"query": query, "variables": variables or {}}
-    wait = None
+    back_off = False
     for attempt in range(MAX_RETRIES + 1):
-        if attempt:
-            if wait is None:
-                wait = 2 ** (attempt - 1) + random.uniform(0, 0.5)
-            time.sleep(wait)
-            wait = None
+        if back_off:
+            time.sleep(2 ** (attempt - 1) + random.uniform(0, 0.5))
+        # Every retry backs off unless a slow-down pause already covers it.
+        back_off = True
+        _wait_for_slow_down()
         try:
             t0 = time.monotonic()
             response = requests.post(
@@ -465,13 +503,16 @@ def make_github_graphql_request(query, variables=None):
                     wait,
                     attempt + 1,
                 )
+                started_pause = _slow_down_for(wait)
                 if attempt == MAX_RETRIES:
                     raise GitHubSecondaryRateLimitError()
-                click.echo(
-                    f"\n🐢 GitHub asked breakfast to slow down; waiting {wait}s...",
-                    nl=False,
-                    err=True,
-                )
+                if started_pause:
+                    click.echo(
+                        f"\n🐢 GitHub asked breakfast to slow down; waiting {wait}s...",
+                        nl=False,
+                        err=True,
+                    )
+                back_off = False
                 continue
             response.raise_for_status()
             resp_json = response.json()
@@ -582,14 +623,29 @@ query($owner: String!, $searchQuery: String!, $cursor: String,
 }
 """
 
+_REPOSITORY_NAMES_QUERY = """
+query($owner: String!, $cursor: String, $pageSize: Int!, $archived: Boolean) {
+  repositoryOwner(login: $owner) {
+    repositories(first: $pageSize, after: $cursor, isArchived: $archived) {
+      nodes { name }
+      pageInfo {
+        endCursor
+        hasNextPage
+      }
+    }
+  }
+}
+"""
+
 _SEARCH_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
-def _build_search_string(owner, fetch_state, include_archived, created=None):
-    """Return the GitHub search string for an owner's pull requests.
+def _build_search_string(scope, fetch_state, include_archived, created=None):
+    """Return a GitHub search string for pull requests within a scope.
 
     Args:
-        owner: GitHub organization or user login. ``org:`` matches both.
+        scope: Search terms naming where to look: ``["org:<owner>"]`` (which
+            matches users too) or one ``repo:<owner>/<name>`` term per repo.
         fetch_state: Pull-request state selector.
         include_archived: Whether PRs in archived repositories are included.
         created: Optional inclusive ``(low, high)`` datetime range.
@@ -598,7 +654,7 @@ def _build_search_string(owner, fetch_state, include_archived, created=None):
         str: Search qualifiers, oldest PR first so PRs opened mid-run append
         to the last page rather than shifting earlier ones.
     """
-    terms = [f"org:{owner}", "is:pr"]
+    terms = list(scope) + ["is:pr"]
     terms += _FETCH_STATE_QUALIFIERS.get(fetch_state.lower(), ["is:open"])
     if not include_archived:
         terms.append("archived:false")
@@ -643,11 +699,12 @@ def _drain_search(owner, search_string, page, on_page=None):
     return nodes
 
 
-def _search_created_range(owner, fetch_state, include_archived, created):
+def _search_created_range(owner, scope, fetch_state, include_archived, created):
     """Fetch one ``created:`` slice, or report that it should be split.
 
     Args:
         owner: GitHub organization or user login.
+        scope: Search terms naming where to look.
         fetch_state: Pull-request state selector.
         include_archived: Whether PRs in archived repositories are included.
         created: Inclusive ``(low, high)`` datetime range.
@@ -657,7 +714,7 @@ def _search_created_range(owner, fetch_state, include_archived, created):
         slice holds more than ``SEARCH_SLICE_TARGET`` results and can still be
         split.
     """
-    search_string = _build_search_string(owner, fetch_state, include_archived, created)
+    search_string = _build_search_string(scope, fetch_state, include_archived, created)
     page = _request_search_page(owner, search_string)["search"]
     issue_count = page["issueCount"]
     low, high = created
@@ -707,7 +764,7 @@ def _split_created_range(created, issue_count):
     return slices
 
 
-def _search_in_created_slices(owner, fetch_state, include_archived, issue_count):
+def _search_in_created_slices(owner, scope, fetch_state, include_archived, count):
     """Collect a large search by fetching ``created:`` slices in parallel.
 
     A slice that turns out to hold too many results is split again and its
@@ -723,13 +780,13 @@ def _search_in_created_slices(owner, fetch_state, include_archived, issue_count)
 
     def submit(created):
         return executor.submit(
-            _search_created_range, owner, fetch_state, include_archived, created
+            _search_created_range, owner, scope, fetch_state, include_archived, created
         )
 
     try:
         futures = {
             submit(created): created
-            for created in _split_created_range((earliest, latest), issue_count)
+            for created in _split_created_range((earliest, latest), count)
         }
         while futures:
             done, _ = wait(futures, return_when=FIRST_COMPLETED)
@@ -747,17 +804,116 @@ def _search_in_created_slices(owner, fetch_state, include_archived, issue_count)
     return nodes
 
 
-def get_github_prs(owner, repo_filters, fetch_state="open", include_archived=False):
+def _collect_search(owner, scope, fetch_state, include_archived, check_owner=False):
+    """Return every pull-request node a scoped search matches.
+
+    Raises:
+        OwnerNotFoundError: If ``check_owner`` is set and the owner does not
+            resolve to a GitHub account.
+    """
+    search_string = _build_search_string(scope, fetch_state, include_archived)
+    data = _request_search_page(owner, search_string, check_owner=check_owner)
+    # Search returns nothing, not an error, for an unknown owner.
+    if check_owner and data.get("owner") is None:
+        raise OwnerNotFoundError(owner)
+    page = data["search"]
+    if page["issueCount"] > SEARCH_SLICE_TARGET:
+        return _search_in_created_slices(
+            owner, scope, fetch_state, include_archived, page["issueCount"]
+        )
+    return _drain_search(
+        owner,
+        search_string,
+        page,
+        on_page=lambda: click.echo(
+            random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True
+        ),
+    )
+
+
+def _list_repository_names(owner, include_archived):
+    """Return the names of an owner's repositories.
+
+    Listing costs a request per 100 repositories and does not count against
+    GitHub's search limits.
+
+    Raises:
+        OwnerNotFoundError: If the owner does not resolve to a GitHub account.
+    """
+    names = []
+    cursor = None
+    while True:
+        variables = {
+            "owner": owner,
+            "cursor": cursor,
+            "pageSize": SEARCH_PAGE_SIZE,
+            # null lists every repository; false leaves archived ones out.
+            "archived": None if include_archived else False,
+        }
+        data = make_github_graphql_request(_REPOSITORY_NAMES_QUERY, variables)["data"]
+        if data["repositoryOwner"] is None:
+            raise OwnerNotFoundError(owner)
+        repositories = data["repositoryOwner"]["repositories"]
+        names.extend(node["name"] for node in repositories["nodes"] if node)
+        if not repositories["pageInfo"]["hasNextPage"]:
+            return names
+        cursor = repositories["pageInfo"]["endCursor"]
+        click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
+
+
+def _repository_names(owner, include_archived, names_cache):
+    """Return an owner's repository names, from ``names_cache`` when it has them."""
+    if names_cache is not None:
+        names = names_cache.read(owner, include_archived)
+        if names is not None:
+            return names
+    names = _list_repository_names(owner, include_archived)
+    if names_cache is not None:
+        names_cache.write(owner, include_archived, names)
+    return names
+
+
+def _search_scopes(owner, repo_filters, include_archived, names_cache):
+    """Return the search scopes that cover an owner's filtered repositories.
+
+    Without filters, or when so many repositories match that per-repo terms
+    would cost more requests than searching the owner, the owner is searched
+    as a whole and the filters applied to the results.
+
+    Returns:
+        list[list[str]]: Search scopes; empty when no repository matches.
+    """
+    owner_scope = [f"org:{owner}"]
+    if not repo_filters:
+        return [owner_scope]
+    names = _repository_names(owner, include_archived, names_cache)
+    matched = [name for name in names if _match_repo_filter(name, repo_filters)]
+    if len(matched) > SEARCH_REPOS_PER_QUERY * SEARCH_MAX_REPO_QUERIES:
+        return [owner_scope]
+    scopes = []
+    for start in range(0, len(matched), SEARCH_REPOS_PER_QUERY):
+        chunk = matched[start : start + SEARCH_REPOS_PER_QUERY]
+        scopes.append([f"repo:{owner}/{name}" for name in chunk])
+    return scopes
+
+
+def get_github_prs(
+    owner, repo_filters, fetch_state="open", include_archived=False, names_cache=None
+):
     """Return pull-request URLs for an owner using GraphQL search.
 
-    Search costs a request per 100 PRs however many repositories the owner has,
-    where walking every repository costs a request per handful of them.
+    Search costs a request per 100 PRs however many repositories the owner has.
+    With repo filters, the owner's repository names are listed first so only
+    matching repositories are searched, which keeps busy owners clear of
+    GitHub's search rate limits.
 
     Args:
         owner: GitHub organization or user login.
         repo_filters: Repository name filters, or an empty value for all repos.
         fetch_state: Pull-request state selector.
         include_archived: Whether PRs in archived repositories are included.
+        names_cache: Optional store with ``read(owner, include_archived)`` and
+            ``write(owner, include_archived, names)`` for repository names.
 
     Returns:
         list[str]: Matching pull-request URLs, without duplicates.
@@ -766,25 +922,14 @@ def get_github_prs(owner, repo_filters, fetch_state="open", include_archived=Fal
         OwnerNotFoundError: If the owner does not resolve to a GitHub account.
     """
     click.echo(f"Fetching {owner} PRs...", nl=False, err=True)
-    search_string = _build_search_string(owner, fetch_state, include_archived)
-    data = _request_search_page(owner, search_string, check_owner=True)
-    # Search returns nothing, not an error, for an unknown owner.
-    if data.get("owner") is None:
-        raise OwnerNotFoundError(owner)
-
-    page = data["search"]
-    if page["issueCount"] > SEARCH_SLICE_TARGET:
-        nodes = _search_in_created_slices(
-            owner, fetch_state, include_archived, page["issueCount"]
-        )
-    else:
-        nodes = _drain_search(
-            owner,
-            search_string,
-            page,
-            on_page=lambda: click.echo(
-                random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True
-            ),
+    scopes = _search_scopes(owner, repo_filters, include_archived, names_cache)
+    nodes = []
+    for index, scope in enumerate(scopes):
+        # The first search also confirms the owner exists; cached repository
+        # names can outlive it.
+        check_owner = index == 0
+        nodes.extend(
+            _collect_search(owner, scope, fetch_state, include_archived, check_owner)
         )
     click.echo("...Done", err=True)
 

@@ -31,6 +31,7 @@ from .api import (
     match_exclude_repos,
 )
 from .cache import (
+    RepositoryNamesCache,
     parse_ttl,
     read_cached_user_login,
     read_graphql_cache,
@@ -1565,6 +1566,9 @@ def breakfast(
 
             if prs is None:
                 prs = []
+                names_cache = (
+                    RepositoryNamesCache(refresh=refresh) if cache_enabled else None
+                )
                 for org, scoped_filters in org_specs:
                     effective_filters = (
                         repo_filters if scoped_filters is None else scoped_filters
@@ -1572,7 +1576,11 @@ def breakfast(
                     try:
                         prs.extend(
                             get_github_prs(
-                                org, effective_filters, fetch_state, include_archived
+                                org,
+                                effective_filters,
+                                fetch_state,
+                                include_archived,
+                                names_cache,
                             )
                         )
                     except OwnerNotFoundError as exc:

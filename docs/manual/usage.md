@@ -241,7 +241,7 @@ breakfast -o my-org -r platform --cache-ttl 10m   # cache for 10 minutes
 ## How it works
 
 1. **Check cache** - Looks for a recent on-disk cache for the `(owner, repo-filter)` pair; if found and within the TTL, skips steps 2–3 entirely
-2. **Find PRs** - Uses GitHub GraphQL search to list the owner's PRs (organization or personal account), skipping archived repos unless `--include-archived` is set. This costs one request per 100 PRs however many repos the owner has; large result sets are split by creation date and fetched in parallel
+2. **Find PRs** - Uses GitHub GraphQL search to list the owner's PRs (organization or personal account), skipping archived repos unless `--include-archived` is set. With `--repo-filter` or `-o owner:repo`, breakfast first lists the owner's repo names (cached for 24 hours with `--cache`) and searches only the matching repos, which is much faster on large owners. Without filters, search costs one request per 100 PRs however many repos the owner has; large result sets are split by creation date and fetched in parallel
 3. **Filter repos** - Keeps only PRs whose repo name matches `--repo-filter` (substring or glob)
 4. **Fetch PR details** - Uses the GitHub REST API to fetch full details for each open PR (parallelized for speed); writes results to disk cache
 5. **Filter PRs** - Applies author filters (`--ignore-author`, `--filter-author`, `--mine-only`), title search (`--search`), and other filters

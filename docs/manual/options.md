@@ -1100,18 +1100,23 @@ Can also be set in the config file:
 offline = true
 ```
 
-breakfast caches in three layers: the **URL list** returned by the GraphQL
-search, a **per-repo** bundle of PR details, and the **full** result for the
-whole run.
+breakfast caches in four layers: the owner's **repo names** (used to narrow
+PR searches when repo filters are given, kept for 24 hours), the **URL list**
+returned by the GraphQL search, a **per-repo** bundle of PR details, and the
+**full** result for the whole run.
 
-| Flag | Cache active? | URL list | Per-repo PR cache | Full PR cache |
-| --- | --- | --- | --- | --- |
-| *(none)* | no | skip | skip | skip |
-| `--cache` | yes | read | read | read |
-| `--cache --refresh-prs` | yes | read | skip, write fresh | skip, write fresh |
-| `--cache --refresh` | yes | skip, write fresh | skip, write fresh | skip, write fresh |
-| `--no-cache` | no (override) | skip | skip | skip |
-| `--offline` | yes | not reached | not reached | read (ignore TTL, no write) |
+| Flag | Cache active? | Repo names (24h) | URL list | Per-repo PR cache | Full PR cache |
+| --- | --- | --- | --- | --- | --- |
+| *(none)* | no | skip | skip | skip | skip |
+| `--cache` | yes | read | read | read | read |
+| `--cache --refresh-prs` | yes | not reached | read | skip, write fresh | skip, write fresh |
+| `--cache --refresh` | yes | skip, write fresh | skip, write fresh | skip, write fresh | skip, write fresh |
+| `--no-cache` | no (override) | skip | skip | skip | skip |
+| `--offline` | yes | not reached | not reached | not reached | read (ignore TTL, no write) |
+
+The repo-name list ignores `--cache-ttl`: repos change far less often than
+PRs. A repo created since the list was cached appears after 24 hours, or on the
+next `--refresh`.
 
 A per-repo cache hit is always reconciled against the URL list for that run:
 cached PRs whose URL is no longer listed are dropped, and listed URLs the cache

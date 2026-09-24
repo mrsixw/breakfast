@@ -98,6 +98,28 @@ Follows the XDG Base Directory spec — the same convention as `updater.py`:
 $XDG_CACHE_HOME/breakfast/prs_{hash16}.json       (if XDG_CACHE_HOME is set)
 ```
 
+## Repository names layer
+
+_(Added in [#473](https://github.com/mrsixw/breakfast/issues/473))_
+
+With repo filters, PR discovery first lists the owner's repository names
+(GraphQL `repositories`, 100 per page), matches the filters locally, and then
+searches only the matching repos with `repo:` terms. That keeps busy owners
+clear of GitHub's search rate limits. Listing thousands of repos takes tens of
+seconds, so `cache.RepositoryNamesCache` keeps the list on disk:
+
+- File: `repos_{make_cache_key(owner, mode)}.json`, where `mode` is
+  `"include-archived"` or `""`, so the two archived modes never share a list.
+- Payload: `fetched_at`, `organization`, `include_archived`, `repo_count`,
+  `names`.
+- TTL: `REPOSITORY_NAMES_CACHE_TTL` (24 hours), independent of `--cache-ttl`.
+- `--refresh` skips reading it but writes a fresh list; `--refresh-prs` never
+  reaches discovery; `--no-cache` bypasses it entirely.
+- `api.get_github_prs` takes the cache as an optional object with
+  `read(owner, include_archived)` and `write(owner, include_archived, names)`,
+  so `api.py` stays independent of `cache.py`.
+- Unfiltered runs search the whole owner and never list repos.
+
 ## TTL and `--cache-ttl`
 
 Default: **300 seconds (5 minutes)**. Configurable via CLI flag or config file:

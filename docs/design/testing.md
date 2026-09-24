@@ -232,11 +232,10 @@ produces one obvious failure rather than eight confusing ones.
 
 ### Why scoped `-o mrsixw:breakfast-fixtures`
 
-`api.get_github_prs` searches *every* PR belonging to an owner (GraphQL
-search, 100 per page) and applies repo filters client-side afterwards. `mrsixw`
-has a few dozen open PRs, so each live scenario costs one search page. The
-scoped syntax keeps the *result* set correct; it does not reduce the search
-cost.
+With repo filters, `api.get_github_prs` lists the owner's repository names
+(100 per page), matches the filters locally, and searches only the matching
+repos. `mrsixw` has a few dozen repos, so each live scenario costs one listing
+page and one search page.
 
 The fixture repo is archived, and archived repos are skipped by default
 ([#473](https://github.com/mrsixw/breakfast/issues/473)), so every live scenario
@@ -320,8 +319,8 @@ repos. The suite opts back in with `--include-archived`.
 
 ## Cost and flakiness
 
-Roughly 70 API requests per full live run: each scenario costs one GraphQL
-search page plus one REST call per pull request. Against 5000/hour that is
+Roughly 80 API requests per full live run: each scenario costs one GraphQL
+listing page and one search page, plus one REST call per pull request. Against 5000/hour that is
 comfortable, but note CI triggers on both `push` and `pull_request`, so a branch
 push runs it twice.
 

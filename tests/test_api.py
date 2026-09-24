@@ -141,20 +141,40 @@ def _parse_search_timestamp(value):
 
 
 class FakeSearch:
-    """Stand-in for GitHub's search endpoint.
+    """Stand-in for GitHub's search and repository-listing queries.
 
-    Honours ``created:A..B`` ranges (inclusive, like GitHub), the 1,000-result
-    cap, 100-node pages with opaque cursors, and the optional owner lookup.
+    Search honours ``repo:`` terms, ``created:A..B`` ranges (inclusive, like
+    GitHub), the 1,000-result cap, 100-node pages with opaque cursors, and the
+    optional owner lookup. Listing pages repository names 100 at a time and
+    drops archived ones unless asked for them.
     """
 
-    def __init__(self, prs, owner_exists=True):
+    def __init__(self, prs, owner_exists=True, repos=None, archived_repos=()):
         self.prs = sorted(prs, key=lambda pr: pr["created"])
         self.owner_exists = owner_exists
+        self.repos = (
+            list(repos) if repos is not None else sorted({pr["repo"] for pr in prs})
+        )
+        self.archived_repos = list(archived_repos)
         self.calls = []
+
+    @property
+    def searches(self):
+        return [call for call in self.calls if "searchQuery" in call]
+
+    @property
+    def listings(self):
+        return [call for call in self.calls if "searchQuery" not in call]
 
     def __call__(self, _query, variables):
         self.calls.append(dict(variables))
+        if "searchQuery" not in variables:
+            return self._list_repositories(variables)
         matched = self.prs
+        terms = variables["searchQuery"].split()
+        repos = {t.split("/", 1)[1] for t in terms if t.startswith("repo:")}
+        if repos:
+            matched = [pr for pr in matched if pr["repo"] in repos]
         created = _CREATED_RANGE.search(variables["searchQuery"])
         if created:
             low, high = (_parse_search_timestamp(v) for v in created.groups())
@@ -175,6 +195,43 @@ class FakeSearch:
         if variables["checkOwner"]:
             data["owner"] = {"login": "acme"} if self.owner_exists else None
         return {"data": data}
+
+    def _list_repositories(self, variables):
+        if not self.owner_exists:
+            return {"data": {"repositoryOwner": None}}
+        names = list(self.repos)
+        if variables["archived"] is None:
+            names += self.archived_repos
+        offset = int(variables["cursor"] or 0)
+        end = offset + _SEARCH_PAGE
+        return {
+            "data": {
+                "repositoryOwner": {
+                    "repositories": {
+                        "nodes": [{"name": name} for name in names[offset:end]],
+                        "pageInfo": {
+                            "endCursor": str(end),
+                            "hasNextPage": end < len(names),
+                        },
+                    }
+                }
+            }
+        }
+
+
+class FakeNamesCache:
+    """In-memory stand-in for ``cache.RepositoryNamesCache``."""
+
+    def __init__(self, stored=None):
+        self.stored = dict(stored or {})
+        self.writes = []
+
+    def read(self, owner, include_archived):
+        return self.stored.get((owner, include_archived))
+
+    def write(self, owner, include_archived, names):
+        self.writes.append((owner, include_archived, list(names)))
+        self.stored[(owner, include_archived)] = list(names)
 
 
 def _fake_prs(count, repo="app", start=None, step=datetime.timedelta(hours=1)):
@@ -243,6 +300,162 @@ def test_get_github_prs_filters_on_repository_name(monkeypatch):
         "https://github.com/acme/app-one/pull/0",
         "https://github.com/acme/app-two/pull/0",
     ]
+
+
+def test_get_github_prs_searches_only_repositories_matching_the_filters(
+    monkeypatch,
+):
+    prs = _fake_prs(1, "app-one") + _fake_prs(1, "other") + _fake_prs(1, "app-two")
+    fake = _install_search(monkeypatch, FakeSearch(prs))
+
+    api.get_github_prs("acme", ["app"])
+
+    assert len(fake.listings) == 1
+    assert len(fake.searches) == 1
+    terms = fake.searches[0]["searchQuery"].split()
+    assert sorted(t for t in terms if t.startswith("repo:")) == [
+        "repo:acme/app-one",
+        "repo:acme/app-two",
+    ]
+    assert "org:acme" not in terms
+
+
+def test_get_github_prs_skips_search_when_no_repository_matches(monkeypatch):
+    fake = _install_search(monkeypatch, FakeSearch(_fake_prs(3, "other")))
+
+    assert api.get_github_prs("acme", ["app"]) == []
+    assert fake.searches == []
+
+
+def test_get_github_prs_lists_repositories_without_archived_by_default(
+    monkeypatch,
+):
+    fake = _install_search(
+        monkeypatch,
+        FakeSearch(_fake_prs(1, "app"), archived_repos=["app-old"]),
+    )
+
+    api.get_github_prs("acme", ["app"])
+
+    assert fake.listings[0]["archived"] is False
+    terms = fake.searches[0]["searchQuery"].split()
+    assert "repo:acme/app-old" not in terms
+    assert "archived:false" in terms
+
+
+def test_get_github_prs_lists_archived_repositories_when_included(monkeypatch):
+    prs = _fake_prs(1, "app") + _fake_prs(1, "app-old")
+    fake = _install_search(
+        monkeypatch, FakeSearch(prs, repos=["app"], archived_repos=["app-old"])
+    )
+
+    result = api.get_github_prs("acme", ["app"], "open", True)
+
+    assert fake.listings[0]["archived"] is None
+    assert "https://github.com/acme/app-old/pull/0" in result
+    assert "archived:false" not in fake.searches[0]["searchQuery"]
+
+
+def test_get_github_prs_pages_through_repository_names(monkeypatch):
+    repos = [f"app-{n:03}" for n in range(250)]
+    fake = _install_search(monkeypatch, FakeSearch([], repos=repos))
+
+    api.get_github_prs("acme", ["app-00*"])
+
+    assert [call["cursor"] for call in fake.listings] == [None, "100", "200"]
+
+
+def test_get_github_prs_raises_owner_not_found_when_listing_is_null(monkeypatch):
+    _install_search(monkeypatch, FakeSearch([], owner_exists=False))
+
+    with pytest.raises(api.OwnerNotFoundError):
+        api.get_github_prs("ghost-login", ["app"])
+
+
+def test_get_github_prs_chunks_repository_terms(monkeypatch):
+    repos = [f"app-{n:02}" for n in range(45)]
+    prs = [pr for repo in repos for pr in _fake_prs(1, repo)]
+    fake = _install_search(monkeypatch, FakeSearch(prs))
+
+    result = api.get_github_prs("acme", ["app-*"])
+
+    assert len(result) == 45
+    per_search = [
+        sum(t.startswith("repo:") for t in call["searchQuery"].split())
+        for call in fake.searches
+    ]
+    assert per_search == [20, 20, 5]
+
+
+def test_get_github_prs_searches_the_whole_owner_when_most_repos_match(
+    monkeypatch,
+):
+    repos = [f"app-{n:03}" for n in range(201)]
+    prs = [pr for repo in repos[:3] for pr in _fake_prs(1, repo)]
+    fake = _install_search(monkeypatch, FakeSearch(prs, repos=repos))
+
+    result = api.get_github_prs("acme", ["app-*"])
+
+    assert len(result) == 3
+    assert len(fake.searches) == 1
+    terms = fake.searches[0]["searchQuery"].split()
+    assert "org:acme" in terms
+    assert not any(t.startswith("repo:") for t in terms)
+
+
+def test_get_github_prs_slices_a_large_repository_search(monkeypatch):
+    prs = _fake_prs(600, "app") + _fake_prs(600, "other")
+    fake = _install_search(monkeypatch, FakeSearch(prs))
+
+    result = api.get_github_prs("acme", ["app"])
+
+    assert sorted(result) == sorted(pr["url"] for pr in prs[:600])
+    sliced = [c for c in fake.searches if _CREATED_RANGE.search(c["searchQuery"])]
+    assert sliced
+    assert all("repo:acme/app" in c["searchQuery"].split() for c in sliced)
+
+
+def test_get_github_prs_uses_cached_repository_names(monkeypatch):
+    fake = _install_search(monkeypatch, FakeSearch(_fake_prs(1, "app")))
+    names_cache = FakeNamesCache({("acme", False): ["app"]})
+
+    result = api.get_github_prs("acme", ["app"], "open", False, names_cache)
+
+    assert result == ["https://github.com/acme/app/pull/0"]
+    assert fake.listings == []
+    assert names_cache.writes == []
+
+
+def test_get_github_prs_checks_owner_when_names_come_from_cache(monkeypatch):
+    # A warm cache may outlive the owner; the first search still verifies it.
+    fake = _install_search(monkeypatch, FakeSearch([], owner_exists=False))
+    names_cache = FakeNamesCache({("ghost-login", False): ["app"]})
+
+    with pytest.raises(api.OwnerNotFoundError):
+        api.get_github_prs("ghost-login", ["app"], "open", False, names_cache)
+
+    assert [call["checkOwner"] for call in fake.searches] == [True]
+
+
+def test_get_github_prs_caches_listed_repository_names(monkeypatch):
+    _install_search(
+        monkeypatch, FakeSearch(_fake_prs(1, "app") + _fake_prs(1, "other"))
+    )
+    names_cache = FakeNamesCache()
+
+    api.get_github_prs("acme", ["app"], "open", True, names_cache)
+
+    assert names_cache.writes == [("acme", True, ["app", "other"])]
+
+
+def test_get_github_prs_does_not_list_repositories_without_filters(monkeypatch):
+    fake = _install_search(monkeypatch, FakeSearch(_fake_prs(2)))
+    names_cache = FakeNamesCache()
+
+    api.get_github_prs("acme", [], "open", False, names_cache)
+
+    assert fake.listings == []
+    assert names_cache.writes == []
 
 
 def test_get_github_prs_skips_null_nodes(monkeypatch):
@@ -1550,8 +1763,15 @@ def _script_graphql_posts(monkeypatch, responses):
         posts.append(1)
         return next(queue)
 
+    clock = [1000.0]
+
+    def fake_sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += seconds
+
     monkeypatch.setattr(api.requests, "post", fake_post)
-    monkeypatch.setattr(api.time, "sleep", sleeps.append)
+    monkeypatch.setattr(api.time, "sleep", fake_sleep)
+    monkeypatch.setattr(api.time, "monotonic", lambda: clock[0])
     return posts, sleeps
 
 
@@ -1656,4 +1876,61 @@ def test_make_github_graphql_request_surfaces_githubs_message_on_other_403(
     assert isinstance(exc_info.value, requests.exceptions.HTTPError)
     assert message in str(exc_info.value)
     assert "403" in str(exc_info.value)
+    assert len(posts) == 1
+
+
+def test_a_secondary_limit_pauses_the_next_request_too(monkeypatch):
+    # Workers share one pause: once GitHub says slow down, a request that
+    # starts during the wait holds off rather than hitting the limit again.
+    limited = _graphql_http_response(403, _SECONDARY_LIMIT_BODY, {"Retry-After": "9"})
+    ok = _graphql_http_response(200, {"data": {"ok": True}})
+    posts, sleeps = _script_graphql_posts(
+        monkeypatch, [limited] * (api.MAX_RETRIES + 1) + [ok]
+    )
+
+    with pytest.raises(api.GitHubSecondaryRateLimitError):
+        api.make_github_graphql_request("{ viewer { login } }")
+    sleeps.clear()
+
+    api.make_github_graphql_request("{ viewer { login } }")
+
+    assert sleeps == [9]
+
+
+def test_the_slow_down_notice_prints_once_per_pause(monkeypatch, capsys):
+    limited = _graphql_http_response(403, _SECONDARY_LIMIT_BODY, {"Retry-After": "60"})
+    ok = _graphql_http_response(200, {"data": {"ok": True}})
+    _script_graphql_posts(monkeypatch, [limited, ok])
+    real_post = api.requests.post
+
+    def post_while_another_worker_pauses(*args, **kwargs):
+        # Another worker hit the limit while this request was in flight.
+        if api._throttle_until == 0.0:
+            api._throttle_until = api.time.monotonic() + 59
+        return real_post(*args, **kwargs)
+
+    monkeypatch.setattr(api.requests, "post", post_while_another_worker_pauses)
+
+    api.make_github_graphql_request("{ viewer { login } }")
+
+    assert "slow down" not in capsys.readouterr().err
+
+
+def test_a_pause_extended_during_the_wait_is_waited_out_too(monkeypatch):
+    ok = _graphql_http_response(200, {"data": {"ok": True}})
+    posts, sleeps = _script_graphql_posts(monkeypatch, [ok])
+    real_sleep = api.time.sleep
+    monkeypatch.setattr(api, "_throttle_until", api.time.monotonic() + 10)
+
+    def sleep_while_another_worker_extends(seconds):
+        real_sleep(seconds)
+        if len(sleeps) == 1:
+            # Another worker hit the limit again while this one slept.
+            api._throttle_until = api.time.monotonic() + 5
+
+    monkeypatch.setattr(api.time, "sleep", sleep_while_another_worker_extends)
+
+    api.make_github_graphql_request("{ viewer { login } }")
+
+    assert sleeps == [10, 5]
     assert len(posts) == 1

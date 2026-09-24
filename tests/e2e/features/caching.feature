@@ -9,6 +9,7 @@ Feature: Caching across separate processes
     Then the exit code is 0
     And the cache directory holds a "prs_*.json" file
     And the cache directory holds a "graphql_*.json" file
+    And the cache directory holds a "repos_*.json" file
     And a second offline run prints byte-identical output
 
   Scenario: Debug summary reports real API activity

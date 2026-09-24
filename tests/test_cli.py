@@ -6360,3 +6360,43 @@ def test_include_archived_does_not_share_the_url_list_cache(monkeypatch, tmp_pat
     assert result.exit_code == 0
     assert seen == [True], "the default-mode URL list must not be reused"
     assert cache.read_graphql_cache("org", "repo", 300) == default_urls
+
+
+# ---------------------------------------------------------------------------
+# Discovery errors exit cleanly
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "error, expected",
+    [
+        (
+            api.GitHubRateLimitError("2026-09-24 10:00:00"),
+            "Try again after 2026-09-24 10:00:00 UTC",
+        ),
+        (api.GitHubSecondaryRateLimitError(), "secondary rate limit"),
+        (
+            api.GitHubForbiddenError(
+                403, "Resource protected by organization SAML enforcement."
+            ),
+            "SAML enforcement",
+        ),
+    ],
+)
+def test_discovery_http_errors_exit_cleanly(monkeypatch, error, expected):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+
+    def failing_discovery(*_args):
+        raise error
+
+    monkeypatch.setattr(cli, "get_github_prs", failing_discovery)
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "--no-cache"])
+
+    assert result.exit_code == 1
+    assert not isinstance(result.exception, requests.exceptions.HTTPError)
+    assert expected in result.stderr
+    assert "Traceback" not in result.stderr
+    assert result.stdout == ""

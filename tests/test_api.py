@@ -1,4 +1,5 @@
 import datetime
+import json
 import re
 
 import pytest
@@ -1518,3 +1519,141 @@ def test_resolve_github_token_info(monkeypatch):
 
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     assert api._resolve_github_token_info() == (None, None)
+
+
+# ---------------------------------------------------------------------------
+# GraphQL 403/429 handling
+# ---------------------------------------------------------------------------
+
+_SECONDARY_LIMIT_BODY = {
+    "message": "You have exceeded a secondary rate limit. Please wait a few "
+    "minutes before you try again."
+}
+
+
+def _graphql_http_response(status, body, headers=None):
+    response = requests.Response()
+    response.status_code = status
+    response._content = json.dumps(body).encode()
+    response.headers.update(headers or {})
+    response.url = api.GITHUB_GRAPHQL_URL
+    return response
+
+
+def _script_graphql_posts(monkeypatch, responses):
+    """Serve scripted responses to GraphQL POSTs and record every sleep."""
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    queue = iter(responses)
+    posts, sleeps = [], []
+
+    def fake_post(*_a, **_kw):
+        posts.append(1)
+        return next(queue)
+
+    monkeypatch.setattr(api.requests, "post", fake_post)
+    monkeypatch.setattr(api.time, "sleep", sleeps.append)
+    return posts, sleeps
+
+
+def test_make_github_graphql_request_waits_out_secondary_limit_retry_after(
+    monkeypatch, capsys
+):
+    _, sleeps = _script_graphql_posts(
+        monkeypatch,
+        [
+            _graphql_http_response(403, _SECONDARY_LIMIT_BODY, {"Retry-After": "7"}),
+            _graphql_http_response(200, {"data": {"ok": True}}),
+        ],
+    )
+
+    result = api.make_github_graphql_request("{ viewer { login } }")
+
+    assert result == {"data": {"ok": True}}
+    assert sleeps == [7]
+    captured = capsys.readouterr()
+    assert "7s" in captured.err
+    assert captured.out == ""
+
+
+def test_make_github_graphql_request_treats_429_as_secondary_limit(monkeypatch):
+    _, sleeps = _script_graphql_posts(
+        monkeypatch,
+        [
+            _graphql_http_response(429, _SECONDARY_LIMIT_BODY, {"Retry-After": "3"}),
+            _graphql_http_response(200, {"data": {"ok": True}}),
+        ],
+    )
+
+    assert api.make_github_graphql_request("{ viewer { login } }") == {
+        "data": {"ok": True}
+    }
+    assert sleeps == [3]
+
+
+def test_make_github_graphql_request_waits_a_minute_without_retry_after(
+    monkeypatch,
+):
+    # GitHub's guidance: with no retry-after header, wait at least one minute.
+    _, sleeps = _script_graphql_posts(
+        monkeypatch,
+        [
+            _graphql_http_response(403, _SECONDARY_LIMIT_BODY),
+            _graphql_http_response(200, {"data": {"ok": True}}),
+        ],
+    )
+
+    api.make_github_graphql_request("{ viewer { login } }")
+
+    assert sleeps == [60]
+
+
+def test_make_github_graphql_request_gives_up_on_a_persistent_secondary_limit(
+    monkeypatch,
+):
+    limited = _graphql_http_response(403, _SECONDARY_LIMIT_BODY, {"Retry-After": "1"})
+    posts, _ = _script_graphql_posts(monkeypatch, [limited] * (api.MAX_RETRIES + 1))
+
+    with pytest.raises(api.GitHubRateLimitError) as exc_info:
+        api.make_github_graphql_request("{ viewer { login } }")
+
+    assert "secondary rate limit" in str(exc_info.value)
+    assert len(posts) == api.MAX_RETRIES + 1
+
+
+def test_make_github_graphql_request_raises_rate_limit_when_primary_exhausted(
+    monkeypatch,
+):
+    posts, sleeps = _script_graphql_posts(
+        monkeypatch,
+        [
+            _graphql_http_response(
+                403,
+                {"message": "API rate limit exceeded"},
+                {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1790000000"},
+            )
+        ],
+    )
+
+    with pytest.raises(api.GitHubRateLimitError) as exc_info:
+        api.make_github_graphql_request("{ viewer { login } }")
+
+    assert exc_info.value.reset_time is not None
+    assert len(posts) == 1, "an exhausted primary limit is not retried"
+    assert sleeps == []
+
+
+def test_make_github_graphql_request_surfaces_githubs_message_on_other_403(
+    monkeypatch,
+):
+    message = "Resource protected by organization SAML enforcement."
+    posts, _ = _script_graphql_posts(
+        monkeypatch, [_graphql_http_response(403, {"message": message})]
+    )
+
+    with pytest.raises(api.GitHubForbiddenError) as exc_info:
+        api.make_github_graphql_request("{ viewer { login } }")
+
+    assert isinstance(exc_info.value, requests.exceptions.HTTPError)
+    assert message in str(exc_info.value)
+    assert "403" in str(exc_info.value)
+    assert len(posts) == 1

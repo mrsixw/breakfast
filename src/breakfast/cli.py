@@ -15,6 +15,7 @@ import requests
 from .api import (
     SECRET_GITHUB_TOKEN,
     GitHubAuthenticationError,
+    GitHubForbiddenError,
     GitHubGraphQLError,
     GitHubGraphQLResourceLimitError,
     GitHubRateLimitError,
@@ -1763,6 +1764,15 @@ def breakfast(
         except GitHubAuthenticationError as exc:
             click.echo("", err=True)
             _handle_auth_error(exc, colour=colour, json_output=json_output)
+        except GitHubRateLimitError as exc:
+            click.echo("", err=True)
+            _handle_rate_limit(exc, json_output)
+        except GitHubForbiddenError as exc:
+            click.echo("", err=True)
+            click.echo(
+                click.style(f"🥞 {exc}", fg="red", bold=True), err=True, color=colour
+            )
+            sys.exit(1)
         except GitHubGraphQLResourceLimitError as exc:
             logger.warning(
                 "graphql_resource_limit_unrecoverable error_count=%d errors=%s",

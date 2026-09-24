@@ -66,6 +66,28 @@ If errors persist and no cached data exists:
 - Verify your token hasn't been revoked
 - Check your [API rate limit](https://docs.github.com/en/rest/rate-limit): `curl -H "Authorization: token $GH_TOKEN" https://api.github.com/rate_limit`
 
+## Rate limits and "GitHub refused the request (HTTP 403)"
+
+PR discovery runs a few GitHub searches in parallel. If GitHub's **secondary
+rate limit** kicks in, breakfast waits as GitHub asks (the `retry-after`
+header, or a minute without one) and retries, showing:
+
+```text
+🐢 GitHub asked breakfast to slow down; waiting 60s...
+```
+
+If the limit outlasts the retries, or the hourly (primary) limit is used up,
+breakfast exits with a 🥞 message telling you when to try again.
+
+Any other 403 is printed with GitHub's own explanation, for example an
+organization that requires SAML SSO authorization for your token:
+
+```text
+🥞 GitHub refused the request (HTTP 403): Resource protected by organization SAML enforcement...
+```
+
+For SSO, authorize the token for that organization in GitHub's token settings.
+
 ## GitHub GraphQL resource limits
 
 GitHub may reject a GraphQL query with `RESOURCE_LIMITS_EXCEEDED`. PR

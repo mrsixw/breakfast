@@ -38,6 +38,7 @@ __all__ = [
     "SEARCH_SLICE_TARGET",
     "SEARCH_WORKERS",
     "SEASONAL_PALETTES",
+    "SECONDARY_RATE_LIMIT_DEFAULT_WAIT",
     "SUKKOT_START",
     "TTL_SUFFIX_MAP",
 ]
@@ -61,7 +62,10 @@ REQUEST_TIMEOUT = (5, 30)
 SEARCH_PAGE_SIZE = 100
 SEARCH_RESULT_LIMIT = 1000
 SEARCH_SLICE_TARGET = 300
-SEARCH_WORKERS = 8
+SEARCH_WORKERS = 4
+# GitHub's guidance for a secondary rate limit without a retry-after header:
+# wait at least one minute before retrying.
+SECONDARY_RATE_LIMIT_DEFAULT_WAIT = 60
 SEARCH_EARLIEST_CREATED = "2007-01-01T00:00:00+00:00"
 
 # ── Cache Configuration ────────────────────────────────────────────────────

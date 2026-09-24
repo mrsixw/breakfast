@@ -27,14 +27,17 @@ from .constants import (
     SEARCH_RESULT_LIMIT,
     SEARCH_SLICE_TARGET,
     SEARCH_WORKERS,
+    SECONDARY_RATE_LIMIT_DEFAULT_WAIT,
 )
 from .logger import logger
 
 __all__ = [
     "GitHubAuthenticationError",
+    "GitHubForbiddenError",
     "GitHubGraphQLError",
     "GitHubGraphQLResourceLimitError",
     "GitHubRateLimitError",
+    "GitHubSecondaryRateLimitError",
     "OwnerNotFoundError",
     "fetch_pr_detail",
     "get_api_stats",
@@ -144,6 +147,35 @@ class GitHubRateLimitError(Exception):
             )
         else:
             super().__init__("GitHub API rate limit exceeded.")
+
+
+class GitHubSecondaryRateLimitError(GitHubRateLimitError):
+    """Raised when GitHub's secondary rate limit outlasts every retry."""
+
+    def __init__(self):
+        Exception.__init__(
+            self,
+            "GitHub's secondary rate limit is still in effect after retrying."
+            " Wait a few minutes and try again.",
+        )
+        self.reset_time = None
+
+
+class GitHubForbiddenError(requests.exceptions.HTTPError):
+    """Raised when GitHub refuses a request for a reason other than rate limits.
+
+    Attributes:
+        status_code: The HTTP status GitHub returned.
+        github_message: GitHub's explanation from the response body.
+    """
+
+    def __init__(self, status_code, github_message, response=None):
+        self.status_code = status_code
+        self.github_message = github_message
+        super().__init__(
+            f"GitHub refused the request (HTTP {status_code}): {github_message}",
+            response=response,
+        )
 
 
 class OwnerNotFoundError(Exception):
@@ -326,15 +358,62 @@ def make_paginated_github_api_request(query_string, rate=100):
     return all_data
 
 
+def _github_error_message(response):
+    """Return GitHub's ``message`` from an error response body, if any."""
+    try:
+        body = response.json()
+    except ValueError:
+        return response.text.strip()
+    if isinstance(body, dict) and body.get("message"):
+        return body["message"]
+    return response.text.strip()
+
+
+def _primary_rate_limit_error(response):
+    """Return a rate-limit error if the response exhausted the primary limit."""
+    if response.headers.get("X-RateLimit-Remaining") != "0":
+        return None
+    reset_ts = response.headers.get("X-RateLimit-Reset")
+    reset_time = None
+    if reset_ts:
+        reset_time = datetime.datetime.fromtimestamp(
+            int(reset_ts), tz=datetime.timezone.utc
+        ).strftime("%Y-%m-%d %H:%M:%S")
+    return GitHubRateLimitError(reset_time)
+
+
+def _secondary_rate_limit_wait(response):
+    """Return seconds to wait out a secondary rate limit, or None if it is not one.
+
+    Follows GitHub's guidance: honour ``retry-after`` when present, otherwise
+    wait at least a minute.
+    """
+    retry_after = response.headers.get("Retry-After")
+    if retry_after is not None:
+        try:
+            return max(int(retry_after), 1)
+        except ValueError:
+            return SECONDARY_RATE_LIMIT_DEFAULT_WAIT
+    if response.status_code == 429:
+        return SECONDARY_RATE_LIMIT_DEFAULT_WAIT
+    if "secondary rate limit" in _github_error_message(response).lower():
+        return SECONDARY_RATE_LIMIT_DEFAULT_WAIT
+    return None
+
+
 def make_github_graphql_request(query, variables=None):
     headers = {
         "Authorization": f"Bearer {SECRET_GITHUB_TOKEN}",
         "Content-Type": "application/json",
     }
     payload = {"query": query, "variables": variables or {}}
+    wait = None
     for attempt in range(MAX_RETRIES + 1):
         if attempt:
-            time.sleep(2 ** (attempt - 1) + random.uniform(0, 0.5))
+            if wait is None:
+                wait = 2 ** (attempt - 1) + random.uniform(0, 0.5)
+            time.sleep(wait)
+            wait = None
         try:
             t0 = time.monotonic()
             response = requests.post(
@@ -360,6 +439,40 @@ def make_github_graphql_request(query, variables=None):
                     token_var,
                 )
                 raise GitHubAuthenticationError(token_var=token_var, response=response)
+            if response.status_code in (403, 429):
+                primary = _primary_rate_limit_error(response)
+                if primary is not None:
+                    logger.warning(
+                        "api_call type=graphql rate_limit_exceeded reset=%s",
+                        primary.reset_time,
+                    )
+                    raise primary
+                wait = _secondary_rate_limit_wait(response)
+                if wait is None:
+                    message = _github_error_message(response)
+                    logger.warning(
+                        "api_call type=graphql status=%d forbidden message=%r",
+                        response.status_code,
+                        message,
+                    )
+                    raise GitHubForbiddenError(
+                        response.status_code, message, response=response
+                    )
+                logger.warning(
+                    "api_call type=graphql status=%d secondary_rate_limit"
+                    " wait=%ss attempt=%d",
+                    response.status_code,
+                    wait,
+                    attempt + 1,
+                )
+                if attempt == MAX_RETRIES:
+                    raise GitHubSecondaryRateLimitError()
+                click.echo(
+                    f"\n🐢 GitHub asked breakfast to slow down; waiting {wait}s...",
+                    nl=False,
+                    err=True,
+                )
+                continue
             response.raise_for_status()
             resp_json = response.json()
             if "errors" in resp_json:

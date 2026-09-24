@@ -643,6 +643,11 @@ query($owner: String!, $cursor: String, $pageSize: Int!, $archived: Boolean) {
 _SEARCH_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
+def _show_progress():
+    """Print one breakfast emoji to stderr: a request finished."""
+    click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
+
+
 def _build_search_string(scope, fetch_state, include_archived, created=None):
     """Return a GitHub search string for pull requests within a scope.
 
@@ -801,7 +806,7 @@ def _search_in_created_slices(owner, scope, fetch_state, include_archived, count
                         futures[submit(piece)] = piece
                     continue
                 nodes.extend(slice_nodes)
-                click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
+                _show_progress()
     finally:
         executor.shutdown(cancel_futures=True)
     return nodes
@@ -819,19 +824,13 @@ def _collect_search(owner, scope, fetch_state, include_archived, check_owner=Fal
     # Search returns nothing, not an error, for an unknown owner.
     if check_owner and data.get("owner") is None:
         raise OwnerNotFoundError(owner)
+    _show_progress()
     page = data["search"]
     if page["issueCount"] > SEARCH_SLICE_TARGET:
         return _search_in_created_slices(
             owner, scope, fetch_state, include_archived, page["issueCount"]
         )
-    return _drain_search(
-        owner,
-        search_string,
-        page,
-        on_page=lambda: click.echo(
-            random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True
-        ),
-    )
+    return _drain_search(owner, search_string, page, on_page=_show_progress)
 
 
 def _list_repository_names(owner, include_archived):
@@ -858,10 +857,10 @@ def _list_repository_names(owner, include_archived):
             raise OwnerNotFoundError(owner)
         repositories = data["repositoryOwner"]["repositories"]
         names.extend(node["name"] for node in repositories["nodes"] if node)
+        _show_progress()
         if not repositories["pageInfo"]["hasNextPage"]:
             return names
         cursor = repositories["pageInfo"]["endCursor"]
-        click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
 
 
 def _repository_names(owner, include_archived, names_cache):

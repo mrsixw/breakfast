@@ -2223,3 +2223,19 @@ def test_every_repository_listing_page_shows_progress(monkeypatch, capsys):
     api.get_github_prs("acme", ["zzz"])
 
     assert _progress(capsys) == 3
+
+
+def test_every_review_batch_shows_progress(monkeypatch, capsys):
+    keys = _pr_keys(120)
+    monkeypatch.setattr(
+        api,
+        "make_github_graphql_request",
+        FakeReviewBatch({key: _review_node() for key in keys}),
+    )
+    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+
+    api.get_review_data_batch(keys)
+
+    captured = capsys.readouterr()
+    assert captured.err.count("*") == 3
+    assert captured.out == ""

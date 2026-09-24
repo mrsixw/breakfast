@@ -1951,11 +1951,15 @@ def breakfast(
                     "required": None,
                 }
         else:
+            click.echo("Fetching approvals...", nl=False, err=True)
             try:
                 approval_details = _approval_details_for(pr_details, workers)
+                click.echo("...Done", err=True)
             except GitHubAuthenticationError as exc:
+                click.echo("", err=True)
                 _handle_auth_error(exc, colour=colour, json_output=json_output)
             except GitHubRateLimitError as exc:
+                click.echo("", err=True)
                 _handle_rate_limit(exc, json_output)
             approval_statuses = {
                 pr_id: detail["status"] for pr_id, detail in approval_details.items()

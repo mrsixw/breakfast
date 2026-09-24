@@ -6685,6 +6685,8 @@ def test_cached_prs_missing_approvals_are_batched_too(monkeypatch, tmp_path):
     assert len(graphql_calls) == 1
     assert not [p for p in rest_paths if p.endswith("/reviews")]
     assert "❌ changes" in result.stdout
+    # The batch's progress gets its own finished line, not a stray emoji.
+    assert re.search(r"Fetching approvals\.\.\.[^.\n]+\.\.\.Done\n", result.stderr)
 
 
 @pytest.mark.parametrize(

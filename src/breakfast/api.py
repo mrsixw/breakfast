@@ -1194,6 +1194,7 @@ def get_review_data_batch(pr_keys):
     with ThreadPoolExecutor(max_workers=SEARCH_WORKERS) as executor:
         for chunk_result in executor.map(_fetch_review_chunk, chunks):
             result.update(chunk_result)
+            _show_progress()
     return result
 
 

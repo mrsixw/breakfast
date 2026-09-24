@@ -165,6 +165,20 @@ breakfast -o my-org -r platform --fetch-state all       # every state
 
 Config key: `fetch-state = "open"`
 
+### `--include-archived`
+
+Include PRs in **archived** repositories. By default they are skipped: an
+archived repo is read-only, so nobody can review, merge or close its PRs.
+
+```bash
+breakfast -o my-org                       # archived repos skipped
+breakfast -o my-org --include-archived    # archived repos included
+```
+
+Runs with and without this flag are cached separately.
+
+Config key: `include-archived = false`
+
 ### `--filter-state`
 
 Only show PRs with a specific state. Accepted values: `open`, `closed`, `draft`. Repeat the flag to match multiple states.

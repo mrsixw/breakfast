@@ -764,6 +764,15 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
     ),
 )
 @click.option(
+    "--include-archived",
+    is_flag=True,
+    default=False,
+    help=(
+        "Include PRs in archived repositories. They are skipped by default,"
+        " since nobody can act on them."
+    ),
+)
+@click.option(
     "--filter-state",
     type=click.Choice(["open", "closed", "draft"], case_sensitive=False),
     multiple=True,
@@ -1005,6 +1014,7 @@ def breakfast(
     refresh,
     refresh_prs,
     fetch_state,
+    include_archived,
     filter_state,
     filter_check,
     filter_approval,
@@ -1277,6 +1287,7 @@ def breakfast(
     fetch_state = (
         fetch_state if fetch_state is not None else cfg.get("fetch-state", "open")
     )
+    include_archived = include_archived or cfg.get("include-archived", False)
     if status_style not in {"emoji", "ascii"}:
         status_style = "emoji"
     legendary = legendary if legendary is not None else cfg.get("legendary", False)
@@ -1473,6 +1484,10 @@ def breakfast(
     org_cache_key = "|".join(
         sorted(_org_spec_cache_segment(o, s) for o, s in org_specs)
     )
+    # Archived repos change which PRs discovery returns, so the two modes must
+    # not answer for each other. The default keeps the historical key.
+    if include_archived:
+        org_cache_key += "|include-archived"
 
     # --- Layer 1: full cache (skip on --refresh/--refresh-prs unless offline) ---
     pr_details = None
@@ -1554,7 +1569,11 @@ def breakfast(
                         repo_filters if scoped_filters is None else scoped_filters
                     )
                     try:
-                        prs.extend(get_github_prs(org, effective_filters, fetch_state))
+                        prs.extend(
+                            get_github_prs(
+                                org, effective_filters, fetch_state, include_archived
+                            )
+                        )
                     except OwnerNotFoundError as exc:
                         logger.warning(
                             "graphql_owner_not_found owner=%s error=%r",

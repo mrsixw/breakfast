@@ -68,13 +68,10 @@ If errors persist and no cached data exists:
 
 ## GitHub GraphQL resource limits
 
-GitHub may reject a query that asks it to process too many repositories and
-pull requests at once. breakfast automatically uses bounded repository pages
-and retries the same page with progressively fewer repositories when GitHub
-reports `RESOURCE_LIMITS_EXCEEDED`.
-
-If even a single-repository page cannot be served, breakfast exits cleanly
-without a Python traceback and prints:
+GitHub may reject a GraphQL query with `RESOURCE_LIMITS_EXCEEDED`. PR
+discovery uses search pages of 100 PRs and rarely hits this, but if a query
+cannot be served, breakfast exits cleanly without a Python traceback and
+prints:
 
 ```text
 🥞 GitHub couldn't return the PR list because the GraphQL query exceeded resource limits. Try again or narrow the requested repositories.
@@ -96,9 +93,23 @@ PR details are fetched in parallel (up to 8 concurrent requests), and results ar
 
 - Use `--repo-filter` to narrow down the repos queried
 - Use `--ignore-author` to reduce the number of PRs processed
-- Owners with many repos will take longer on the initial GraphQL query
+- Discovery costs one GraphQL search request per 100 PRs, however many repos the owner has. Owners with thousands of open PRs are split by creation date and searched in parallel, so expect a few seconds per thousand PRs
+- Fetching `--fetch-state closed` or `all` on a large owner means many more PRs to find and fetch
 
 Subsequent runs within the TTL window will be near-instant (served from the local cache). To force a fresh fetch, use `--no-cache`. To tune the cache window, use `--cache-ttl` (e.g. `--cache-ttl 10m`).
+
+## A PR is missing from the list
+
+- **It was opened moments ago.** PRs are found with GitHub search, whose index
+  can lag by a few seconds to a minute or so. Run again shortly, with
+  `--refresh` if the cache is on.
+- **Its repository is archived.** Archived repos are skipped by default because
+  nobody can act on their PRs. Add `--include-archived` to see them.
+- **The owner has an enormous number of matching PRs.** GitHub search serves at
+  most 1,000 results per query. breakfast splits larger result sets by creation
+  date until each slice fits, but if more than 1,000 PRs were created in the
+  same second, only 1,000 of them can be fetched; a
+  `search_slice_over_cap` warning is written to the log.
 
 ## Terminal hyperlinks not working
 

@@ -13,7 +13,6 @@ __all__ = [
     "EID_AL_FITR",
     "GITHUB_API_URL",
     "GITHUB_GRAPHQL_URL",
-    "GRAPHQL_REPOSITORY_PAGE_SIZE",
     "HANUKKAH_START",
     "HEADER_STYLES",
     "HEADER_STYLE_CHOICES",
@@ -33,6 +32,11 @@ __all__ = [
     "REQUEST_TIMEOUT",
     "RETRY_STATUSES",
     "ROSH_HASHANAH",
+    "SEARCH_EARLIEST_CREATED",
+    "SEARCH_PAGE_SIZE",
+    "SEARCH_RESULT_LIMIT",
+    "SEARCH_SLICE_TARGET",
+    "SEARCH_WORKERS",
     "SEASONAL_PALETTES",
     "SUKKOT_START",
     "TTL_SUFFIX_MAP",
@@ -49,7 +53,16 @@ MAX_STORED_GRAPHQL_ERRORS = 10
 MAX_RETRIES = 3
 RETRY_STATUSES = {502, 503, 504}
 REQUEST_TIMEOUT = (5, 30)
-GRAPHQL_REPOSITORY_PAGE_SIZE = 25
+# PR discovery uses GraphQL search. Pages within one search must be fetched in
+# order, so a result set over SEARCH_SLICE_TARGET is split into `created:`
+# ranges, starting from SEARCH_EARLIEST_CREATED (before GitHub launched), that
+# are fetched SEARCH_WORKERS at a time. Splitting also keeps every range under
+# SEARCH_RESULT_LIMIT, the most GitHub serves for any one search.
+SEARCH_PAGE_SIZE = 100
+SEARCH_RESULT_LIMIT = 1000
+SEARCH_SLICE_TARGET = 300
+SEARCH_WORKERS = 8
+SEARCH_EARLIEST_CREATED = "2007-01-01T00:00:00+00:00"
 
 # ── Cache Configuration ────────────────────────────────────────────────────
 

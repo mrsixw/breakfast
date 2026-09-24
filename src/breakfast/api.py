@@ -1,9 +1,11 @@
 import datetime
 import fnmatch
+import math
 import os
 import random
 import threading
 import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from functools import lru_cache
 from urllib.parse import quote, urlparse
 
@@ -14,13 +16,17 @@ from .constants import (
     BREAKFAST_ITEMS,
     GITHUB_API_URL,
     GITHUB_GRAPHQL_URL,
-    GRAPHQL_REPOSITORY_PAGE_SIZE,
     MAX_GRAPHQL_ERROR_MESSAGE_LENGTH,
     MAX_GRAPHQL_ERROR_TYPES,
     MAX_RETRIES,
     MAX_STORED_GRAPHQL_ERRORS,
     REQUEST_TIMEOUT,
     RETRY_STATUSES,
+    SEARCH_EARLIEST_CREATED,
+    SEARCH_PAGE_SIZE,
+    SEARCH_RESULT_LIMIT,
+    SEARCH_SLICE_TARGET,
+    SEARCH_WORKERS,
 )
 from .logger import logger
 
@@ -432,118 +438,252 @@ def match_exclude_repos(repo_name, exclude_repos):
     return False
 
 
-_FETCH_STATE_MAP = {
-    "open": ["OPEN"],
-    "closed": ["CLOSED"],
-    "merged": ["MERGED"],
-    "all": ["OPEN", "CLOSED", "MERGED"],
+# Search qualifiers per --fetch-state. GraphQL's CLOSED state means closed
+# without merging, which search spells as two qualifiers.
+_FETCH_STATE_QUALIFIERS = {
+    "open": ["is:open"],
+    "closed": ["is:closed", "is:unmerged"],
+    "merged": ["is:merged"],
+    "all": [],
 }
 
+_SEARCH_QUERY = """
+query($owner: String!, $searchQuery: String!, $cursor: String,
+      $pageSize: Int!, $checkOwner: Boolean!) {
+  owner: repositoryOwner(login: $owner) @include(if: $checkOwner) {
+    login
+  }
+  search(type: ISSUE, query: $searchQuery, first: $pageSize, after: $cursor) {
+    issueCount
+    nodes {
+      ... on PullRequest {
+        url
+        repository { name }
+      }
+    }
+    pageInfo {
+      endCursor
+      hasNextPage
+    }
+  }
+}
+"""
 
-def _request_github_repository_page(query, owner, cursor, page_size):
-    """Request one repository page, reducing its size on resource failures.
+_SEARCH_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def _build_search_string(owner, fetch_state, include_archived, created=None):
+    """Return the GitHub search string for an owner's pull requests.
 
     Args:
-        query: GraphQL repository and pull-request query.
-        owner: GitHub organization or user login.
-        cursor: Repository pagination cursor, or ``None`` for the first page.
-        page_size: Number of repositories to request in the first attempt.
+        owner: GitHub organization or user login. ``org:`` matches both.
+        fetch_state: Pull-request state selector.
+        include_archived: Whether PRs in archived repositories are included.
+        created: Optional inclusive ``(low, high)`` datetime range.
 
     Returns:
-        tuple: Successful GraphQL response and the page size that succeeded.
-
-    Raises:
-        GitHubGraphQLError: If GitHub returns any non-resource GraphQL error.
-        GitHubGraphQLResourceLimitError: If a single-repository page still
-            exceeds GitHub's resource limits.
-        requests.exceptions.RequestException: If the request fails after its
-            configured network retries.
+        str: Search qualifiers, oldest PR first so PRs opened mid-run append
+        to the last page rather than shifting earlier ones.
     """
-    current_page_size = page_size
-    while True:
-        variables = {
-            "owner": owner,
-            "cursor": cursor,
-            "repositoryPageSize": current_page_size,
-        }
-        try:
-            return make_github_graphql_request(query, variables), current_page_size
-        except GitHubGraphQLResourceLimitError as exc:
-            if current_page_size == 1:
-                raise
-            next_page_size = max(1, current_page_size // 2)
-            logger.warning(
-                "graphql_resource_limit owner=%s cursor=%r error_count=%d"
-                " repository_page_size=%d retry_page_size=%d",
-                owner,
-                cursor,
-                exc.error_count,
-                current_page_size,
-                next_page_size,
+    terms = [f"org:{owner}", "is:pr"]
+    terms += _FETCH_STATE_QUALIFIERS.get(fetch_state.lower(), ["is:open"])
+    if not include_archived:
+        terms.append("archived:false")
+    if created is not None:
+        low, high = (moment.strftime(_SEARCH_TIMESTAMP_FORMAT) for moment in created)
+        terms.append(f"created:{low}..{high}")
+    terms.append("sort:created-asc")
+    return " ".join(terms)
+
+
+def _request_search_page(owner, search_string, cursor=None, check_owner=False):
+    """Return one page of search results as the GraphQL ``data`` object."""
+    variables = {
+        "owner": owner,
+        "searchQuery": search_string,
+        "cursor": cursor,
+        "pageSize": SEARCH_PAGE_SIZE,
+        "checkOwner": check_owner,
+    }
+    return make_github_graphql_request(_SEARCH_QUERY, variables)["data"]
+
+
+def _drain_search(owner, search_string, page, on_page=None):
+    """Return every node of a search, starting from its already-fetched first page.
+
+    Args:
+        owner: GitHub organization or user login.
+        search_string: The search the first page was fetched with.
+        page: The ``search`` object of the first page.
+        on_page: Optional callback run after each further page is fetched.
+
+    Returns:
+        list[dict]: Pull-request nodes from every page.
+    """
+    nodes = list(page["nodes"])
+    while page["pageInfo"]["hasNextPage"]:
+        cursor = page["pageInfo"]["endCursor"]
+        page = _request_search_page(owner, search_string, cursor)["search"]
+        nodes.extend(page["nodes"])
+        if on_page:
+            on_page()
+    return nodes
+
+
+def _search_created_range(owner, fetch_state, include_archived, created):
+    """Fetch one ``created:`` slice, or report that it should be split.
+
+    Args:
+        owner: GitHub organization or user login.
+        fetch_state: Pull-request state selector.
+        include_archived: Whether PRs in archived repositories are included.
+        created: Inclusive ``(low, high)`` datetime range.
+
+    Returns:
+        tuple: ``(nodes, issue_count)``, where ``nodes`` is ``None`` when the
+        slice holds more than ``SEARCH_SLICE_TARGET`` results and can still be
+        split.
+    """
+    search_string = _build_search_string(owner, fetch_state, include_archived, created)
+    page = _request_search_page(owner, search_string)["search"]
+    issue_count = page["issueCount"]
+    low, high = created
+    if issue_count > SEARCH_SLICE_TARGET and high > low:
+        return None, issue_count
+    if issue_count > SEARCH_RESULT_LIMIT:
+        logger.warning(
+            "search_slice_over_cap owner=%s created=%s issue_count=%d limit=%d",
+            owner,
+            low.strftime(_SEARCH_TIMESTAMP_FORMAT),
+            issue_count,
+            SEARCH_RESULT_LIMIT,
+        )
+        click.echo(
+            f"\n⚠️  GitHub search can return only {SEARCH_RESULT_LIMIT} of "
+            f"{issue_count} {owner} PRs created at "
+            f"{low.strftime(_SEARCH_TIMESTAMP_FORMAT)}; the rest are missing.",
+            err=True,
+        )
+    return _drain_search(owner, search_string, page), issue_count
+
+
+def _split_created_range(created, issue_count):
+    """Split an inclusive whole-second range into slices near the target size.
+
+    Args:
+        created: Inclusive ``(low, high)`` datetime range, at least two seconds.
+        issue_count: Results the range holds, which sets the number of slices.
+
+    Returns:
+        list[tuple]: Non-overlapping inclusive ranges covering ``created``.
+    """
+    low, high = created
+    seconds = int((high - low).total_seconds()) + 1
+    pieces = min(max(2, math.ceil(issue_count / SEARCH_SLICE_TARGET)), seconds)
+    slices = []
+    start = 0
+    for piece in range(1, pieces + 1):
+        end = seconds * piece // pieces - 1
+        slices.append(
+            (
+                low + datetime.timedelta(seconds=start),
+                low + datetime.timedelta(seconds=end),
             )
-            current_page_size = next_page_size
+        )
+        start = end + 1
+    return slices
 
 
-def get_github_prs(owner, repo_filters, fetch_state="open"):
-    """Return pull-request URLs for an owner using bounded repository pages.
+def _search_in_created_slices(owner, fetch_state, include_archived, issue_count):
+    """Collect a large search by fetching ``created:`` slices in parallel.
+
+    A slice that turns out to hold too many results is split again and its
+    pieces queued straight away, so no slice waits on an unrelated one.
+    """
+    earliest = datetime.datetime.fromisoformat(SEARCH_EARLIEST_CREATED)
+    # A day of headroom covers clock skew and PRs opened during the run.
+    latest = datetime.datetime.now(datetime.timezone.utc).replace(
+        microsecond=0
+    ) + datetime.timedelta(days=1)
+    nodes = []
+    executor = ThreadPoolExecutor(max_workers=SEARCH_WORKERS)
+
+    def submit(created):
+        return executor.submit(
+            _search_created_range, owner, fetch_state, include_archived, created
+        )
+
+    try:
+        futures = {
+            submit(created): created
+            for created in _split_created_range((earliest, latest), issue_count)
+        }
+        while futures:
+            done, _ = wait(futures, return_when=FIRST_COMPLETED)
+            for future in done:
+                created = futures.pop(future)
+                slice_nodes, slice_count = future.result()
+                if slice_nodes is None:
+                    for piece in _split_created_range(created, slice_count):
+                        futures[submit(piece)] = piece
+                    continue
+                nodes.extend(slice_nodes)
+                click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
+    finally:
+        executor.shutdown(cancel_futures=True)
+    return nodes
+
+
+def get_github_prs(owner, repo_filters, fetch_state="open", include_archived=False):
+    """Return pull-request URLs for an owner using GraphQL search.
+
+    Search costs a request per 100 PRs however many repositories the owner has,
+    where walking every repository costs a request per handful of them.
 
     Args:
         owner: GitHub organization or user login.
         repo_filters: Repository name filters, or an empty value for all repos.
         fetch_state: Pull-request state selector.
+        include_archived: Whether PRs in archived repositories are included.
 
     Returns:
-        list[str]: Matching pull-request URLs.
-    """
-    states_list = _FETCH_STATE_MAP.get(fetch_state.lower(), ["OPEN"])
-    states_gql = ", ".join(states_list)
-    base_query = f"""
-    query($owner: String!, $cursor: String, $repositoryPageSize: Int!){{
-      repositoryOwner(login: $owner){{
-        repositories(after: $cursor, first: $repositoryPageSize){{
-          nodes{{
-            name
-            pullRequests(first:100,states: [{states_gql}]){{
-                nodes{{
-                    url
-                 }}
-            }}
-          }}
-          pageInfo {{
-            endCursor
-            hasNextPage
-          }}
-        }}
-      }}
-    }}
-        """
-    cursor = None
-    page_size = GRAPHQL_REPOSITORY_PAGE_SIZE
-    gql_responses = []
+        list[str]: Matching pull-request URLs, without duplicates.
 
+    Raises:
+        OwnerNotFoundError: If the owner does not resolve to a GitHub account.
+    """
     click.echo(f"Fetching {owner} PRs...", nl=False, err=True)
-    while True:
-        response, page_size = _request_github_repository_page(
-            base_query, owner, cursor, page_size
+    search_string = _build_search_string(owner, fetch_state, include_archived)
+    data = _request_search_page(owner, search_string, check_owner=True)
+    # Search returns nothing, not an error, for an unknown owner.
+    if data.get("owner") is None:
+        raise OwnerNotFoundError(owner)
+
+    page = data["search"]
+    if page["issueCount"] > SEARCH_SLICE_TARGET:
+        nodes = _search_in_created_slices(
+            owner, fetch_state, include_archived, page["issueCount"]
         )
-        if response["data"]["repositoryOwner"] is None:
-            raise OwnerNotFoundError(owner)
-        gql_responses.append(response)
-        page_info = response["data"]["repositoryOwner"]["repositories"]["pageInfo"]
-        if not page_info["hasNextPage"]:
-            break
-        cursor = page_info["endCursor"]
-        click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
+    else:
+        nodes = _drain_search(
+            owner,
+            search_string,
+            page,
+            on_page=lambda: click.echo(
+                random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True
+            ),
+        )
     click.echo("...Done", err=True)
 
     prs = []
-    for response in gql_responses:
-        for repo in response["data"]["repositoryOwner"]["repositories"]["nodes"]:
-            if repo is None:
-                continue
-            if _match_repo_filter(repo["name"], repo_filters):
-                for pr in repo["pullRequests"]["nodes"]:
-                    prs.append(pr["url"])
+    seen = set()
+    for node in nodes:
+        repository = (node or {}).get("repository")
+        if repository is None or node["url"] in seen:
+            continue
+        seen.add(node["url"])
+        if _match_repo_filter(repository["name"], repo_filters):
+            prs.append(node["url"])
     return prs
 
 

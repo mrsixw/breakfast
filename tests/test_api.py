@@ -1,3 +1,6 @@
+import datetime
+import re
+
 import pytest
 import requests
 
@@ -127,273 +130,286 @@ def test_make_github_api_request_builds_headers_and_url(monkeypatch):
     assert calls["headers"]["Accept"] == "application/vnd.github.v3+json"
 
 
-def test_get_github_prs_filters_and_paginates(monkeypatch):
-    responses = [
+_SEARCH_PAGE = 100
+_SEARCH_CAP = 1000
+_CREATED_RANGE = re.compile(r"created:(\S+)\.\.(\S+)")
+
+
+def _parse_search_timestamp(value):
+    return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+class FakeSearch:
+    """Stand-in for GitHub's search endpoint.
+
+    Honours ``created:A..B`` ranges (inclusive, like GitHub), the 1,000-result
+    cap, 100-node pages with opaque cursors, and the optional owner lookup.
+    """
+
+    def __init__(self, prs, owner_exists=True):
+        self.prs = sorted(prs, key=lambda pr: pr["created"])
+        self.owner_exists = owner_exists
+        self.calls = []
+
+    def __call__(self, _query, variables):
+        self.calls.append(dict(variables))
+        matched = self.prs
+        created = _CREATED_RANGE.search(variables["searchQuery"])
+        if created:
+            low, high = (_parse_search_timestamp(v) for v in created.groups())
+            matched = [pr for pr in matched if low <= pr["created"] <= high]
+        visible = matched[:_SEARCH_CAP]
+        offset = int(variables["cursor"] or 0)
+        end = offset + _SEARCH_PAGE
+        data = {
+            "search": {
+                "issueCount": len(matched),
+                "nodes": [
+                    {"url": pr["url"], "repository": {"name": pr["repo"]}}
+                    for pr in visible[offset:end]
+                ],
+                "pageInfo": {"endCursor": str(end), "hasNextPage": end < len(visible)},
+            }
+        }
+        if variables["checkOwner"]:
+            data["owner"] = {"login": "acme"} if self.owner_exists else None
+        return {"data": data}
+
+
+def _fake_prs(count, repo="app", start=None, step=datetime.timedelta(hours=1)):
+    start = start or datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc)
+    return [
         {
-            "data": {
-                "repositoryOwner": {
-                    "repositories": {
-                        "nodes": [
-                            {
-                                "name": "app-one",
-                                "pullRequests": {
-                                    "nodes": [
-                                        {
-                                            "url": "https://example.com/app-one/1",
-                                        }
-                                    ]
-                                },
-                            },
-                            {
-                                "name": "other",
-                                "pullRequests": {
-                                    "nodes": [
-                                        {
-                                            "url": "https://example.com/other/2",
-                                        }
-                                    ]
-                                },
-                            },
-                        ],
-                        "pageInfo": {"endCursor": "cursor-1", "hasNextPage": True},
-                    }
-                }
-            }
-        },
-        {
-            "data": {
-                "repositoryOwner": {
-                    "repositories": {
-                        "nodes": [
-                            {
-                                "name": "app-two",
-                                "pullRequests": {
-                                    "nodes": [
-                                        {
-                                            "url": "https://example.com/app-two/3",
-                                        }
-                                    ]
-                                },
-                            }
-                        ],
-                        "pageInfo": {"endCursor": "cursor-2", "hasNextPage": False},
-                    }
-                }
-            }
-        },
-    ]
-    iterator = iter(responses)
-
-    def fake_graphql_request(_query, _variables):
-        return next(iterator)
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
-    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
-
-    prs = api.get_github_prs("org", "app")
-
-    assert prs == [
-        "https://example.com/app-one/1",
-        "https://example.com/app-two/3",
-    ]
-
-
-def test_get_github_prs_starts_with_bounded_repository_page(monkeypatch):
-    variables_seen = []
-
-    def fake_graphql_request(_query, variables):
-        variables_seen.append(dict(variables))
-        return _single_page_graphql([])
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
-
-    api.get_github_prs("org", None)
-
-    assert variables_seen == [
-        {"owner": "org", "cursor": None, "repositoryPageSize": 25}
-    ]
-
-
-def test_get_github_prs_reduces_page_size_after_resource_limit(monkeypatch):
-    variables_seen = []
-
-    def fake_graphql_request(_query, variables):
-        variables_seen.append(dict(variables))
-        if len(variables_seen) == 1:
-            raise api.GitHubGraphQLResourceLimitError(
-                [
-                    {
-                        "type": "RESOURCE_LIMITS_EXCEEDED",
-                        "message": "Resource limits for this query exceeded.",
-                    }
-                ]
-            )
-        return _single_page_graphql([])
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
-
-    api.get_github_prs("org", None)
-
-    assert [variables["repositoryPageSize"] for variables in variables_seen] == [
-        25,
-        12,
-    ]
-
-
-def test_get_github_prs_retains_reduced_size_without_corrupting_cursor(monkeypatch):
-    variables_seen = []
-
-    def fake_graphql_request(_query, variables):
-        variables_seen.append(dict(variables))
-        if len(variables_seen) == 1:
-            raise api.GitHubGraphQLResourceLimitError(
-                [
-                    {
-                        "type": "RESOURCE_LIMITS_EXCEEDED",
-                        "message": "Resource limits for this query exceeded.",
-                    }
-                ]
-            )
-        if len(variables_seen) == 2:
-            return {
-                "data": {
-                    "repositoryOwner": {
-                        "repositories": {
-                            "nodes": [],
-                            "pageInfo": {
-                                "endCursor": "cursor-1",
-                                "hasNextPage": True,
-                            },
-                        }
-                    }
-                }
-            }
-        return _single_page_graphql([])
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
-    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
-
-    api.get_github_prs("org", None)
-
-    assert [
-        (variables["cursor"], variables["repositoryPageSize"])
-        for variables in variables_seen
-    ] == [(None, 25), (None, 12), ("cursor-1", 12)]
-
-
-def test_get_github_prs_propagates_resource_limit_at_page_size_one(monkeypatch):
-    page_sizes = []
-
-    def fake_graphql_request(_query, variables):
-        page_sizes.append(variables["repositoryPageSize"])
-        raise api.GitHubGraphQLResourceLimitError(
-            [
-                {
-                    "type": "RESOURCE_LIMITS_EXCEEDED",
-                    "message": "Resource limits for this query exceeded.",
-                }
-            ]
-        )
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
-
-    with pytest.raises(api.GitHubGraphQLResourceLimitError):
-        api.get_github_prs("org", None)
-
-    assert page_sizes == [25, 12, 6, 3, 1]
-
-
-def test_get_github_prs_does_not_retry_mixed_graphql_errors(monkeypatch):
-    page_sizes = []
-
-    def fake_graphql_request(_query, variables):
-        page_sizes.append(variables["repositoryPageSize"])
-        raise api.GitHubGraphQLError(
-            [
-                {"type": "FORBIDDEN", "message": "Access denied."},
-                {
-                    "type": "RESOURCE_LIMITS_EXCEEDED",
-                    "message": "Resource limits for this query exceeded.",
-                },
-            ]
-        )
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
-
-    with pytest.raises(api.GitHubGraphQLError):
-        api.get_github_prs("org", None)
-
-    assert page_sizes == [25]
-
-
-def _single_page_response(repos):
-    return {
-        "data": {
-            "repositoryOwner": {
-                "repositories": {
-                    "nodes": repos,
-                    "pageInfo": {"endCursor": None, "hasNextPage": False},
-                }
-            }
+            "url": f"https://github.com/acme/{repo}/pull/{n}",
+            "repo": repo,
+            "created": start + step * n,
         }
-    }
+        for n in range(count)
+    ]
 
 
-def _single_page_graphql(pr_urls):
-    """Return a one-page GraphQL response with a single repo containing pr_urls."""
-    return {
-        "data": {
-            "repositoryOwner": {
-                "repositories": {
-                    "nodes": [
-                        {
-                            "name": "repo",
-                            "pullRequests": {"nodes": [{"url": u} for u in pr_urls]},
-                        }
-                    ],
-                    "pageInfo": {"endCursor": None, "hasNextPage": False},
-                }
-            }
-        }
-    }
-
-
-def test_get_github_prs_skips_null_repo_nodes(monkeypatch):
-    response = {
-        "data": {
-            "repositoryOwner": {
-                "repositories": {
-                    "nodes": [
-                        None,
-                        {
-                            "name": "valid-repo",
-                            "pullRequests": {
-                                "nodes": [{"url": "https://example.com/valid-repo/1"}]
-                            },
-                        },
-                    ],
-                    "pageInfo": {"endCursor": None, "hasNextPage": False},
-                }
-            }
-        }
-    }
-    monkeypatch.setattr(api, "make_github_graphql_request", lambda _q, _v: response)
+def _install_search(monkeypatch, fake):
+    monkeypatch.setattr(api, "make_github_graphql_request", fake)
     monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+    return fake
 
-    prs = api.get_github_prs("org", None)
 
-    assert prs == ["https://example.com/valid-repo/1"]
+def test_get_github_prs_pages_through_search_results(monkeypatch):
+    prs = _fake_prs(250)
+    fake = _install_search(monkeypatch, FakeSearch(prs))
+
+    result = api.get_github_prs("acme", [])
+
+    assert result == [pr["url"] for pr in prs]
+    assert [call["cursor"] for call in fake.calls] == [None, "100", "200"]
+
+
+def test_get_github_prs_cost_scales_with_prs_not_repos(monkeypatch):
+    # Three PRs spread over three repos: one request, however many repos exist.
+    prs = _fake_prs(1, "a") + _fake_prs(1, "b") + _fake_prs(1, "c")
+    fake = _install_search(monkeypatch, FakeSearch(prs))
+
+    api.get_github_prs("acme", [])
+
+    assert len(fake.calls) == 1
+
+
+def test_get_github_prs_checks_owner_on_first_request_only(monkeypatch):
+    fake = _install_search(monkeypatch, FakeSearch(_fake_prs(150)))
+
+    api.get_github_prs("acme", [])
+
+    assert [call["checkOwner"] for call in fake.calls] == [True, False]
+    assert all(call["owner"] == "acme" for call in fake.calls)
 
 
 def test_get_github_prs_raises_owner_not_found_when_null(monkeypatch):
-    response = {"data": {"repositoryOwner": None}}
-    monkeypatch.setattr(api, "make_github_graphql_request", lambda _q, _v: response)
-    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+    _install_search(monkeypatch, FakeSearch([], owner_exists=False))
 
     with pytest.raises(api.OwnerNotFoundError) as exc_info:
-        api.get_github_prs("ghost-login", None)
+        api.get_github_prs("ghost-login", [])
 
     assert "ghost-login" in str(exc_info.value)
+
+
+def test_get_github_prs_filters_on_repository_name(monkeypatch):
+    prs = _fake_prs(1, "app-one") + _fake_prs(1, "other") + _fake_prs(1, "app-two")
+    _install_search(monkeypatch, FakeSearch(prs))
+
+    result = api.get_github_prs("acme", ["app"])
+
+    assert result == [
+        "https://github.com/acme/app-one/pull/0",
+        "https://github.com/acme/app-two/pull/0",
+    ]
+
+
+def test_get_github_prs_skips_null_nodes(monkeypatch):
+    def fake(_query, variables):
+        return {
+            "data": {
+                "owner": {"login": "acme"},
+                "search": {
+                    "issueCount": 3,
+                    "nodes": [
+                        None,
+                        {"url": "https://github.com/acme/x/pull/1", "repository": None},
+                        {
+                            "url": "https://github.com/acme/app/pull/2",
+                            "repository": {"name": "app"},
+                        },
+                    ],
+                    "pageInfo": {"endCursor": None, "hasNextPage": False},
+                },
+            }
+        }
+
+    _install_search(monkeypatch, fake)
+
+    assert api.get_github_prs("acme", []) == ["https://github.com/acme/app/pull/2"]
+
+
+def _search_string_for(monkeypatch, fetch_state="open", include_archived=False):
+    fake = _install_search(monkeypatch, FakeSearch([]))
+    api.get_github_prs("acme", [], fetch_state, include_archived)
+    return fake.calls[0]["searchQuery"].split()
+
+
+def test_get_github_prs_search_scopes_to_owner_prs(monkeypatch):
+    terms = _search_string_for(monkeypatch)
+
+    assert "org:acme" in terms
+    assert "is:pr" in terms
+    # Oldest first, so PRs opened mid-run append rather than shift pages.
+    assert "sort:created-asc" in terms
+
+
+def test_get_github_prs_skips_archived_repos_by_default(monkeypatch):
+    assert "archived:false" in _search_string_for(monkeypatch)
+
+
+def test_get_github_prs_include_archived_drops_the_qualifier(monkeypatch):
+    terms = _search_string_for(monkeypatch, include_archived=True)
+
+    assert not any(term.startswith("archived:") for term in terms)
+
+
+@pytest.mark.parametrize(
+    "fetch_state, expected, forbidden",
+    [
+        ("open", {"is:open"}, {"is:closed", "is:merged", "is:unmerged"}),
+        ("OPEN", {"is:open"}, {"is:closed", "is:merged", "is:unmerged"}),
+        ("closed", {"is:closed", "is:unmerged"}, {"is:open", "is:merged"}),
+        ("merged", {"is:merged"}, {"is:open", "is:closed", "is:unmerged"}),
+        ("all", set(), {"is:open", "is:closed", "is:merged", "is:unmerged"}),
+    ],
+)
+def test_get_github_prs_maps_fetch_state_to_qualifiers(
+    monkeypatch, fetch_state, expected, forbidden
+):
+    terms = set(_search_string_for(monkeypatch, fetch_state))
+
+    assert expected <= terms
+    assert not terms & forbidden
+
+
+def test_get_github_prs_splits_over_the_search_cap(monkeypatch):
+    prs = _fake_prs(2500)
+    fake = _install_search(monkeypatch, FakeSearch(prs))
+
+    result = api.get_github_prs("acme", [])
+
+    assert sorted(result) == sorted(pr["url"] for pr in prs)
+    assert len(result) == len(set(result))
+    # No slice that is still over the cap gets paged: those pages are wasted.
+    for call in fake.calls:
+        if call["cursor"] is not None:
+            query = call["searchQuery"]
+            created = _CREATED_RANGE.search(query)
+            assert created, f"paged an unsliced over-cap query: {query}"
+            low, high = (_parse_search_timestamp(v) for v in created.groups())
+            in_slice = [pr for pr in prs if low <= pr["created"] <= high]
+            assert len(in_slice) <= _SEARCH_CAP
+
+
+def test_get_github_prs_slices_results_under_the_cap_for_parallel_paging(
+    monkeypatch,
+):
+    # 600 results fit under the cap, but paging them one cursor at a time is
+    # slow; slicing lets every page be fetched in parallel.
+    prs = _fake_prs(600)
+    fake = _install_search(monkeypatch, FakeSearch(prs))
+
+    result = api.get_github_prs("acme", [])
+
+    assert sorted(result) == sorted(pr["url"] for pr in prs)
+    unsliced_pages = [
+        call
+        for call in fake.calls
+        if call["cursor"] and not _CREATED_RANGE.search(call["searchQuery"])
+    ]
+    assert unsliced_pages == []
+
+
+def test_get_github_prs_dedupes_prs_on_a_slice_boundary(monkeypatch):
+    # Many PRs sharing each second makes boundary PRs land in both halves of an
+    # inclusive split, exactly as they would on GitHub.
+    prs = _fake_prs(1500, step=datetime.timedelta(0))
+    prs += _fake_prs(1500, repo="svc", step=datetime.timedelta(seconds=1))
+    _install_search(monkeypatch, FakeSearch(prs))
+
+    result = api.get_github_prs("acme", [])
+
+    assert len(result) == len(set(result))
+
+
+def test_get_github_prs_keeps_the_cap_when_a_slice_cannot_split(monkeypatch, caplog):
+    # 1,200 PRs created in the same second: no finer slice exists.
+    _install_search(
+        monkeypatch, FakeSearch(_fake_prs(1200, step=datetime.timedelta(0)))
+    )
+
+    with caplog.at_level("WARNING", logger="breakfast"):
+        result = api.get_github_prs("acme", [])
+
+    assert len(result) == _SEARCH_CAP
+    assert "search_slice_over_cap" in caplog.text
+
+
+def test_get_github_prs_warns_on_stderr_when_a_slice_is_truncated(monkeypatch, capsys):
+    _install_search(
+        monkeypatch, FakeSearch(_fake_prs(1200, step=datetime.timedelta(0)))
+    )
+
+    api.get_github_prs("acme", [])
+
+    captured = capsys.readouterr()
+    assert "only 1000 of 1200" in captured.err
+    assert captured.out == ""
+
+
+def test_get_github_prs_propagates_errors_from_parallel_slices(monkeypatch):
+    fake = FakeSearch(_fake_prs(900))
+
+    def failing_slices(query, variables):
+        if _CREATED_RANGE.search(variables["searchQuery"]):
+            raise api.GitHubRateLimitError()
+        return fake(query, variables)
+
+    _install_search(monkeypatch, failing_slices)
+
+    with pytest.raises(api.GitHubRateLimitError):
+        api.get_github_prs("acme", [])
+
+
+def test_get_github_prs_propagates_graphql_errors(monkeypatch):
+    def fake(_query, _variables):
+        raise api.GitHubGraphQLError([{"type": "FORBIDDEN", "message": "Nope."}])
+
+    _install_search(monkeypatch, fake)
+
+    with pytest.raises(api.GitHubGraphQLError):
+        api.get_github_prs("acme", [])
 
 
 def test_match_exclude_repos_exact():
@@ -415,73 +431,6 @@ def test_match_exclude_repos_multiple_patterns():
 def test_match_exclude_repos_empty():
     assert api.match_exclude_repos("anything", []) is False
     assert api.match_exclude_repos("anything", None) is False
-
-
-def test_get_github_prs_fetch_state_open_uses_open_enum(monkeypatch):
-    captured = []
-
-    def fake_graphql(query, _variables):
-        captured.append(query)
-        return _single_page_graphql(["https://github.com/org/repo/pull/1"])
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
-    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
-
-    api.get_github_prs("org", "", "open")
-
-    assert "OPEN" in captured[0]
-    assert "CLOSED" not in captured[0]
-    assert "MERGED" not in captured[0]
-
-
-def test_get_github_prs_fetch_state_closed_uses_closed_enum(monkeypatch):
-    captured = []
-
-    def fake_graphql(query, _variables):
-        captured.append(query)
-        return _single_page_graphql([])
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
-    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
-
-    api.get_github_prs("org", "", "closed")
-
-    assert "CLOSED" in captured[0]
-    assert "OPEN" not in captured[0]
-
-
-def test_get_github_prs_fetch_state_all_includes_all_enums(monkeypatch):
-    captured = []
-
-    def fake_graphql(query, _variables):
-        captured.append(query)
-        return _single_page_graphql([])
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
-    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
-
-    api.get_github_prs("org", "", "all")
-
-    assert "OPEN" in captured[0]
-    assert "CLOSED" in captured[0]
-    assert "MERGED" in captured[0]
-
-
-def test_get_github_prs_fetch_state_merged(monkeypatch):
-    captured = []
-
-    def fake_graphql(query, _variables):
-        captured.append(query)
-        return _single_page_graphql([])
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
-    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
-
-    api.get_github_prs("org", "", "merged")
-
-    assert "MERGED" in captured[0]
-    assert "OPEN" not in captured[0]
-    assert "CLOSED" not in captured[0]
 
 
 def test_get_authenticated_user_login(monkeypatch):

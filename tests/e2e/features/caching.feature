@@ -5,7 +5,7 @@ Feature: Caching across separate processes
 
   Scenario: A warm cache serves an offline run identically
     Given the cache directory is empty
-    When I run `breakfast -o mrsixw:breakfast-fixtures --cache --format json --no-colour`
+    When I run `breakfast -o mrsixw:breakfast-fixtures --include-archived --cache --format json --no-colour`
     Then the exit code is 0
     And the cache directory holds a "prs_*.json" file
     And the cache directory holds a "graphql_*.json" file
@@ -13,7 +13,7 @@ Feature: Caching across separate processes
 
   Scenario: Debug summary reports real API activity
     Given the cache directory is empty
-    When I run `breakfast -o mrsixw:breakfast-fixtures --api-stats --no-colour`
+    When I run `breakfast -o mrsixw:breakfast-fixtures --include-archived --api-stats --no-colour`
     Then the exit code is 0
     And stderr contains "Debug summary"
     And stderr reports at least 6 processed pull requests

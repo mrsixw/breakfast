@@ -41,6 +41,12 @@ org=myorg, filter=platform  →  prs_3f8a1d9c2b047e56.json  (same — normalised
 Using a content-derived hash rather than a slugified name keeps filenames short
 and safe for any input, while still being one-file-per-query.
 
+With `--include-archived` (or `include-archived = true`), the org segment gains
+an `|include-archived` suffix before hashing, so both the full cache and the
+GraphQL URL-list cache get their own files. The two modes discover different PR
+sets and must never answer for each other. The default keeps the historical key.
+([#473](https://github.com/mrsixw/breakfast/issues/473))
+
 ## Cache File Format
 
 ```json

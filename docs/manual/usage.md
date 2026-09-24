@@ -241,8 +241,8 @@ breakfast -o my-org -r platform --cache-ttl 10m   # cache for 10 minutes
 ## How it works
 
 1. **Check cache** - Looks for a recent on-disk cache for the `(owner, repo-filter)` pair; if found and within the TTL, skips steps 2–3 entirely
-2. **Fetch repositories** - Uses the GitHub GraphQL API to paginate through all repositories for the owner (organization or personal account)
-3. **Filter repos** - Keeps only repos whose name contains the `--repo-filter` substring
+2. **Find PRs** - Uses GitHub GraphQL search to list the owner's PRs (organization or personal account), skipping archived repos unless `--include-archived` is set. This costs one request per 100 PRs however many repos the owner has; large result sets are split by creation date and fetched in parallel
+3. **Filter repos** - Keeps only PRs whose repo name matches `--repo-filter` (substring or glob)
 4. **Fetch PR details** - Uses the GitHub REST API to fetch full details for each open PR (parallelized for speed); writes results to disk cache
 5. **Filter PRs** - Applies author filters (`--ignore-author`, `--filter-author`, `--mine-only`), title search (`--search`), and other filters
 6. **Display** - Renders results as a terminal table or JSON

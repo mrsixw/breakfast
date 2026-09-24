@@ -623,6 +623,22 @@ def test_get_github_prs_keeps_the_cap_when_a_slice_cannot_split(monkeypatch, cap
     assert "search_slice_over_cap" in caplog.text
 
 
+def test_get_github_prs_takes_a_slice_of_exactly_the_cap_whole(
+    monkeypatch, capsys, caplog
+):
+    # 1,000 PRs in one second: the cap itself, so nothing is missing.
+    _install_search(
+        monkeypatch, FakeSearch(_fake_prs(_SEARCH_CAP, step=datetime.timedelta(0)))
+    )
+
+    with caplog.at_level("WARNING", logger="breakfast"):
+        result = api.get_github_prs("acme", [])
+
+    assert len(result) == _SEARCH_CAP
+    assert "search_slice_over_cap" not in caplog.text
+    assert "missing" not in capsys.readouterr().err
+
+
 def test_get_github_prs_warns_on_stderr_when_a_slice_is_truncated(monkeypatch, capsys):
     _install_search(
         monkeypatch, FakeSearch(_fake_prs(1200, step=datetime.timedelta(0)))

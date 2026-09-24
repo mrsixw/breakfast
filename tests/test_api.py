@@ -1983,3 +1983,33 @@ def test_a_pause_extended_during_the_wait_is_waited_out_too(monkeypatch):
 
     assert sleeps == [10, 5]
     assert len(posts) == 1
+
+
+# ---------------------------------------------------------------------------
+# Progress: one breakfast emoji per GraphQL request
+# ---------------------------------------------------------------------------
+
+
+def _progress(capsys):
+    return capsys.readouterr().err.count("*")
+
+
+def test_every_scoped_search_shows_progress(monkeypatch, capsys):
+    # Cached names and three one-page searches: each search still shows up.
+    repos = [f"app-{n:02}" for n in range(45)]
+    prs = [pr for repo in repos for pr in _fake_prs(1, repo)]
+    _install_search(monkeypatch, FakeSearch(prs))
+    names_cache = FakeNamesCache({("acme", False): repos})
+
+    api.get_github_prs("acme", ["app-*"], "open", False, names_cache)
+
+    assert _progress(capsys) == 3
+
+
+def test_every_repository_listing_page_shows_progress(monkeypatch, capsys):
+    repos = [f"app-{n:03}" for n in range(250)]
+    _install_search(monkeypatch, FakeSearch([], repos=repos))
+
+    api.get_github_prs("acme", ["zzz"])
+
+    assert _progress(capsys) == 3

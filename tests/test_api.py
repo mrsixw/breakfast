@@ -387,9 +387,16 @@ def test_get_github_prs_chunks_repository_terms(monkeypatch):
     assert per_search == [20, 20, 5]
 
 
-def test_get_github_prs_searches_the_whole_owner_when_most_repos_match(
-    monkeypatch,
-):
+def _org_searches(fake):
+    return [c for c in fake.searches if "org:acme" in c["searchQuery"].split()]
+
+
+def _repo_searches(fake):
+    return [c for c in fake.searches if "repo:" in c["searchQuery"]]
+
+
+def test_get_github_prs_searches_the_whole_owner_when_that_is_cheaper(monkeypatch):
+    # 201 matching repos need 11 scoped searches; the owner's 3 PRs need one.
     repos = [f"app-{n:03}" for n in range(201)]
     prs = [pr for repo in repos[:3] for pr in _fake_prs(1, repo)]
     fake = _install_search(monkeypatch, FakeSearch(prs, repos=repos))
@@ -397,10 +404,36 @@ def test_get_github_prs_searches_the_whole_owner_when_most_repos_match(
     result = api.get_github_prs("acme", ["app-*"])
 
     assert len(result) == 3
-    assert len(fake.searches) == 1
-    terms = fake.searches[0]["searchQuery"].split()
-    assert "org:acme" in terms
-    assert not any(t.startswith("repo:") for t in terms)
+    assert _repo_searches(fake) == []
+    assert _org_searches(fake)
+
+
+def test_get_github_prs_scopes_many_repos_when_the_owner_is_busier(monkeypatch):
+    # 201 matching repos need 11 scoped searches, far fewer than the 51 pages
+    # the owner's 5,000 PRs would take -- the busy enterprise-org case.
+    repos = [f"app-{n:03}" for n in range(201)]
+    prs = [pr for repo in repos[:3] for pr in _fake_prs(1, repo)]
+    prs += _fake_prs(5000, "unrelated")
+    fake = _install_search(monkeypatch, FakeSearch(prs, repos=repos + ["unrelated"]))
+
+    result = api.get_github_prs("acme", ["app-*"])
+
+    assert len(result) == 3
+    assert len(_repo_searches(fake)) == 11
+    # Only the single count probe searches the whole owner; it is never paged.
+    assert len(_org_searches(fake)) == 1
+    assert _org_searches(fake)[0]["cursor"] is None
+
+
+def test_get_github_prs_logs_how_discovery_was_scoped(monkeypatch, caplog):
+    prs = _fake_prs(1, "app-one") + _fake_prs(1, "other")
+    _install_search(monkeypatch, FakeSearch(prs))
+
+    with caplog.at_level("INFO", logger="breakfast"):
+        api.get_github_prs("acme", ["app"])
+
+    assert "discovery owner=acme mode=repos" in caplog.text
+    assert "repos_listed=2 repos_matched=1 searches=1" in caplog.text
 
 
 def test_get_github_prs_slices_a_large_repository_search(monkeypatch):

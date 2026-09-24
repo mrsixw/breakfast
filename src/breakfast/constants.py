@@ -67,8 +67,9 @@ SEARCH_RESULT_LIMIT = 1000
 SEARCH_SLICE_TARGET = 300
 SEARCH_WORKERS = 4
 # With repo filters, matching repositories are searched SEARCH_REPOS_PER_QUERY
-# at a time via repo: terms. Past SEARCH_MAX_REPO_QUERIES such searches it is
-# cheaper to search the whole owner and filter the results.
+# at a time via repo: terms. Past SEARCH_MAX_REPO_QUERIES such searches, one
+# probe fetches the owner's PR count and the whole owner is searched instead if
+# that takes fewer requests.
 SEARCH_REPOS_PER_QUERY = 20
 SEARCH_MAX_REPO_QUERIES = 10
 # GitHub's guidance for a secondary rate limit without a retry-after header:

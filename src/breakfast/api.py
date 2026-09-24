@@ -873,27 +873,47 @@ def _repository_names(owner, include_archived, names_cache):
     return names
 
 
-def _search_scopes(owner, repo_filters, include_archived, names_cache):
+def _chunk_repository_scopes(owner, names):
+    """Return ``repo:`` search scopes covering ``names``, a few repos per search."""
+    scopes = []
+    for start in range(0, len(names), SEARCH_REPOS_PER_QUERY):
+        chunk = names[start : start + SEARCH_REPOS_PER_QUERY]
+        scopes.append([f"repo:{owner}/{name}" for name in chunk])
+    return scopes
+
+
+def _search_scopes(owner, repo_filters, fetch_state, include_archived, names_cache):
     """Return the search scopes that cover an owner's filtered repositories.
 
-    Without filters, or when so many repositories match that per-repo terms
-    would cost more requests than searching the owner, the owner is searched
-    as a whole and the filters applied to the results.
+    With filters, matching repositories are searched a few at a time. When so
+    many match that it might be cheaper to search the owner as a whole, one
+    probe fetches the owner's PR count and the cheaper plan wins: busy owners
+    have tens of thousands of PRs, so per-repo searches almost always do.
 
     Returns:
         list[list[str]]: Search scopes; empty when no repository matches.
     """
     owner_scope = [f"org:{owner}"]
     if not repo_filters:
+        logger.info("discovery owner=%s mode=owner searches=1", owner)
         return [owner_scope]
     names = _repository_names(owner, include_archived, names_cache)
     matched = [name for name in names if _match_repo_filter(name, repo_filters)]
-    if len(matched) > SEARCH_REPOS_PER_QUERY * SEARCH_MAX_REPO_QUERIES:
-        return [owner_scope]
-    scopes = []
-    for start in range(0, len(matched), SEARCH_REPOS_PER_QUERY):
-        chunk = matched[start : start + SEARCH_REPOS_PER_QUERY]
-        scopes.append([f"repo:{owner}/{name}" for name in chunk])
+    scopes = _chunk_repository_scopes(owner, matched)
+    mode = "repos"
+    if len(scopes) > SEARCH_MAX_REPO_QUERIES:
+        search_string = _build_search_string(owner_scope, fetch_state, include_archived)
+        issue_count = _request_search_page(owner, search_string)["search"]["issueCount"]
+        if math.ceil(issue_count / SEARCH_PAGE_SIZE) <= len(scopes):
+            mode, scopes = "owner", [owner_scope]
+    logger.info(
+        "discovery owner=%s mode=%s repos_listed=%d repos_matched=%d searches=%d",
+        owner,
+        mode,
+        len(names),
+        len(matched),
+        len(scopes),
+    )
     return scopes
 
 
@@ -922,7 +942,9 @@ def get_github_prs(
         OwnerNotFoundError: If the owner does not resolve to a GitHub account.
     """
     click.echo(f"Fetching {owner} PRs...", nl=False, err=True)
-    scopes = _search_scopes(owner, repo_filters, include_archived, names_cache)
+    scopes = _search_scopes(
+        owner, repo_filters, fetch_state, include_archived, names_cache
+    )
     nodes = []
     for index, scope in enumerate(scopes):
         # The first search also confirms the owner exists; cached repository

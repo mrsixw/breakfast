@@ -32,6 +32,8 @@ __all__ = [
     "REPOSITORY_NAMES_CACHE_TTL",
     "REQUEST_TIMEOUT",
     "RETRY_STATUSES",
+    "REVIEW_BATCH_PAGE_SIZE",
+    "REVIEW_BATCH_SIZE",
     "ROSH_HASHANAH",
     "SEARCH_EARLIEST_CREATED",
     "SEARCH_MAX_REPO_QUERIES",
@@ -76,6 +78,11 @@ SEARCH_MAX_REPO_QUERIES = 10
 # wait at least one minute before retrying.
 SECONDARY_RATE_LIMIT_DEFAULT_WAIT = 60
 SEARCH_EARLIEST_CREATED = "2007-01-01T00:00:00+00:00"
+
+# Approval lookups ask about REVIEW_BATCH_SIZE PRs per GraphQL request, each
+# with up to REVIEW_BATCH_PAGE_SIZE reviews; PRs with more use the REST path.
+REVIEW_BATCH_SIZE = 50
+REVIEW_BATCH_PAGE_SIZE = 100
 
 # ── Cache Configuration ────────────────────────────────────────────────────
 

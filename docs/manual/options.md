@@ -574,7 +574,7 @@ With `--json --checks`, a `"checks"` field is included in each PR object:
 
 ### `--approvals`
 
-Show review approval status for each PR. This is opt-in because it requires an additional API call per PR.
+Show review approval status for each PR. This is opt-in because it costs extra API calls: review data for up to 50 PRs is fetched in one GraphQL request, plus one branch-protection lookup per base branch (to know how many approvals are required). A PR with more than 100 reviews falls back to its own lookups.
 
 ```text
 $ breakfast -o my-org -r platform --approvals
@@ -920,7 +920,7 @@ Each entry in the list is an inline TOML table with a required `name` key and tw
 | `comments` | `Comments` | Yes | Number of review comments. Colour-graded by magnitude. |
 | `age` | `Age` | **Optional** (off by default) | Days since the PR was opened. Colour-graded: green < 10d, yellow < 20d, orange < 50d, red 50d+. |
 | `checks` | `Checks` | **Optional** (off by default) | CI check result: ✅ pass, ❌ fail, ⚠️ pending, ➖ none. Requires an extra API call per PR. |
-| `approvals` | `Approved` | **Optional** (off by default) | Review approval status: ✅ approved, ❌ changes, ⏳ pending. Requires an extra API call per PR. |
+| `approvals` | `Approved` | **Optional** (off by default) | Review approval status: ✅ approved, ❌ changes, ⏳ pending. Costs one batched request per 50 PRs. |
 | `head-branch` | `Head Branch` | **Optional** (off by default) | Source branch the PR was raised from, hyperlinked. |
 | `base-branch` | `Base Branch` | **Optional** (off by default) | Target branch the PR merges into, hyperlinked. |
 | `reviewers` | `Reviewers` | **Optional** (off by default) | Requested reviewers for the PR, up to 2 logins, then `+N` overflow. |

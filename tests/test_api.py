@@ -1983,3 +1983,213 @@ def test_a_pause_extended_during_the_wait_is_waited_out_too(monkeypatch):
 
     assert sleeps == [10, 5]
     assert len(posts) == 1
+
+
+# ---------------------------------------------------------------------------
+# Batched review lookups
+# ---------------------------------------------------------------------------
+
+
+def _review_node(decision="REVIEW_REQUIRED", reviews=(), total=None):
+    nodes = [{"author": {"login": login}, "state": state} for login, state in reviews]
+    return {
+        "pullRequest": {
+            "reviewDecision": decision,
+            "reviews": {
+                "totalCount": len(nodes) if total is None else total,
+                "nodes": nodes,
+            },
+        }
+    }
+
+
+class FakeReviewBatch:
+    """Answers aliased review queries from ``{(owner, repo, number): node}``."""
+
+    def __init__(self, nodes, fail_chunks=()):
+        self.nodes = nodes
+        self.fail_chunks = set(fail_chunks)
+        self.calls = []
+
+    def __call__(self, query, variables):
+        self.calls.append((query, dict(variables)))
+        if len(self.calls) - 1 in self.fail_chunks:
+            raise api.GitHubGraphQLError([{"type": "INTERNAL", "message": "boom"}])
+        data = {}
+        index = 0
+        while f"o{index}" in variables:
+            key = (
+                variables[f"o{index}"],
+                variables[f"r{index}"],
+                variables[f"n{index}"],
+            )
+            data[f"pr{index}"] = self.nodes.get(key)
+            index += 1
+        return {"data": data}
+
+
+def _pr_keys(count, repo="app"):
+    return [("acme", repo, number) for number in range(1, count + 1)]
+
+
+def test_get_review_data_batch_asks_for_fifty_prs_per_query(monkeypatch):
+    keys = _pr_keys(120)
+    fake = FakeReviewBatch({key: _review_node() for key in keys})
+    monkeypatch.setattr(api, "make_github_graphql_request", fake)
+
+    result = api.get_review_data_batch(keys)
+
+    assert set(result) == set(keys)
+    sizes = sorted(sum(name.startswith("n") for name in v) for _q, v in fake.calls)
+    assert sizes == [20, 50, 50]
+
+
+def test_get_review_data_batch_passes_names_as_variables(monkeypatch):
+    # Repo names go in variables, never spliced into the query text.
+    key = ("acme", 'odd"name', 7)
+    fake = FakeReviewBatch({key: _review_node()})
+    monkeypatch.setattr(api, "make_github_graphql_request", fake)
+
+    api.get_review_data_batch([key])
+
+    query, variables = fake.calls[0]
+    assert 'odd"name' not in query
+    assert variables == {"o0": "acme", "r0": 'odd"name', "n0": 7}
+    assert "pr0: repository(owner: $o0, name: $r0)" in query
+
+
+def test_get_review_data_batch_returns_decision_and_reviews(monkeypatch):
+    key = ("acme", "app", 1)
+    reviews = [("bob", "APPROVED"), ("bob", "COMMENTED"), ("eve", "CHANGES_REQUESTED")]
+    monkeypatch.setattr(
+        api,
+        "make_github_graphql_request",
+        FakeReviewBatch({key: _review_node("CHANGES_REQUESTED", reviews)}),
+    )
+
+    assert api.get_review_data_batch([key]) == {
+        key: {"review_decision": "CHANGES_REQUESTED", "reviews": reviews}
+    }
+
+
+def test_get_review_data_batch_dedupes_keys(monkeypatch):
+    key = ("acme", "app", 1)
+    fake = FakeReviewBatch({key: _review_node()})
+    monkeypatch.setattr(api, "make_github_graphql_request", fake)
+
+    api.get_review_data_batch([key, key])
+
+    assert fake.calls[0][1] == {"o0": "acme", "r0": "app", "n0": 1}
+
+
+def test_get_review_data_batch_leaves_out_prs_it_cannot_answer(monkeypatch):
+    many = ("acme", "app", 1)
+    missing = ("acme", "app", 2)
+    fine = ("acme", "app", 3)
+    nodes = {
+        # More reviews than one page holds: the per-PR path paginates.
+        many: _review_node(reviews=[("bob", "APPROVED")], total=150),
+        missing: None,
+        fine: _review_node(),
+    }
+    monkeypatch.setattr(api, "make_github_graphql_request", FakeReviewBatch(nodes))
+
+    assert set(api.get_review_data_batch([many, missing, fine])) == {fine}
+
+
+def test_get_review_data_batch_degrades_a_failing_chunk(monkeypatch, caplog):
+    keys = _pr_keys(60)
+    fake = FakeReviewBatch({key: _review_node() for key in keys}, fail_chunks={0})
+    monkeypatch.setattr(api, "make_github_graphql_request", fake)
+
+    with caplog.at_level("WARNING", logger="breakfast"):
+        result = api.get_review_data_batch(keys)
+
+    assert len(result) in (10, 50)
+    assert "review_batch_failed" in caplog.text
+
+
+def test_get_review_data_batch_degrades_a_malformed_response(monkeypatch):
+    monkeypatch.setattr(
+        api,
+        "make_github_graphql_request",
+        lambda _q, _v: {"data": {"repository": {"pullRequest": {}}}},
+    )
+
+    assert api.get_review_data_batch([("acme", "app", 1)]) == {}
+
+
+@pytest.mark.parametrize(
+    "error",
+    [api.GitHubRateLimitError(), api.GitHubAuthenticationError(token_var="GH_TOKEN")],
+)
+def test_get_review_data_batch_propagates_rate_limit_and_auth_errors(
+    monkeypatch, error
+):
+    def fail(_q, _v):
+        raise error
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fail)
+
+    with pytest.raises(type(error)):
+        api.get_review_data_batch([("acme", "app", 1)])
+
+
+def test_get_review_data_batch_of_nothing_makes_no_request(monkeypatch):
+    fake = FakeReviewBatch({})
+    monkeypatch.setattr(api, "make_github_graphql_request", fake)
+
+    assert api.get_review_data_batch([]) == {}
+    assert fake.calls == []
+
+
+def test_get_approval_summary_uses_prefetched_reviews(monkeypatch):
+    calls = []
+
+    def fake_rest(path):
+        calls.append(path)
+        return {"required_approving_review_count": 2}
+
+    def no_graphql(*_a, **_kw):
+        raise AssertionError("prefetched data must not trigger a GraphQL call")
+
+    monkeypatch.setattr(api, "make_github_api_request", fake_rest)
+    monkeypatch.setattr(api, "make_github_graphql_request", no_graphql)
+
+    summary = api.get_approval_summary(
+        "acme",
+        "app",
+        1,
+        base_branch="main",
+        review_decision="REVIEW_REQUIRED",
+        reviews=[("bob", "APPROVED"), ("bob", "COMMENTED")],
+    )
+
+    assert summary == {"status": "pending", "current": 1, "required": 2}
+    assert not any("/reviews" in path and "pulls" in path for path in calls)
+
+
+@pytest.mark.parametrize(
+    "reviews, expected",
+    [
+        ([], ("pending", 0)),
+        ([("bob", "APPROVED"), ("bob", "COMMENTED")], ("approved", 1)),
+        ([("bob", "APPROVED"), ("bob", "DISMISSED")], ("pending", 0)),
+        ([("bob", "APPROVED"), ("eve", "CHANGES_REQUESTED")], ("changes", 1)),
+        ([("bob", "CHANGES_REQUESTED"), ("bob", "APPROVED")], ("approved", 1)),
+        ([(None, "APPROVED")], ("pending", 0)),
+    ],
+)
+def test_summarize_reviews_matches_the_rest_aggregation(monkeypatch, reviews, expected):
+    rest_reviews = [
+        {"user": {"login": login}, "state": state} for login, state in reviews
+    ]
+    monkeypatch.setattr(
+        api, "make_paginated_github_api_request", lambda _path: rest_reviews
+    )
+
+    from_rest = api._review_status_from_latest_reviews("acme", "app", 1)
+    from_pairs = api._summarize_reviews(reviews)
+
+    assert (from_pairs["status"], from_pairs["current"]) == expected
+    assert from_pairs == from_rest

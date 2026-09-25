@@ -165,6 +165,20 @@ breakfast -o my-org -r platform --fetch-state all       # every state
 
 Config key: `fetch-state = "open"`
 
+### `--include-archived`
+
+Include PRs in **archived** repositories. By default they are skipped: an
+archived repo is read-only, so nobody can review, merge or close its PRs.
+
+```bash
+breakfast -o my-org                       # archived repos skipped
+breakfast -o my-org --include-archived    # archived repos included
+```
+
+Runs with and without this flag are cached separately.
+
+Config key: `include-archived = false`
+
 ### `--filter-state`
 
 Only show PRs with a specific state. Accepted values: `open`, `closed`, `draft`. Repeat the flag to match multiple states.
@@ -560,7 +574,7 @@ With `--json --checks`, a `"checks"` field is included in each PR object:
 
 ### `--approvals`
 
-Show review approval status for each PR. This is opt-in because it requires an additional API call per PR.
+Show review approval status for each PR. This is opt-in because it costs extra API calls: review data for up to 50 PRs is fetched in one GraphQL request, plus one branch-protection lookup per base branch (to know how many approvals are required). A PR with more than 100 reviews falls back to its own lookups.
 
 ```text
 $ breakfast -o my-org -r platform --approvals
@@ -906,7 +920,7 @@ Each entry in the list is an inline TOML table with a required `name` key and tw
 | `comments` | `Comments` | Yes | Number of review comments. Colour-graded by magnitude. |
 | `age` | `Age` | **Optional** (off by default) | Days since the PR was opened. Colour-graded: green < 10d, yellow < 20d, orange < 50d, red 50d+. |
 | `checks` | `Checks` | **Optional** (off by default) | CI check result: ✅ pass, ❌ fail, ⚠️ pending, ➖ none. Requires an extra API call per PR. |
-| `approvals` | `Approved` | **Optional** (off by default) | Review approval status: ✅ approved, ❌ changes, ⏳ pending. Requires an extra API call per PR. |
+| `approvals` | `Approved` | **Optional** (off by default) | Review approval status: ✅ approved, ❌ changes, ⏳ pending. Costs one batched request per 50 PRs. |
 | `head-branch` | `Head Branch` | **Optional** (off by default) | Source branch the PR was raised from, hyperlinked. |
 | `base-branch` | `Base Branch` | **Optional** (off by default) | Target branch the PR merges into, hyperlinked. |
 | `reviewers` | `Reviewers` | **Optional** (off by default) | Requested reviewers for the PR, up to 2 logins, then `+N` overflow. |
@@ -1086,18 +1100,23 @@ Can also be set in the config file:
 offline = true
 ```
 
-breakfast caches in three layers: the **URL list** returned by the GraphQL
-search, a **per-repo** bundle of PR details, and the **full** result for the
-whole run.
+breakfast caches in four layers: the owner's **repo names** (used to narrow
+PR searches when repo filters are given, kept for 24 hours), the **URL list**
+returned by the GraphQL search, a **per-repo** bundle of PR details, and the
+**full** result for the whole run.
 
-| Flag | Cache active? | URL list | Per-repo PR cache | Full PR cache |
-| --- | --- | --- | --- | --- |
-| *(none)* | no | skip | skip | skip |
-| `--cache` | yes | read | read | read |
-| `--cache --refresh-prs` | yes | read | skip, write fresh | skip, write fresh |
-| `--cache --refresh` | yes | skip, write fresh | skip, write fresh | skip, write fresh |
-| `--no-cache` | no (override) | skip | skip | skip |
-| `--offline` | yes | not reached | not reached | read (ignore TTL, no write) |
+| Flag | Cache active? | Repo names (24h) | URL list | Per-repo PR cache | Full PR cache |
+| --- | --- | --- | --- | --- | --- |
+| *(none)* | no | skip | skip | skip | skip |
+| `--cache` | yes | read | read | read | read |
+| `--cache --refresh-prs` | yes | not reached | read | skip, write fresh | skip, write fresh |
+| `--cache --refresh` | yes | skip, write fresh | skip, write fresh | skip, write fresh | skip, write fresh |
+| `--no-cache` | no (override) | skip | skip | skip | skip |
+| `--offline` | yes | not reached | not reached | not reached | read (ignore TTL, no write) |
+
+The repo-name list ignores `--cache-ttl`: repos change far less often than
+PRs. A repo created since the list was cached appears after 24 hours, or on the
+next `--refresh`.
 
 A per-repo cache hit is always reconciled against the URL list for that run:
 cached PRs whose URL is no longer listed are dropped, and listed URLs the cache

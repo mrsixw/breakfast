@@ -232,13 +232,15 @@ produces one obvious failure rather than eight confusing ones.
 
 ### Why scoped `-o mrsixw:breakfast-fixtures`
 
-`api.get_github_prs` paginates *every* repository belonging to an owner
-(`GRAPHQL_REPOSITORY_PAGE_SIZE = 25`) and applies repo filters client-side
-afterwards. `mrsixw` has ~48 repos, so each live scenario costs two GraphQL
-pages, rising by one per 25 new repos. The scoped syntax keeps the *result* set
-correct; it does not reduce the pagination cost. A dedicated organisation with a
-single repository would cost one page permanently — worth revisiting if the
-budget ever tightens.
+With repo filters, `api.get_github_prs` lists the owner's repository names
+(100 per page), matches the filters locally, and searches only the matching
+repos. `mrsixw` has a few dozen repos, so each live scenario costs one listing
+page and one search page.
+
+The fixture repo is archived, and archived repos are skipped by default
+([#473](https://github.com/mrsixw/breakfast/issues/473)), so every live scenario
+passes `--include-archived`. One scenario runs without it and asserts zero PRs,
+which proves the default through the real binary.
 
 The filter is a substring/glob match, and `breakfast` does not contain
 `breakfast-fixtures`, so only the fixture repo matches.
@@ -298,8 +300,8 @@ gh pr close 7
 gh pr merge 8 --merge
 
 # Freeze it. Archiving is the strongest lock available: archived repos are
-# read-only and accept no new PRs, but existing ones stay queryable — the
-# GraphQL query has no isArchived filter.
+# read-only and accept no new PRs, but existing ones stay queryable with
+# --include-archived.
 gh api -X DELETE repos/mrsixw/breakfast-fixtures/vulnerability-alerts
 gh repo edit mrsixw/breakfast-fixtures --enable-issues=false --enable-wiki=false
 gh repo archive mrsixw/breakfast-fixtures --yes
@@ -312,19 +314,20 @@ issues/wiki steps come first. Archiving makes those largely redundant anyway (no
 bot can open a pull request on a read-only repo), but they cost nothing and
 document the intent.
 
-Archiving does **not** hide the pull requests: the suite was re-run after
-archiving and all 25 scenarios still pass, confirming the GraphQL query has no
-`isArchived` filter.
+Archiving hides the pull requests from a default run, which skips archived
+repos. The suite opts back in with `--include-archived`.
 
 ## Cost and flakiness
 
-Roughly 70 API requests per full live run: each scenario costs ~2 GraphQL
-repository pages plus one REST call per pull request. Against 5000/hour that is
+Roughly 80 API requests per full live run: each scenario costs one GraphQL
+listing page and one search page, plus one REST call per pull request. Against 5000/hour that is
 comfortable, but note CI triggers on both `push` and `pull_request`, so a branch
 push runs it twice.
 
-`--checks` and `--approvals` are deliberately **not** exercised live: both are
-per-PR GraphQL and would multiply the cost for little return.
+`--checks` and `--approvals` are deliberately **not** exercised live: checks
+cost two REST calls per PR, and approvals add a batched GraphQL request plus a
+branch-protection lookup per base branch, for little return over the unit
+tests.
 
 `api.py` already retries `{502, 503, 504}` up to `MAX_RETRIES`, which absorbs
 most transient failures; a 90-second subprocess timeout sits on top.

@@ -1,3 +1,7 @@
+import datetime
+import json
+import re
+
 import pytest
 import requests
 
@@ -127,273 +131,548 @@ def test_make_github_api_request_builds_headers_and_url(monkeypatch):
     assert calls["headers"]["Accept"] == "application/vnd.github.v3+json"
 
 
-def test_get_github_prs_filters_and_paginates(monkeypatch):
-    responses = [
-        {
+_SEARCH_PAGE = 100
+_SEARCH_CAP = 1000
+_CREATED_RANGE = re.compile(r"created:(\S+)\.\.(\S+)")
+
+
+def _parse_search_timestamp(value):
+    return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+class FakeSearch:
+    """Stand-in for GitHub's search and repository-listing queries.
+
+    Search honours ``repo:`` terms, ``created:A..B`` ranges (inclusive, like
+    GitHub), the 1,000-result cap, 100-node pages with opaque cursors, and the
+    optional owner lookup. Listing pages repository names 100 at a time and
+    drops archived ones unless asked for them.
+    """
+
+    def __init__(self, prs, owner_exists=True, repos=None, archived_repos=()):
+        self.prs = sorted(prs, key=lambda pr: pr["created"])
+        self.owner_exists = owner_exists
+        self.repos = (
+            list(repos) if repos is not None else sorted({pr["repo"] for pr in prs})
+        )
+        self.archived_repos = list(archived_repos)
+        self.calls = []
+
+    @property
+    def searches(self):
+        return [call for call in self.calls if "searchQuery" in call]
+
+    @property
+    def listings(self):
+        return [call for call in self.calls if "searchQuery" not in call]
+
+    def __call__(self, _query, variables):
+        self.calls.append(dict(variables))
+        if "searchQuery" not in variables:
+            return self._list_repositories(variables)
+        matched = self.prs
+        terms = variables["searchQuery"].split()
+        repos = {t.split("/", 1)[1] for t in terms if t.startswith("repo:")}
+        if repos:
+            matched = [pr for pr in matched if pr["repo"] in repos]
+        created = _CREATED_RANGE.search(variables["searchQuery"])
+        if created:
+            low, high = (_parse_search_timestamp(v) for v in created.groups())
+            matched = [pr for pr in matched if low <= pr["created"] <= high]
+        visible = matched[:_SEARCH_CAP]
+        offset = int(variables["cursor"] or 0)
+        end = offset + _SEARCH_PAGE
+        data = {
+            "search": {
+                "issueCount": len(matched),
+                "nodes": [
+                    {"url": pr["url"], "repository": {"name": pr["repo"]}}
+                    for pr in visible[offset:end]
+                ],
+                "pageInfo": {"endCursor": str(end), "hasNextPage": end < len(visible)},
+            }
+        }
+        if variables["checkOwner"]:
+            data["owner"] = {"login": "acme"} if self.owner_exists else None
+        return {"data": data}
+
+    def _list_repositories(self, variables):
+        if not self.owner_exists:
+            return {"data": {"repositoryOwner": None}}
+        names = list(self.repos)
+        if variables["archived"] is None:
+            names += self.archived_repos
+        offset = int(variables["cursor"] or 0)
+        end = offset + _SEARCH_PAGE
+        return {
             "data": {
                 "repositoryOwner": {
                     "repositories": {
-                        "nodes": [
-                            {
-                                "name": "app-one",
-                                "pullRequests": {
-                                    "nodes": [
-                                        {
-                                            "url": "https://example.com/app-one/1",
-                                        }
-                                    ]
-                                },
-                            },
-                            {
-                                "name": "other",
-                                "pullRequests": {
-                                    "nodes": [
-                                        {
-                                            "url": "https://example.com/other/2",
-                                        }
-                                    ]
-                                },
-                            },
-                        ],
-                        "pageInfo": {"endCursor": "cursor-1", "hasNextPage": True},
-                    }
-                }
-            }
-        },
-        {
-            "data": {
-                "repositoryOwner": {
-                    "repositories": {
-                        "nodes": [
-                            {
-                                "name": "app-two",
-                                "pullRequests": {
-                                    "nodes": [
-                                        {
-                                            "url": "https://example.com/app-two/3",
-                                        }
-                                    ]
-                                },
-                            }
-                        ],
-                        "pageInfo": {"endCursor": "cursor-2", "hasNextPage": False},
-                    }
-                }
-            }
-        },
-    ]
-    iterator = iter(responses)
-
-    def fake_graphql_request(_query, _variables):
-        return next(iterator)
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
-    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
-
-    prs = api.get_github_prs("org", "app")
-
-    assert prs == [
-        "https://example.com/app-one/1",
-        "https://example.com/app-two/3",
-    ]
-
-
-def test_get_github_prs_starts_with_bounded_repository_page(monkeypatch):
-    variables_seen = []
-
-    def fake_graphql_request(_query, variables):
-        variables_seen.append(dict(variables))
-        return _single_page_graphql([])
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
-
-    api.get_github_prs("org", None)
-
-    assert variables_seen == [
-        {"owner": "org", "cursor": None, "repositoryPageSize": 25}
-    ]
-
-
-def test_get_github_prs_reduces_page_size_after_resource_limit(monkeypatch):
-    variables_seen = []
-
-    def fake_graphql_request(_query, variables):
-        variables_seen.append(dict(variables))
-        if len(variables_seen) == 1:
-            raise api.GitHubGraphQLResourceLimitError(
-                [
-                    {
-                        "type": "RESOURCE_LIMITS_EXCEEDED",
-                        "message": "Resource limits for this query exceeded.",
-                    }
-                ]
-            )
-        return _single_page_graphql([])
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
-
-    api.get_github_prs("org", None)
-
-    assert [variables["repositoryPageSize"] for variables in variables_seen] == [
-        25,
-        12,
-    ]
-
-
-def test_get_github_prs_retains_reduced_size_without_corrupting_cursor(monkeypatch):
-    variables_seen = []
-
-    def fake_graphql_request(_query, variables):
-        variables_seen.append(dict(variables))
-        if len(variables_seen) == 1:
-            raise api.GitHubGraphQLResourceLimitError(
-                [
-                    {
-                        "type": "RESOURCE_LIMITS_EXCEEDED",
-                        "message": "Resource limits for this query exceeded.",
-                    }
-                ]
-            )
-        if len(variables_seen) == 2:
-            return {
-                "data": {
-                    "repositoryOwner": {
-                        "repositories": {
-                            "nodes": [],
-                            "pageInfo": {
-                                "endCursor": "cursor-1",
-                                "hasNextPage": True,
-                            },
-                        }
-                    }
-                }
-            }
-        return _single_page_graphql([])
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
-    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
-
-    api.get_github_prs("org", None)
-
-    assert [
-        (variables["cursor"], variables["repositoryPageSize"])
-        for variables in variables_seen
-    ] == [(None, 25), (None, 12), ("cursor-1", 12)]
-
-
-def test_get_github_prs_propagates_resource_limit_at_page_size_one(monkeypatch):
-    page_sizes = []
-
-    def fake_graphql_request(_query, variables):
-        page_sizes.append(variables["repositoryPageSize"])
-        raise api.GitHubGraphQLResourceLimitError(
-            [
-                {
-                    "type": "RESOURCE_LIMITS_EXCEEDED",
-                    "message": "Resource limits for this query exceeded.",
-                }
-            ]
-        )
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
-
-    with pytest.raises(api.GitHubGraphQLResourceLimitError):
-        api.get_github_prs("org", None)
-
-    assert page_sizes == [25, 12, 6, 3, 1]
-
-
-def test_get_github_prs_does_not_retry_mixed_graphql_errors(monkeypatch):
-    page_sizes = []
-
-    def fake_graphql_request(_query, variables):
-        page_sizes.append(variables["repositoryPageSize"])
-        raise api.GitHubGraphQLError(
-            [
-                {"type": "FORBIDDEN", "message": "Access denied."},
-                {
-                    "type": "RESOURCE_LIMITS_EXCEEDED",
-                    "message": "Resource limits for this query exceeded.",
-                },
-            ]
-        )
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql_request)
-
-    with pytest.raises(api.GitHubGraphQLError):
-        api.get_github_prs("org", None)
-
-    assert page_sizes == [25]
-
-
-def _single_page_response(repos):
-    return {
-        "data": {
-            "repositoryOwner": {
-                "repositories": {
-                    "nodes": repos,
-                    "pageInfo": {"endCursor": None, "hasNextPage": False},
-                }
-            }
-        }
-    }
-
-
-def _single_page_graphql(pr_urls):
-    """Return a one-page GraphQL response with a single repo containing pr_urls."""
-    return {
-        "data": {
-            "repositoryOwner": {
-                "repositories": {
-                    "nodes": [
-                        {
-                            "name": "repo",
-                            "pullRequests": {"nodes": [{"url": u} for u in pr_urls]},
-                        }
-                    ],
-                    "pageInfo": {"endCursor": None, "hasNextPage": False},
-                }
-            }
-        }
-    }
-
-
-def test_get_github_prs_skips_null_repo_nodes(monkeypatch):
-    response = {
-        "data": {
-            "repositoryOwner": {
-                "repositories": {
-                    "nodes": [
-                        None,
-                        {
-                            "name": "valid-repo",
-                            "pullRequests": {
-                                "nodes": [{"url": "https://example.com/valid-repo/1"}]
-                            },
+                        "nodes": [{"name": name} for name in names[offset:end]],
+                        "pageInfo": {
+                            "endCursor": str(end),
+                            "hasNextPage": end < len(names),
                         },
-                    ],
-                    "pageInfo": {"endCursor": None, "hasNextPage": False},
+                    }
                 }
             }
         }
-    }
-    monkeypatch.setattr(api, "make_github_graphql_request", lambda _q, _v: response)
+
+
+class FakeNamesCache:
+    """In-memory stand-in for ``cache.RepositoryNamesCache``."""
+
+    def __init__(self, stored=None):
+        self.stored = dict(stored or {})
+        self.writes = []
+
+    def read(self, owner, include_archived):
+        return self.stored.get((owner, include_archived))
+
+    def write(self, owner, include_archived, names):
+        self.writes.append((owner, include_archived, list(names)))
+        self.stored[(owner, include_archived)] = list(names)
+
+
+def _fake_prs(count, repo="app", start=None, step=datetime.timedelta(hours=1)):
+    start = start or datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc)
+    return [
+        {
+            "url": f"https://github.com/acme/{repo}/pull/{n}",
+            "repo": repo,
+            "created": start + step * n,
+        }
+        for n in range(count)
+    ]
+
+
+def _install_search(monkeypatch, fake):
+    monkeypatch.setattr(api, "make_github_graphql_request", fake)
     monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+    return fake
 
-    prs = api.get_github_prs("org", None)
 
-    assert prs == ["https://example.com/valid-repo/1"]
+def test_get_github_prs_pages_through_search_results(monkeypatch):
+    prs = _fake_prs(250)
+    fake = _install_search(monkeypatch, FakeSearch(prs))
+
+    result = api.get_github_prs("acme", [])
+
+    assert result == [pr["url"] for pr in prs]
+    assert [call["cursor"] for call in fake.calls] == [None, "100", "200"]
+
+
+def test_get_github_prs_cost_scales_with_prs_not_repos(monkeypatch):
+    # Three PRs spread over three repos: one request, however many repos exist.
+    prs = _fake_prs(1, "a") + _fake_prs(1, "b") + _fake_prs(1, "c")
+    fake = _install_search(monkeypatch, FakeSearch(prs))
+
+    api.get_github_prs("acme", [])
+
+    assert len(fake.calls) == 1
+
+
+def test_get_github_prs_checks_owner_on_first_request_only(monkeypatch):
+    fake = _install_search(monkeypatch, FakeSearch(_fake_prs(150)))
+
+    api.get_github_prs("acme", [])
+
+    assert [call["checkOwner"] for call in fake.calls] == [True, False]
+    assert all(call["owner"] == "acme" for call in fake.calls)
 
 
 def test_get_github_prs_raises_owner_not_found_when_null(monkeypatch):
-    response = {"data": {"repositoryOwner": None}}
-    monkeypatch.setattr(api, "make_github_graphql_request", lambda _q, _v: response)
-    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+    _install_search(monkeypatch, FakeSearch([], owner_exists=False))
 
     with pytest.raises(api.OwnerNotFoundError) as exc_info:
-        api.get_github_prs("ghost-login", None)
+        api.get_github_prs("ghost-login", [])
 
     assert "ghost-login" in str(exc_info.value)
+
+
+def test_get_github_prs_filters_on_repository_name(monkeypatch):
+    prs = _fake_prs(1, "app-one") + _fake_prs(1, "other") + _fake_prs(1, "app-two")
+    _install_search(monkeypatch, FakeSearch(prs))
+
+    result = api.get_github_prs("acme", ["app"])
+
+    assert result == [
+        "https://github.com/acme/app-one/pull/0",
+        "https://github.com/acme/app-two/pull/0",
+    ]
+
+
+def test_get_github_prs_searches_only_repositories_matching_the_filters(
+    monkeypatch,
+):
+    prs = _fake_prs(1, "app-one") + _fake_prs(1, "other") + _fake_prs(1, "app-two")
+    fake = _install_search(monkeypatch, FakeSearch(prs))
+
+    api.get_github_prs("acme", ["app"])
+
+    assert len(fake.listings) == 1
+    assert len(fake.searches) == 1
+    terms = fake.searches[0]["searchQuery"].split()
+    assert sorted(t for t in terms if t.startswith("repo:")) == [
+        "repo:acme/app-one",
+        "repo:acme/app-two",
+    ]
+    assert "org:acme" not in terms
+
+
+def test_get_github_prs_skips_search_when_no_repository_matches(monkeypatch):
+    fake = _install_search(monkeypatch, FakeSearch(_fake_prs(3, "other")))
+
+    assert api.get_github_prs("acme", ["app"]) == []
+    assert fake.searches == []
+
+
+def test_get_github_prs_lists_repositories_without_archived_by_default(
+    monkeypatch,
+):
+    fake = _install_search(
+        monkeypatch,
+        FakeSearch(_fake_prs(1, "app"), archived_repos=["app-old"]),
+    )
+
+    api.get_github_prs("acme", ["app"])
+
+    assert fake.listings[0]["archived"] is False
+    terms = fake.searches[0]["searchQuery"].split()
+    assert "repo:acme/app-old" not in terms
+    assert "archived:false" in terms
+
+
+def test_get_github_prs_lists_archived_repositories_when_included(monkeypatch):
+    prs = _fake_prs(1, "app") + _fake_prs(1, "app-old")
+    fake = _install_search(
+        monkeypatch, FakeSearch(prs, repos=["app"], archived_repos=["app-old"])
+    )
+
+    result = api.get_github_prs("acme", ["app"], "open", True)
+
+    assert fake.listings[0]["archived"] is None
+    assert "https://github.com/acme/app-old/pull/0" in result
+    assert "archived:false" not in fake.searches[0]["searchQuery"]
+
+
+def test_get_github_prs_pages_through_repository_names(monkeypatch):
+    repos = [f"app-{n:03}" for n in range(250)]
+    fake = _install_search(monkeypatch, FakeSearch([], repos=repos))
+
+    api.get_github_prs("acme", ["app-00*"])
+
+    assert [call["cursor"] for call in fake.listings] == [None, "100", "200"]
+
+
+def test_get_github_prs_raises_owner_not_found_when_listing_is_null(monkeypatch):
+    _install_search(monkeypatch, FakeSearch([], owner_exists=False))
+
+    with pytest.raises(api.OwnerNotFoundError):
+        api.get_github_prs("ghost-login", ["app"])
+
+
+def test_get_github_prs_chunks_repository_terms(monkeypatch):
+    repos = [f"app-{n:02}" for n in range(45)]
+    prs = [pr for repo in repos for pr in _fake_prs(1, repo)]
+    fake = _install_search(monkeypatch, FakeSearch(prs))
+
+    result = api.get_github_prs("acme", ["app-*"])
+
+    assert len(result) == 45
+    per_search = [
+        sum(t.startswith("repo:") for t in call["searchQuery"].split())
+        for call in fake.searches
+    ]
+    assert per_search == [20, 20, 5]
+
+
+def _org_searches(fake):
+    return [c for c in fake.searches if "org:acme" in c["searchQuery"].split()]
+
+
+def _repo_searches(fake):
+    return [c for c in fake.searches if "repo:" in c["searchQuery"]]
+
+
+def test_get_github_prs_searches_the_whole_owner_when_that_is_cheaper(monkeypatch):
+    # 201 matching repos need 11 scoped searches; the owner's 3 PRs need one.
+    repos = [f"app-{n:03}" for n in range(201)]
+    prs = [pr for repo in repos[:3] for pr in _fake_prs(1, repo)]
+    fake = _install_search(monkeypatch, FakeSearch(prs, repos=repos))
+
+    result = api.get_github_prs("acme", ["app-*"])
+
+    assert len(result) == 3
+    assert _repo_searches(fake) == []
+    assert _org_searches(fake)
+
+
+def test_get_github_prs_scopes_many_repos_when_the_owner_is_busier(monkeypatch):
+    # 201 matching repos need 11 scoped searches, far fewer than the 51 pages
+    # the owner's 5,000 PRs would take -- the busy enterprise-org case.
+    repos = [f"app-{n:03}" for n in range(201)]
+    prs = [pr for repo in repos[:3] for pr in _fake_prs(1, repo)]
+    prs += _fake_prs(5000, "unrelated")
+    fake = _install_search(monkeypatch, FakeSearch(prs, repos=repos + ["unrelated"]))
+
+    result = api.get_github_prs("acme", ["app-*"])
+
+    assert len(result) == 3
+    assert len(_repo_searches(fake)) == 11
+    # Only the single count probe searches the whole owner; it is never paged.
+    assert len(_org_searches(fake)) == 1
+    assert _org_searches(fake)[0]["cursor"] is None
+
+
+def test_get_github_prs_logs_how_discovery_was_scoped(monkeypatch, caplog):
+    prs = _fake_prs(1, "app-one") + _fake_prs(1, "other")
+    _install_search(monkeypatch, FakeSearch(prs))
+
+    with caplog.at_level("INFO", logger="breakfast"):
+        api.get_github_prs("acme", ["app"])
+
+    assert "discovery owner=acme mode=repos" in caplog.text
+    assert "repos_listed=2 repos_matched=1 searches=1" in caplog.text
+
+
+def test_get_github_prs_slices_a_large_repository_search(monkeypatch):
+    prs = _fake_prs(600, "app") + _fake_prs(600, "other")
+    fake = _install_search(monkeypatch, FakeSearch(prs))
+
+    result = api.get_github_prs("acme", ["app"])
+
+    assert sorted(result) == sorted(pr["url"] for pr in prs[:600])
+    sliced = [c for c in fake.searches if _CREATED_RANGE.search(c["searchQuery"])]
+    assert sliced
+    assert all("repo:acme/app" in c["searchQuery"].split() for c in sliced)
+
+
+def test_get_github_prs_uses_cached_repository_names(monkeypatch):
+    fake = _install_search(monkeypatch, FakeSearch(_fake_prs(1, "app")))
+    names_cache = FakeNamesCache({("acme", False): ["app"]})
+
+    result = api.get_github_prs("acme", ["app"], "open", False, names_cache)
+
+    assert result == ["https://github.com/acme/app/pull/0"]
+    assert fake.listings == []
+    assert names_cache.writes == []
+
+
+def test_get_github_prs_checks_owner_when_names_come_from_cache(monkeypatch):
+    # A warm cache may outlive the owner; the first search still verifies it.
+    fake = _install_search(monkeypatch, FakeSearch([], owner_exists=False))
+    names_cache = FakeNamesCache({("ghost-login", False): ["app"]})
+
+    with pytest.raises(api.OwnerNotFoundError):
+        api.get_github_prs("ghost-login", ["app"], "open", False, names_cache)
+
+    assert [call["checkOwner"] for call in fake.searches] == [True]
+
+
+def test_get_github_prs_caches_listed_repository_names(monkeypatch):
+    _install_search(
+        monkeypatch, FakeSearch(_fake_prs(1, "app") + _fake_prs(1, "other"))
+    )
+    names_cache = FakeNamesCache()
+
+    api.get_github_prs("acme", ["app"], "open", True, names_cache)
+
+    assert names_cache.writes == [("acme", True, ["app", "other"])]
+
+
+def test_get_github_prs_does_not_list_repositories_without_filters(monkeypatch):
+    fake = _install_search(monkeypatch, FakeSearch(_fake_prs(2)))
+    names_cache = FakeNamesCache()
+
+    api.get_github_prs("acme", [], "open", False, names_cache)
+
+    assert fake.listings == []
+    assert names_cache.writes == []
+
+
+def test_get_github_prs_skips_null_nodes(monkeypatch):
+    def fake(_query, variables):
+        return {
+            "data": {
+                "owner": {"login": "acme"},
+                "search": {
+                    "issueCount": 3,
+                    "nodes": [
+                        None,
+                        {"url": "https://github.com/acme/x/pull/1", "repository": None},
+                        {
+                            "url": "https://github.com/acme/app/pull/2",
+                            "repository": {"name": "app"},
+                        },
+                    ],
+                    "pageInfo": {"endCursor": None, "hasNextPage": False},
+                },
+            }
+        }
+
+    _install_search(monkeypatch, fake)
+
+    assert api.get_github_prs("acme", []) == ["https://github.com/acme/app/pull/2"]
+
+
+def _search_string_for(monkeypatch, fetch_state="open", include_archived=False):
+    fake = _install_search(monkeypatch, FakeSearch([]))
+    api.get_github_prs("acme", [], fetch_state, include_archived)
+    return fake.calls[0]["searchQuery"].split()
+
+
+def test_get_github_prs_search_scopes_to_owner_prs(monkeypatch):
+    terms = _search_string_for(monkeypatch)
+
+    assert "org:acme" in terms
+    assert "is:pr" in terms
+    # Oldest first, so PRs opened mid-run append rather than shift pages.
+    assert "sort:created-asc" in terms
+
+
+def test_get_github_prs_skips_archived_repos_by_default(monkeypatch):
+    assert "archived:false" in _search_string_for(monkeypatch)
+
+
+def test_get_github_prs_include_archived_drops_the_qualifier(monkeypatch):
+    terms = _search_string_for(monkeypatch, include_archived=True)
+
+    assert not any(term.startswith("archived:") for term in terms)
+
+
+@pytest.mark.parametrize(
+    "fetch_state, expected, forbidden",
+    [
+        ("open", {"is:open"}, {"is:closed", "is:merged", "is:unmerged"}),
+        ("OPEN", {"is:open"}, {"is:closed", "is:merged", "is:unmerged"}),
+        ("closed", {"is:closed", "is:unmerged"}, {"is:open", "is:merged"}),
+        ("merged", {"is:merged"}, {"is:open", "is:closed", "is:unmerged"}),
+        ("all", set(), {"is:open", "is:closed", "is:merged", "is:unmerged"}),
+    ],
+)
+def test_get_github_prs_maps_fetch_state_to_qualifiers(
+    monkeypatch, fetch_state, expected, forbidden
+):
+    terms = set(_search_string_for(monkeypatch, fetch_state))
+
+    assert expected <= terms
+    assert not terms & forbidden
+
+
+def test_get_github_prs_splits_over_the_search_cap(monkeypatch):
+    prs = _fake_prs(2500)
+    fake = _install_search(monkeypatch, FakeSearch(prs))
+
+    result = api.get_github_prs("acme", [])
+
+    assert sorted(result) == sorted(pr["url"] for pr in prs)
+    assert len(result) == len(set(result))
+    # No slice that is still over the cap gets paged: those pages are wasted.
+    for call in fake.calls:
+        if call["cursor"] is not None:
+            query = call["searchQuery"]
+            created = _CREATED_RANGE.search(query)
+            assert created, f"paged an unsliced over-cap query: {query}"
+            low, high = (_parse_search_timestamp(v) for v in created.groups())
+            in_slice = [pr for pr in prs if low <= pr["created"] <= high]
+            assert len(in_slice) <= _SEARCH_CAP
+
+
+def test_get_github_prs_slices_results_under_the_cap_for_parallel_paging(
+    monkeypatch,
+):
+    # 600 results fit under the cap, but paging them one cursor at a time is
+    # slow; slicing lets every page be fetched in parallel.
+    prs = _fake_prs(600)
+    fake = _install_search(monkeypatch, FakeSearch(prs))
+
+    result = api.get_github_prs("acme", [])
+
+    assert sorted(result) == sorted(pr["url"] for pr in prs)
+    unsliced_pages = [
+        call
+        for call in fake.calls
+        if call["cursor"] and not _CREATED_RANGE.search(call["searchQuery"])
+    ]
+    assert unsliced_pages == []
+
+
+def test_get_github_prs_dedupes_prs_on_a_slice_boundary(monkeypatch):
+    # Many PRs sharing each second makes boundary PRs land in both halves of an
+    # inclusive split, exactly as they would on GitHub.
+    prs = _fake_prs(1500, step=datetime.timedelta(0))
+    prs += _fake_prs(1500, repo="svc", step=datetime.timedelta(seconds=1))
+    _install_search(monkeypatch, FakeSearch(prs))
+
+    result = api.get_github_prs("acme", [])
+
+    assert len(result) == len(set(result))
+
+
+def test_get_github_prs_keeps_the_cap_when_a_slice_cannot_split(monkeypatch, caplog):
+    # 1,200 PRs created in the same second: no finer slice exists.
+    _install_search(
+        monkeypatch, FakeSearch(_fake_prs(1200, step=datetime.timedelta(0)))
+    )
+
+    with caplog.at_level("WARNING", logger="breakfast"):
+        result = api.get_github_prs("acme", [])
+
+    assert len(result) == _SEARCH_CAP
+    assert "search_slice_over_cap" in caplog.text
+
+
+def test_get_github_prs_takes_a_slice_of_exactly_the_cap_whole(
+    monkeypatch, capsys, caplog
+):
+    # 1,000 PRs in one second: the cap itself, so nothing is missing.
+    _install_search(
+        monkeypatch, FakeSearch(_fake_prs(_SEARCH_CAP, step=datetime.timedelta(0)))
+    )
+
+    with caplog.at_level("WARNING", logger="breakfast"):
+        result = api.get_github_prs("acme", [])
+
+    assert len(result) == _SEARCH_CAP
+    assert "search_slice_over_cap" not in caplog.text
+    assert "missing" not in capsys.readouterr().err
+
+
+def test_get_github_prs_warns_on_stderr_when_a_slice_is_truncated(monkeypatch, capsys):
+    _install_search(
+        monkeypatch, FakeSearch(_fake_prs(1200, step=datetime.timedelta(0)))
+    )
+
+    api.get_github_prs("acme", [])
+
+    captured = capsys.readouterr()
+    assert "only 1000 of 1200" in captured.err
+    assert captured.out == ""
+
+
+def test_get_github_prs_propagates_errors_from_parallel_slices(monkeypatch):
+    fake = FakeSearch(_fake_prs(900))
+
+    def failing_slices(query, variables):
+        if _CREATED_RANGE.search(variables["searchQuery"]):
+            raise api.GitHubRateLimitError()
+        return fake(query, variables)
+
+    _install_search(monkeypatch, failing_slices)
+
+    with pytest.raises(api.GitHubRateLimitError):
+        api.get_github_prs("acme", [])
+
+
+def test_get_github_prs_propagates_graphql_errors(monkeypatch):
+    def fake(_query, _variables):
+        raise api.GitHubGraphQLError([{"type": "FORBIDDEN", "message": "Nope."}])
+
+    _install_search(monkeypatch, fake)
+
+    with pytest.raises(api.GitHubGraphQLError):
+        api.get_github_prs("acme", [])
 
 
 def test_match_exclude_repos_exact():
@@ -415,73 +694,6 @@ def test_match_exclude_repos_multiple_patterns():
 def test_match_exclude_repos_empty():
     assert api.match_exclude_repos("anything", []) is False
     assert api.match_exclude_repos("anything", None) is False
-
-
-def test_get_github_prs_fetch_state_open_uses_open_enum(monkeypatch):
-    captured = []
-
-    def fake_graphql(query, _variables):
-        captured.append(query)
-        return _single_page_graphql(["https://github.com/org/repo/pull/1"])
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
-    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
-
-    api.get_github_prs("org", "", "open")
-
-    assert "OPEN" in captured[0]
-    assert "CLOSED" not in captured[0]
-    assert "MERGED" not in captured[0]
-
-
-def test_get_github_prs_fetch_state_closed_uses_closed_enum(monkeypatch):
-    captured = []
-
-    def fake_graphql(query, _variables):
-        captured.append(query)
-        return _single_page_graphql([])
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
-    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
-
-    api.get_github_prs("org", "", "closed")
-
-    assert "CLOSED" in captured[0]
-    assert "OPEN" not in captured[0]
-
-
-def test_get_github_prs_fetch_state_all_includes_all_enums(monkeypatch):
-    captured = []
-
-    def fake_graphql(query, _variables):
-        captured.append(query)
-        return _single_page_graphql([])
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
-    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
-
-    api.get_github_prs("org", "", "all")
-
-    assert "OPEN" in captured[0]
-    assert "CLOSED" in captured[0]
-    assert "MERGED" in captured[0]
-
-
-def test_get_github_prs_fetch_state_merged(monkeypatch):
-    captured = []
-
-    def fake_graphql(query, _variables):
-        captured.append(query)
-        return _single_page_graphql([])
-
-    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
-    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
-
-    api.get_github_prs("org", "", "merged")
-
-    assert "MERGED" in captured[0]
-    assert "OPEN" not in captured[0]
-    assert "CLOSED" not in captured[0]
 
 
 def test_get_authenticated_user_login(monkeypatch):
@@ -1569,3 +1781,461 @@ def test_resolve_github_token_info(monkeypatch):
 
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     assert api._resolve_github_token_info() == (None, None)
+
+
+# ---------------------------------------------------------------------------
+# GraphQL 403/429 handling
+# ---------------------------------------------------------------------------
+
+_SECONDARY_LIMIT_BODY = {
+    "message": "You have exceeded a secondary rate limit. Please wait a few "
+    "minutes before you try again."
+}
+
+
+def _graphql_http_response(status, body, headers=None):
+    response = requests.Response()
+    response.status_code = status
+    response._content = json.dumps(body).encode()
+    response.headers.update(headers or {})
+    response.url = api.GITHUB_GRAPHQL_URL
+    return response
+
+
+def _script_graphql_posts(monkeypatch, responses):
+    """Serve scripted responses to GraphQL POSTs and record every sleep."""
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    queue = iter(responses)
+    posts, sleeps = [], []
+
+    def fake_post(*_a, **_kw):
+        posts.append(1)
+        return next(queue)
+
+    clock = [1000.0]
+
+    def fake_sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += seconds
+
+    monkeypatch.setattr(api.requests, "post", fake_post)
+    monkeypatch.setattr(api.time, "sleep", fake_sleep)
+    monkeypatch.setattr(api.time, "monotonic", lambda: clock[0])
+    return posts, sleeps
+
+
+def test_make_github_graphql_request_waits_out_secondary_limit_retry_after(
+    monkeypatch, capsys
+):
+    _, sleeps = _script_graphql_posts(
+        monkeypatch,
+        [
+            _graphql_http_response(403, _SECONDARY_LIMIT_BODY, {"Retry-After": "7"}),
+            _graphql_http_response(200, {"data": {"ok": True}}),
+        ],
+    )
+
+    result = api.make_github_graphql_request("{ viewer { login } }")
+
+    assert result == {"data": {"ok": True}}
+    assert sleeps == [7]
+    captured = capsys.readouterr()
+    assert "7s" in captured.err
+    assert captured.out == ""
+
+
+def test_make_github_graphql_request_treats_429_as_secondary_limit(monkeypatch):
+    _, sleeps = _script_graphql_posts(
+        monkeypatch,
+        [
+            _graphql_http_response(429, _SECONDARY_LIMIT_BODY, {"Retry-After": "3"}),
+            _graphql_http_response(200, {"data": {"ok": True}}),
+        ],
+    )
+
+    assert api.make_github_graphql_request("{ viewer { login } }") == {
+        "data": {"ok": True}
+    }
+    assert sleeps == [3]
+
+
+def test_make_github_graphql_request_waits_a_minute_without_retry_after(
+    monkeypatch,
+):
+    # GitHub's guidance: with no retry-after header, wait at least one minute.
+    _, sleeps = _script_graphql_posts(
+        monkeypatch,
+        [
+            _graphql_http_response(403, _SECONDARY_LIMIT_BODY),
+            _graphql_http_response(200, {"data": {"ok": True}}),
+        ],
+    )
+
+    api.make_github_graphql_request("{ viewer { login } }")
+
+    assert sleeps == [60]
+
+
+def test_make_github_graphql_request_gives_up_on_a_persistent_secondary_limit(
+    monkeypatch,
+):
+    limited = _graphql_http_response(403, _SECONDARY_LIMIT_BODY, {"Retry-After": "1"})
+    posts, _ = _script_graphql_posts(monkeypatch, [limited] * (api.MAX_RETRIES + 1))
+
+    with pytest.raises(api.GitHubRateLimitError) as exc_info:
+        api.make_github_graphql_request("{ viewer { login } }")
+
+    assert "secondary rate limit" in str(exc_info.value)
+    assert len(posts) == api.MAX_RETRIES + 1
+
+
+def test_make_github_graphql_request_raises_rate_limit_when_primary_exhausted(
+    monkeypatch,
+):
+    posts, sleeps = _script_graphql_posts(
+        monkeypatch,
+        [
+            _graphql_http_response(
+                403,
+                {"message": "API rate limit exceeded"},
+                {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1790000000"},
+            )
+        ],
+    )
+
+    with pytest.raises(api.GitHubRateLimitError) as exc_info:
+        api.make_github_graphql_request("{ viewer { login } }")
+
+    assert exc_info.value.reset_time is not None
+    assert len(posts) == 1, "an exhausted primary limit is not retried"
+    assert sleeps == []
+
+
+def test_make_github_graphql_request_surfaces_githubs_message_on_other_403(
+    monkeypatch,
+):
+    message = "Resource protected by organization SAML enforcement."
+    posts, _ = _script_graphql_posts(
+        monkeypatch, [_graphql_http_response(403, {"message": message})]
+    )
+
+    with pytest.raises(api.GitHubForbiddenError) as exc_info:
+        api.make_github_graphql_request("{ viewer { login } }")
+
+    assert isinstance(exc_info.value, requests.exceptions.HTTPError)
+    assert message in str(exc_info.value)
+    assert "403" in str(exc_info.value)
+    assert len(posts) == 1
+
+
+def test_a_secondary_limit_pauses_the_next_request_too(monkeypatch):
+    # Workers share one pause: once GitHub says slow down, a request that
+    # starts during the wait holds off rather than hitting the limit again.
+    limited = _graphql_http_response(403, _SECONDARY_LIMIT_BODY, {"Retry-After": "9"})
+    ok = _graphql_http_response(200, {"data": {"ok": True}})
+    posts, sleeps = _script_graphql_posts(
+        monkeypatch, [limited] * (api.MAX_RETRIES + 1) + [ok]
+    )
+
+    with pytest.raises(api.GitHubSecondaryRateLimitError):
+        api.make_github_graphql_request("{ viewer { login } }")
+    sleeps.clear()
+
+    api.make_github_graphql_request("{ viewer { login } }")
+
+    assert sleeps == [9]
+
+
+def test_the_slow_down_notice_prints_once_per_pause(monkeypatch, capsys):
+    limited = _graphql_http_response(403, _SECONDARY_LIMIT_BODY, {"Retry-After": "60"})
+    ok = _graphql_http_response(200, {"data": {"ok": True}})
+    _script_graphql_posts(monkeypatch, [limited, ok])
+    real_post = api.requests.post
+
+    def post_while_another_worker_pauses(*args, **kwargs):
+        # Another worker hit the limit while this request was in flight.
+        if api._throttle_until == 0.0:
+            api._throttle_until = api.time.monotonic() + 59
+        return real_post(*args, **kwargs)
+
+    monkeypatch.setattr(api.requests, "post", post_while_another_worker_pauses)
+
+    api.make_github_graphql_request("{ viewer { login } }")
+
+    assert "slow down" not in capsys.readouterr().err
+
+
+def test_a_pause_extended_during_the_wait_is_waited_out_too(monkeypatch):
+    ok = _graphql_http_response(200, {"data": {"ok": True}})
+    posts, sleeps = _script_graphql_posts(monkeypatch, [ok])
+    real_sleep = api.time.sleep
+    monkeypatch.setattr(api, "_throttle_until", api.time.monotonic() + 10)
+
+    def sleep_while_another_worker_extends(seconds):
+        real_sleep(seconds)
+        if len(sleeps) == 1:
+            # Another worker hit the limit again while this one slept.
+            api._throttle_until = api.time.monotonic() + 5
+
+    monkeypatch.setattr(api.time, "sleep", sleep_while_another_worker_extends)
+
+    api.make_github_graphql_request("{ viewer { login } }")
+
+    assert sleeps == [10, 5]
+    assert len(posts) == 1
+
+
+# ---------------------------------------------------------------------------
+# Batched review lookups
+# ---------------------------------------------------------------------------
+
+
+def _review_node(decision="REVIEW_REQUIRED", reviews=(), total=None):
+    nodes = [{"author": {"login": login}, "state": state} for login, state in reviews]
+    return {
+        "pullRequest": {
+            "reviewDecision": decision,
+            "reviews": {
+                "totalCount": len(nodes) if total is None else total,
+                "nodes": nodes,
+            },
+        }
+    }
+
+
+class FakeReviewBatch:
+    """Answers aliased review queries from ``{(owner, repo, number): node}``."""
+
+    def __init__(self, nodes, fail_chunks=()):
+        self.nodes = nodes
+        self.fail_chunks = set(fail_chunks)
+        self.calls = []
+
+    def __call__(self, query, variables):
+        self.calls.append((query, dict(variables)))
+        if len(self.calls) - 1 in self.fail_chunks:
+            raise api.GitHubGraphQLError([{"type": "INTERNAL", "message": "boom"}])
+        data = {}
+        index = 0
+        while f"o{index}" in variables:
+            key = (
+                variables[f"o{index}"],
+                variables[f"r{index}"],
+                variables[f"n{index}"],
+            )
+            data[f"pr{index}"] = self.nodes.get(key)
+            index += 1
+        return {"data": data}
+
+
+def _pr_keys(count, repo="app"):
+    return [("acme", repo, number) for number in range(1, count + 1)]
+
+
+def test_get_review_data_batch_asks_for_fifty_prs_per_query(monkeypatch):
+    keys = _pr_keys(120)
+    fake = FakeReviewBatch({key: _review_node() for key in keys})
+    monkeypatch.setattr(api, "make_github_graphql_request", fake)
+
+    result = api.get_review_data_batch(keys)
+
+    assert set(result) == set(keys)
+    sizes = sorted(sum(name.startswith("n") for name in v) for _q, v in fake.calls)
+    assert sizes == [20, 50, 50]
+
+
+def test_get_review_data_batch_passes_names_as_variables(monkeypatch):
+    # Repo names go in variables, never spliced into the query text.
+    key = ("acme", 'odd"name', 7)
+    fake = FakeReviewBatch({key: _review_node()})
+    monkeypatch.setattr(api, "make_github_graphql_request", fake)
+
+    api.get_review_data_batch([key])
+
+    query, variables = fake.calls[0]
+    assert 'odd"name' not in query
+    assert variables == {"o0": "acme", "r0": 'odd"name', "n0": 7}
+    assert "pr0: repository(owner: $o0, name: $r0)" in query
+
+
+def test_get_review_data_batch_returns_decision_and_reviews(monkeypatch):
+    key = ("acme", "app", 1)
+    reviews = [("bob", "APPROVED"), ("bob", "COMMENTED"), ("eve", "CHANGES_REQUESTED")]
+    monkeypatch.setattr(
+        api,
+        "make_github_graphql_request",
+        FakeReviewBatch({key: _review_node("CHANGES_REQUESTED", reviews)}),
+    )
+
+    assert api.get_review_data_batch([key]) == {
+        key: {"review_decision": "CHANGES_REQUESTED", "reviews": reviews}
+    }
+
+
+def test_get_review_data_batch_dedupes_keys(monkeypatch):
+    key = ("acme", "app", 1)
+    fake = FakeReviewBatch({key: _review_node()})
+    monkeypatch.setattr(api, "make_github_graphql_request", fake)
+
+    api.get_review_data_batch([key, key])
+
+    assert fake.calls[0][1] == {"o0": "acme", "r0": "app", "n0": 1}
+
+
+def test_get_review_data_batch_leaves_out_prs_it_cannot_answer(monkeypatch):
+    many = ("acme", "app", 1)
+    missing = ("acme", "app", 2)
+    fine = ("acme", "app", 3)
+    nodes = {
+        # More reviews than one page holds: the per-PR path paginates.
+        many: _review_node(reviews=[("bob", "APPROVED")], total=150),
+        missing: None,
+        fine: _review_node(),
+    }
+    monkeypatch.setattr(api, "make_github_graphql_request", FakeReviewBatch(nodes))
+
+    assert set(api.get_review_data_batch([many, missing, fine])) == {fine}
+
+
+def test_get_review_data_batch_degrades_a_failing_chunk(monkeypatch, caplog):
+    keys = _pr_keys(60)
+    fake = FakeReviewBatch({key: _review_node() for key in keys}, fail_chunks={0})
+    monkeypatch.setattr(api, "make_github_graphql_request", fake)
+
+    with caplog.at_level("WARNING", logger="breakfast"):
+        result = api.get_review_data_batch(keys)
+
+    assert len(result) in (10, 50)
+    assert "review_batch_failed" in caplog.text
+
+
+def test_get_review_data_batch_degrades_a_malformed_response(monkeypatch):
+    monkeypatch.setattr(
+        api,
+        "make_github_graphql_request",
+        lambda _q, _v: {"data": {"repository": {"pullRequest": {}}}},
+    )
+
+    assert api.get_review_data_batch([("acme", "app", 1)]) == {}
+
+
+@pytest.mark.parametrize(
+    "error",
+    [api.GitHubRateLimitError(), api.GitHubAuthenticationError(token_var="GH_TOKEN")],
+)
+def test_get_review_data_batch_propagates_rate_limit_and_auth_errors(
+    monkeypatch, error
+):
+    def fail(_q, _v):
+        raise error
+
+    monkeypatch.setattr(api, "make_github_graphql_request", fail)
+
+    with pytest.raises(type(error)):
+        api.get_review_data_batch([("acme", "app", 1)])
+
+
+def test_get_review_data_batch_of_nothing_makes_no_request(monkeypatch):
+    fake = FakeReviewBatch({})
+    monkeypatch.setattr(api, "make_github_graphql_request", fake)
+
+    assert api.get_review_data_batch([]) == {}
+    assert fake.calls == []
+
+
+def test_get_approval_summary_uses_prefetched_reviews(monkeypatch):
+    calls = []
+
+    def fake_rest(path):
+        calls.append(path)
+        return {"required_approving_review_count": 2}
+
+    def no_graphql(*_a, **_kw):
+        raise AssertionError("prefetched data must not trigger a GraphQL call")
+
+    monkeypatch.setattr(api, "make_github_api_request", fake_rest)
+    monkeypatch.setattr(api, "make_github_graphql_request", no_graphql)
+
+    summary = api.get_approval_summary(
+        "acme",
+        "app",
+        1,
+        base_branch="main",
+        review_decision="REVIEW_REQUIRED",
+        reviews=[("bob", "APPROVED"), ("bob", "COMMENTED")],
+    )
+
+    assert summary == {"status": "pending", "current": 1, "required": 2}
+    assert not any("/reviews" in path and "pulls" in path for path in calls)
+
+
+@pytest.mark.parametrize(
+    "reviews, expected",
+    [
+        ([], ("pending", 0)),
+        ([("bob", "APPROVED"), ("bob", "COMMENTED")], ("approved", 1)),
+        ([("bob", "APPROVED"), ("bob", "DISMISSED")], ("pending", 0)),
+        ([("bob", "APPROVED"), ("eve", "CHANGES_REQUESTED")], ("changes", 1)),
+        ([("bob", "CHANGES_REQUESTED"), ("bob", "APPROVED")], ("approved", 1)),
+        ([(None, "APPROVED")], ("pending", 0)),
+    ],
+)
+def test_summarize_reviews_matches_the_rest_aggregation(monkeypatch, reviews, expected):
+    rest_reviews = [
+        {"user": {"login": login}, "state": state} for login, state in reviews
+    ]
+    monkeypatch.setattr(
+        api, "make_paginated_github_api_request", lambda _path: rest_reviews
+    )
+
+    from_rest = api._review_status_from_latest_reviews("acme", "app", 1)
+    from_pairs = api._summarize_reviews(reviews)
+
+    assert (from_pairs["status"], from_pairs["current"]) == expected
+    assert from_pairs == from_rest
+
+
+# ---------------------------------------------------------------------------
+# Progress: one breakfast emoji per GraphQL request
+# ---------------------------------------------------------------------------
+
+
+def _progress(capsys):
+    return capsys.readouterr().err.count("*")
+
+
+def test_every_scoped_search_shows_progress(monkeypatch, capsys):
+    # Cached names and three one-page searches: each search still shows up.
+    repos = [f"app-{n:02}" for n in range(45)]
+    prs = [pr for repo in repos for pr in _fake_prs(1, repo)]
+    _install_search(monkeypatch, FakeSearch(prs))
+    names_cache = FakeNamesCache({("acme", False): repos})
+
+    api.get_github_prs("acme", ["app-*"], "open", False, names_cache)
+
+    assert _progress(capsys) == 3
+
+
+def test_every_repository_listing_page_shows_progress(monkeypatch, capsys):
+    repos = [f"app-{n:03}" for n in range(250)]
+    _install_search(monkeypatch, FakeSearch([], repos=repos))
+
+    api.get_github_prs("acme", ["zzz"])
+
+    assert _progress(capsys) == 3
+
+
+def test_every_review_batch_shows_progress(monkeypatch, capsys):
+    keys = _pr_keys(120)
+    monkeypatch.setattr(
+        api,
+        "make_github_graphql_request",
+        FakeReviewBatch({key: _review_node() for key in keys}),
+    )
+    monkeypatch.setattr(api, "BREAKFAST_ITEMS", ["*"])
+
+    api.get_review_data_batch(keys)
+
+    captured = capsys.readouterr()
+    assert captured.err.count("*") == 3
+    assert captured.out == ""

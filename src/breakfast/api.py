@@ -1,9 +1,11 @@
 import datetime
 import fnmatch
+import math
 import os
 import random
 import threading
 import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from functools import lru_cache
 from urllib.parse import quote, urlparse
 
@@ -14,21 +16,32 @@ from .constants import (
     BREAKFAST_ITEMS,
     GITHUB_API_URL,
     GITHUB_GRAPHQL_URL,
-    GRAPHQL_REPOSITORY_PAGE_SIZE,
     MAX_GRAPHQL_ERROR_MESSAGE_LENGTH,
     MAX_GRAPHQL_ERROR_TYPES,
     MAX_RETRIES,
     MAX_STORED_GRAPHQL_ERRORS,
     REQUEST_TIMEOUT,
     RETRY_STATUSES,
+    REVIEW_BATCH_PAGE_SIZE,
+    REVIEW_BATCH_SIZE,
+    SEARCH_EARLIEST_CREATED,
+    SEARCH_MAX_REPO_QUERIES,
+    SEARCH_PAGE_SIZE,
+    SEARCH_REPOS_PER_QUERY,
+    SEARCH_RESULT_LIMIT,
+    SEARCH_SLICE_TARGET,
+    SEARCH_WORKERS,
+    SECONDARY_RATE_LIMIT_DEFAULT_WAIT,
 )
 from .logger import logger
 
 __all__ = [
     "GitHubAuthenticationError",
+    "GitHubForbiddenError",
     "GitHubGraphQLError",
     "GitHubGraphQLResourceLimitError",
     "GitHubRateLimitError",
+    "GitHubSecondaryRateLimitError",
     "OwnerNotFoundError",
     "fetch_pr_detail",
     "get_api_stats",
@@ -41,6 +54,7 @@ __all__ = [
     "get_pr_age_days",
     "get_pr_inactive_days",
     "get_required_approving_review_count",
+    "get_review_data_batch",
     "make_github_api_request",
     "make_github_graphql_request",
     "make_paginated_github_api_request",
@@ -138,6 +152,35 @@ class GitHubRateLimitError(Exception):
             )
         else:
             super().__init__("GitHub API rate limit exceeded.")
+
+
+class GitHubSecondaryRateLimitError(GitHubRateLimitError):
+    """Raised when GitHub's secondary rate limit outlasts every retry."""
+
+    def __init__(self):
+        Exception.__init__(
+            self,
+            "GitHub's secondary rate limit is still in effect after retrying."
+            " Wait a few minutes and try again.",
+        )
+        self.reset_time = None
+
+
+class GitHubForbiddenError(requests.exceptions.HTTPError):
+    """Raised when GitHub refuses a request for a reason other than rate limits.
+
+    Attributes:
+        status_code: The HTTP status GitHub returned.
+        github_message: GitHub's explanation from the response body.
+    """
+
+    def __init__(self, status_code, github_message, response=None):
+        self.status_code = status_code
+        self.github_message = github_message
+        super().__init__(
+            f"GitHub refused the request (HTTP {status_code}): {github_message}",
+            response=response,
+        )
 
 
 class OwnerNotFoundError(Exception):
@@ -320,15 +363,98 @@ def make_paginated_github_api_request(query_string, rate=100):
     return all_data
 
 
+def _github_error_message(response):
+    """Return GitHub's ``message`` from an error response body, if any."""
+    try:
+        body = response.json()
+    except ValueError:
+        return response.text.strip()
+    if isinstance(body, dict) and body.get("message"):
+        return body["message"]
+    return response.text.strip()
+
+
+def _primary_rate_limit_error(response):
+    """Return a rate-limit error if the response exhausted the primary limit."""
+    if response.headers.get("X-RateLimit-Remaining") != "0":
+        return None
+    reset_ts = response.headers.get("X-RateLimit-Reset")
+    reset_time = None
+    if reset_ts:
+        reset_time = datetime.datetime.fromtimestamp(
+            int(reset_ts), tz=datetime.timezone.utc
+        ).strftime("%Y-%m-%d %H:%M:%S")
+    return GitHubRateLimitError(reset_time)
+
+
+def _secondary_rate_limit_wait(response):
+    """Return seconds to wait out a secondary rate limit, or None if it is not one.
+
+    Follows GitHub's guidance: honour ``retry-after`` when present, otherwise
+    wait at least a minute.
+    """
+    retry_after = response.headers.get("Retry-After")
+    if retry_after is not None:
+        try:
+            return max(int(retry_after), 1)
+        except ValueError:
+            return SECONDARY_RATE_LIMIT_DEFAULT_WAIT
+    if response.status_code == 429:
+        return SECONDARY_RATE_LIMIT_DEFAULT_WAIT
+    if "secondary rate limit" in _github_error_message(response).lower():
+        return SECONDARY_RATE_LIMIT_DEFAULT_WAIT
+    return None
+
+
+# One pause shared by every worker: once GitHub signals a secondary rate limit,
+# no GraphQL request goes out until the wait it asked for has passed.
+_throttle_lock = threading.Lock()
+_throttle_until = 0.0
+
+
+def _wait_for_slow_down():
+    """Sleep until any pause GitHub asked for has passed.
+
+    Re-checks after each sleep, because another worker may have extended the
+    pause in the meantime.
+    """
+    while True:
+        with _throttle_lock:
+            remaining = _throttle_until - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(remaining)
+
+
+def _slow_down_for(seconds):
+    """Pause every GraphQL request for ``seconds``.
+
+    Returns:
+        bool: True if this call started a pause, False if one was already
+        running (it is extended if needed), so only one notice is shown when
+        several workers hit the limit together.
+    """
+    global _throttle_until
+    with _throttle_lock:
+        now = time.monotonic()
+        started = _throttle_until <= now
+        _throttle_until = max(_throttle_until, now + seconds)
+        return started
+
+
 def make_github_graphql_request(query, variables=None):
     headers = {
         "Authorization": f"Bearer {SECRET_GITHUB_TOKEN}",
         "Content-Type": "application/json",
     }
     payload = {"query": query, "variables": variables or {}}
+    back_off = False
     for attempt in range(MAX_RETRIES + 1):
-        if attempt:
+        if back_off:
             time.sleep(2 ** (attempt - 1) + random.uniform(0, 0.5))
+        # Every retry backs off unless a slow-down pause already covers it.
+        back_off = True
+        _wait_for_slow_down()
         try:
             t0 = time.monotonic()
             response = requests.post(
@@ -354,6 +480,43 @@ def make_github_graphql_request(query, variables=None):
                     token_var,
                 )
                 raise GitHubAuthenticationError(token_var=token_var, response=response)
+            if response.status_code in (403, 429):
+                primary = _primary_rate_limit_error(response)
+                if primary is not None:
+                    logger.warning(
+                        "api_call type=graphql rate_limit_exceeded reset=%s",
+                        primary.reset_time,
+                    )
+                    raise primary
+                wait = _secondary_rate_limit_wait(response)
+                if wait is None:
+                    message = _github_error_message(response)
+                    logger.warning(
+                        "api_call type=graphql status=%d forbidden message=%r",
+                        response.status_code,
+                        message,
+                    )
+                    raise GitHubForbiddenError(
+                        response.status_code, message, response=response
+                    )
+                logger.warning(
+                    "api_call type=graphql status=%d secondary_rate_limit"
+                    " wait=%ss attempt=%d",
+                    response.status_code,
+                    wait,
+                    attempt + 1,
+                )
+                started_pause = _slow_down_for(wait)
+                if attempt == MAX_RETRIES:
+                    raise GitHubSecondaryRateLimitError()
+                if started_pause:
+                    click.echo(
+                        f"\n🐢 GitHub asked breakfast to slow down; waiting {wait}s...",
+                        nl=False,
+                        err=True,
+                    )
+                back_off = False
+                continue
             response.raise_for_status()
             resp_json = response.json()
             if "errors" in resp_json:
@@ -432,118 +595,377 @@ def match_exclude_repos(repo_name, exclude_repos):
     return False
 
 
-_FETCH_STATE_MAP = {
-    "open": ["OPEN"],
-    "closed": ["CLOSED"],
-    "merged": ["MERGED"],
-    "all": ["OPEN", "CLOSED", "MERGED"],
+# Search qualifiers per --fetch-state. GraphQL's CLOSED state means closed
+# without merging, which search spells as two qualifiers.
+_FETCH_STATE_QUALIFIERS = {
+    "open": ["is:open"],
+    "closed": ["is:closed", "is:unmerged"],
+    "merged": ["is:merged"],
+    "all": [],
 }
 
+_SEARCH_QUERY = """
+query($owner: String!, $searchQuery: String!, $cursor: String,
+      $pageSize: Int!, $checkOwner: Boolean!) {
+  owner: repositoryOwner(login: $owner) @include(if: $checkOwner) {
+    login
+  }
+  search(type: ISSUE, query: $searchQuery, first: $pageSize, after: $cursor) {
+    issueCount
+    nodes {
+      ... on PullRequest {
+        url
+        repository { name }
+      }
+    }
+    pageInfo {
+      endCursor
+      hasNextPage
+    }
+  }
+}
+"""
 
-def _request_github_repository_page(query, owner, cursor, page_size):
-    """Request one repository page, reducing its size on resource failures.
+_REPOSITORY_NAMES_QUERY = """
+query($owner: String!, $cursor: String, $pageSize: Int!, $archived: Boolean) {
+  repositoryOwner(login: $owner) {
+    repositories(first: $pageSize, after: $cursor, isArchived: $archived) {
+      nodes { name }
+      pageInfo {
+        endCursor
+        hasNextPage
+      }
+    }
+  }
+}
+"""
+
+_SEARCH_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def _show_progress():
+    """Print one breakfast emoji to stderr: a request finished."""
+    click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
+
+
+def _build_search_string(scope, fetch_state, include_archived, created=None):
+    """Return a GitHub search string for pull requests within a scope.
 
     Args:
-        query: GraphQL repository and pull-request query.
-        owner: GitHub organization or user login.
-        cursor: Repository pagination cursor, or ``None`` for the first page.
-        page_size: Number of repositories to request in the first attempt.
+        scope: Search terms naming where to look: ``["org:<owner>"]`` (which
+            matches users too) or one ``repo:<owner>/<name>`` term per repo.
+        fetch_state: Pull-request state selector.
+        include_archived: Whether PRs in archived repositories are included.
+        created: Optional inclusive ``(low, high)`` datetime range.
 
     Returns:
-        tuple: Successful GraphQL response and the page size that succeeded.
+        str: Search qualifiers, oldest PR first so PRs opened mid-run append
+        to the last page rather than shifting earlier ones.
+    """
+    terms = list(scope) + ["is:pr"]
+    terms += _FETCH_STATE_QUALIFIERS.get(fetch_state.lower(), ["is:open"])
+    if not include_archived:
+        terms.append("archived:false")
+    if created is not None:
+        low, high = (moment.strftime(_SEARCH_TIMESTAMP_FORMAT) for moment in created)
+        terms.append(f"created:{low}..{high}")
+    terms.append("sort:created-asc")
+    return " ".join(terms)
+
+
+def _request_search_page(owner, search_string, cursor=None, check_owner=False):
+    """Return one page of search results as the GraphQL ``data`` object."""
+    variables = {
+        "owner": owner,
+        "searchQuery": search_string,
+        "cursor": cursor,
+        "pageSize": SEARCH_PAGE_SIZE,
+        "checkOwner": check_owner,
+    }
+    return make_github_graphql_request(_SEARCH_QUERY, variables)["data"]
+
+
+def _drain_search(owner, search_string, page, on_page=None):
+    """Return every node of a search, starting from its already-fetched first page.
+
+    Args:
+        owner: GitHub organization or user login.
+        search_string: The search the first page was fetched with.
+        page: The ``search`` object of the first page.
+        on_page: Optional callback run after each further page is fetched.
+
+    Returns:
+        list[dict]: Pull-request nodes from every page.
+    """
+    nodes = list(page["nodes"])
+    while page["pageInfo"]["hasNextPage"]:
+        cursor = page["pageInfo"]["endCursor"]
+        page = _request_search_page(owner, search_string, cursor)["search"]
+        nodes.extend(page["nodes"])
+        if on_page:
+            on_page()
+    return nodes
+
+
+def _search_created_range(owner, scope, fetch_state, include_archived, created):
+    """Fetch one ``created:`` slice, or report that it should be split.
+
+    Args:
+        owner: GitHub organization or user login.
+        scope: Search terms naming where to look.
+        fetch_state: Pull-request state selector.
+        include_archived: Whether PRs in archived repositories are included.
+        created: Inclusive ``(low, high)`` datetime range.
+
+    Returns:
+        tuple: ``(nodes, issue_count)``, where ``nodes`` is ``None`` when the
+        slice holds more than ``SEARCH_SLICE_TARGET`` results and can still be
+        split.
+    """
+    search_string = _build_search_string(scope, fetch_state, include_archived, created)
+    page = _request_search_page(owner, search_string)["search"]
+    issue_count = page["issueCount"]
+    low, high = created
+    if issue_count > SEARCH_SLICE_TARGET and high > low:
+        return None, issue_count
+    if issue_count > SEARCH_RESULT_LIMIT:
+        logger.warning(
+            "search_slice_over_cap owner=%s created=%s issue_count=%d limit=%d",
+            owner,
+            low.strftime(_SEARCH_TIMESTAMP_FORMAT),
+            issue_count,
+            SEARCH_RESULT_LIMIT,
+        )
+        click.echo(
+            f"\n⚠️  GitHub search can return only {SEARCH_RESULT_LIMIT} of "
+            f"{issue_count} {owner} PRs created at "
+            f"{low.strftime(_SEARCH_TIMESTAMP_FORMAT)}; the rest are missing.",
+            err=True,
+        )
+    return _drain_search(owner, search_string, page), issue_count
+
+
+def _split_created_range(created, issue_count):
+    """Split an inclusive whole-second range into slices near the target size.
+
+    Args:
+        created: Inclusive ``(low, high)`` datetime range, at least two seconds.
+        issue_count: Results the range holds, which sets the number of slices.
+
+    Returns:
+        list[tuple]: Non-overlapping inclusive ranges covering ``created``.
+    """
+    low, high = created
+    seconds = int((high - low).total_seconds()) + 1
+    pieces = min(max(2, math.ceil(issue_count / SEARCH_SLICE_TARGET)), seconds)
+    slices = []
+    start = 0
+    for piece in range(1, pieces + 1):
+        end = seconds * piece // pieces - 1
+        slices.append(
+            (
+                low + datetime.timedelta(seconds=start),
+                low + datetime.timedelta(seconds=end),
+            )
+        )
+        start = end + 1
+    return slices
+
+
+def _search_in_created_slices(owner, scope, fetch_state, include_archived, count):
+    """Collect a large search by fetching ``created:`` slices in parallel.
+
+    A slice that turns out to hold too many results is split again and its
+    pieces queued straight away, so no slice waits on an unrelated one.
+    """
+    earliest = datetime.datetime.fromisoformat(SEARCH_EARLIEST_CREATED)
+    # A day of headroom covers clock skew and PRs opened during the run.
+    latest = datetime.datetime.now(datetime.timezone.utc).replace(
+        microsecond=0
+    ) + datetime.timedelta(days=1)
+    nodes = []
+    executor = ThreadPoolExecutor(max_workers=SEARCH_WORKERS)
+
+    def submit(created):
+        return executor.submit(
+            _search_created_range, owner, scope, fetch_state, include_archived, created
+        )
+
+    try:
+        futures = {
+            submit(created): created
+            for created in _split_created_range((earliest, latest), count)
+        }
+        while futures:
+            done, _ = wait(futures, return_when=FIRST_COMPLETED)
+            for future in done:
+                created = futures.pop(future)
+                slice_nodes, slice_count = future.result()
+                if slice_nodes is None:
+                    for piece in _split_created_range(created, slice_count):
+                        futures[submit(piece)] = piece
+                    continue
+                nodes.extend(slice_nodes)
+                _show_progress()
+    finally:
+        executor.shutdown(cancel_futures=True)
+    return nodes
+
+
+def _collect_search(owner, scope, fetch_state, include_archived, check_owner=False):
+    """Return every pull-request node a scoped search matches.
 
     Raises:
-        GitHubGraphQLError: If GitHub returns any non-resource GraphQL error.
-        GitHubGraphQLResourceLimitError: If a single-repository page still
-            exceeds GitHub's resource limits.
-        requests.exceptions.RequestException: If the request fails after its
-            configured network retries.
+        OwnerNotFoundError: If ``check_owner`` is set and the owner does not
+            resolve to a GitHub account.
     """
-    current_page_size = page_size
+    search_string = _build_search_string(scope, fetch_state, include_archived)
+    data = _request_search_page(owner, search_string, check_owner=check_owner)
+    # Search returns nothing, not an error, for an unknown owner.
+    if check_owner and data.get("owner") is None:
+        raise OwnerNotFoundError(owner)
+    _show_progress()
+    page = data["search"]
+    if page["issueCount"] > SEARCH_SLICE_TARGET:
+        return _search_in_created_slices(
+            owner, scope, fetch_state, include_archived, page["issueCount"]
+        )
+    return _drain_search(owner, search_string, page, on_page=_show_progress)
+
+
+def _list_repository_names(owner, include_archived):
+    """Return the names of an owner's repositories.
+
+    Listing costs a request per 100 repositories and does not count against
+    GitHub's search limits.
+
+    Raises:
+        OwnerNotFoundError: If the owner does not resolve to a GitHub account.
+    """
+    names = []
+    cursor = None
     while True:
         variables = {
             "owner": owner,
             "cursor": cursor,
-            "repositoryPageSize": current_page_size,
+            "pageSize": SEARCH_PAGE_SIZE,
+            # null lists every repository; false leaves archived ones out.
+            "archived": None if include_archived else False,
         }
-        try:
-            return make_github_graphql_request(query, variables), current_page_size
-        except GitHubGraphQLResourceLimitError as exc:
-            if current_page_size == 1:
-                raise
-            next_page_size = max(1, current_page_size // 2)
-            logger.warning(
-                "graphql_resource_limit owner=%s cursor=%r error_count=%d"
-                " repository_page_size=%d retry_page_size=%d",
-                owner,
-                cursor,
-                exc.error_count,
-                current_page_size,
-                next_page_size,
-            )
-            current_page_size = next_page_size
+        data = make_github_graphql_request(_REPOSITORY_NAMES_QUERY, variables)["data"]
+        if data["repositoryOwner"] is None:
+            raise OwnerNotFoundError(owner)
+        repositories = data["repositoryOwner"]["repositories"]
+        names.extend(node["name"] for node in repositories["nodes"] if node)
+        _show_progress()
+        if not repositories["pageInfo"]["hasNextPage"]:
+            return names
+        cursor = repositories["pageInfo"]["endCursor"]
 
 
-def get_github_prs(owner, repo_filters, fetch_state="open"):
-    """Return pull-request URLs for an owner using bounded repository pages.
+def _repository_names(owner, include_archived, names_cache):
+    """Return an owner's repository names, from ``names_cache`` when it has them."""
+    if names_cache is not None:
+        names = names_cache.read(owner, include_archived)
+        if names is not None:
+            return names
+    names = _list_repository_names(owner, include_archived)
+    if names_cache is not None:
+        names_cache.write(owner, include_archived, names)
+    return names
+
+
+def _chunk_repository_scopes(owner, names):
+    """Return ``repo:`` search scopes covering ``names``, a few repos per search."""
+    scopes = []
+    for start in range(0, len(names), SEARCH_REPOS_PER_QUERY):
+        chunk = names[start : start + SEARCH_REPOS_PER_QUERY]
+        scopes.append([f"repo:{owner}/{name}" for name in chunk])
+    return scopes
+
+
+def _search_scopes(owner, repo_filters, fetch_state, include_archived, names_cache):
+    """Return the search scopes that cover an owner's filtered repositories.
+
+    With filters, matching repositories are searched a few at a time. When so
+    many match that it might be cheaper to search the owner as a whole, one
+    probe fetches the owner's PR count and the cheaper plan wins: busy owners
+    have tens of thousands of PRs, so per-repo searches almost always do.
+
+    Returns:
+        list[list[str]]: Search scopes; empty when no repository matches.
+    """
+    owner_scope = [f"org:{owner}"]
+    if not repo_filters:
+        logger.info("discovery owner=%s mode=owner searches=1", owner)
+        return [owner_scope]
+    names = _repository_names(owner, include_archived, names_cache)
+    matched = [name for name in names if _match_repo_filter(name, repo_filters)]
+    scopes = _chunk_repository_scopes(owner, matched)
+    mode = "repos"
+    if len(scopes) > SEARCH_MAX_REPO_QUERIES:
+        search_string = _build_search_string(owner_scope, fetch_state, include_archived)
+        issue_count = _request_search_page(owner, search_string)["search"]["issueCount"]
+        if math.ceil(issue_count / SEARCH_PAGE_SIZE) <= len(scopes):
+            mode, scopes = "owner", [owner_scope]
+    logger.info(
+        "discovery owner=%s mode=%s repos_listed=%d repos_matched=%d searches=%d",
+        owner,
+        mode,
+        len(names),
+        len(matched),
+        len(scopes),
+    )
+    return scopes
+
+
+def get_github_prs(
+    owner, repo_filters, fetch_state="open", include_archived=False, names_cache=None
+):
+    """Return pull-request URLs for an owner using GraphQL search.
+
+    Search costs a request per 100 PRs however many repositories the owner has.
+    With repo filters, the owner's repository names are listed first so only
+    matching repositories are searched, which keeps busy owners clear of
+    GitHub's search rate limits.
 
     Args:
         owner: GitHub organization or user login.
         repo_filters: Repository name filters, or an empty value for all repos.
         fetch_state: Pull-request state selector.
+        include_archived: Whether PRs in archived repositories are included.
+        names_cache: Optional store with ``read(owner, include_archived)`` and
+            ``write(owner, include_archived, names)`` for repository names.
 
     Returns:
-        list[str]: Matching pull-request URLs.
-    """
-    states_list = _FETCH_STATE_MAP.get(fetch_state.lower(), ["OPEN"])
-    states_gql = ", ".join(states_list)
-    base_query = f"""
-    query($owner: String!, $cursor: String, $repositoryPageSize: Int!){{
-      repositoryOwner(login: $owner){{
-        repositories(after: $cursor, first: $repositoryPageSize){{
-          nodes{{
-            name
-            pullRequests(first:100,states: [{states_gql}]){{
-                nodes{{
-                    url
-                 }}
-            }}
-          }}
-          pageInfo {{
-            endCursor
-            hasNextPage
-          }}
-        }}
-      }}
-    }}
-        """
-    cursor = None
-    page_size = GRAPHQL_REPOSITORY_PAGE_SIZE
-    gql_responses = []
+        list[str]: Matching pull-request URLs, without duplicates.
 
+    Raises:
+        OwnerNotFoundError: If the owner does not resolve to a GitHub account.
+    """
     click.echo(f"Fetching {owner} PRs...", nl=False, err=True)
-    while True:
-        response, page_size = _request_github_repository_page(
-            base_query, owner, cursor, page_size
+    scopes = _search_scopes(
+        owner, repo_filters, fetch_state, include_archived, names_cache
+    )
+    nodes = []
+    for index, scope in enumerate(scopes):
+        # The first search also confirms the owner exists; cached repository
+        # names can outlive it.
+        check_owner = index == 0
+        nodes.extend(
+            _collect_search(owner, scope, fetch_state, include_archived, check_owner)
         )
-        if response["data"]["repositoryOwner"] is None:
-            raise OwnerNotFoundError(owner)
-        gql_responses.append(response)
-        page_info = response["data"]["repositoryOwner"]["repositories"]["pageInfo"]
-        if not page_info["hasNextPage"]:
-            break
-        cursor = page_info["endCursor"]
-        click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
     click.echo("...Done", err=True)
 
     prs = []
-    for response in gql_responses:
-        for repo in response["data"]["repositoryOwner"]["repositories"]["nodes"]:
-            if repo is None:
-                continue
-            if _match_repo_filter(repo["name"], repo_filters):
-                for pr in repo["pullRequests"]["nodes"]:
-                    prs.append(pr["url"])
+    seen = set()
+    for node in nodes:
+        repository = (node or {}).get("repository")
+        if repository is None or node["url"] in seen:
+            continue
+        seen.add(node["url"])
+        if _match_repo_filter(repository["name"], repo_filters):
+            prs.append(node["url"])
     return prs
 
 
@@ -555,28 +977,21 @@ def get_authenticated_user_login():
     return login
 
 
-def _review_status_from_latest_reviews(owner, repo, pr_number):
-    """Aggregate approval state from the latest REST review events.
+def _summarize_reviews(reviews):
+    """Aggregate approval state from reviews in the order they were submitted.
+
+    Each reviewer's latest approving, changes-requested or dismissed review
+    counts; comments and pending reviews do not change their standing.
 
     Args:
-        owner: Repository owner login.
-        repo: Repository name.
-        pr_number: Pull request number.
+        reviews: ``(login, state)`` pairs, oldest first.
 
     Returns:
-        str: One of ``approved``, ``changes``, or ``pending``.
+        dict: ``status`` (``approved``, ``changes`` or ``pending``) and
+        ``current``, the number of reviewers whose standing is an approval.
     """
-    reviews = make_paginated_github_api_request(
-        f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
-    )
-
-    if not reviews:
-        return {"status": "pending", "current": 0}
-
     latest_by_reviewer = {}
-    for review in reviews:
-        reviewer = review.get("user", {}).get("login")
-        state = review.get("state")
+    for reviewer, state in reviews:
         if reviewer and state in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
             latest_by_reviewer[reviewer] = state
 
@@ -591,6 +1006,25 @@ def _review_status_from_latest_reviews(owner, repo, pr_number):
     else:
         status = "pending"
     return {"status": status, "current": approval_count}
+
+
+def _review_status_from_latest_reviews(owner, repo, pr_number):
+    """Aggregate approval state from the PR's REST review events.
+
+    Args:
+        owner: Repository owner login.
+        repo: Repository name.
+        pr_number: Pull request number.
+
+    Returns:
+        dict: See ``_summarize_reviews``.
+    """
+    reviews = make_paginated_github_api_request(
+        f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
+    )
+    return _summarize_reviews(
+        (review.get("user", {}).get("login"), review.get("state")) for review in reviews
+    )
 
 
 @lru_cache(maxsize=None)
@@ -659,12 +1093,118 @@ def _fetch_review_decision(owner, repo, pr_number):
         return None
 
 
+def _review_batch_query(count):
+    """Return an aliased query asking for the reviews of ``count`` PRs.
+
+    Owners, names and numbers travel as variables ``o<i>``, ``r<i>`` and
+    ``n<i>``, so no repository name is ever spliced into the query text.
+    """
+    params = ", ".join(
+        f"$o{i}: String!, $r{i}: String!, $n{i}: Int!" for i in range(count)
+    )
+    fields = "\n".join(
+        f"  pr{i}: repository(owner: $o{i}, name: $r{i}) {{\n"
+        f"    pullRequest(number: $n{i}) {{\n"
+        "      reviewDecision\n"
+        f"      reviews(first: {REVIEW_BATCH_PAGE_SIZE}) {{\n"
+        "        totalCount\n"
+        "        nodes { author { login } state }\n"
+        "      }\n"
+        "    }\n"
+        "  }"
+        for i in range(count)
+    )
+    return f"query({params}) {{\n{fields}\n}}"
+
+
+def _fetch_review_chunk(keys):
+    """Return review data for one chunk of PRs, or ``{}`` if the chunk fails.
+
+    A PR is left out when GitHub cannot answer for it or it has more reviews
+    than one page holds, so the caller falls back to the per-PR path.
+    """
+    variables = {}
+    for i, (owner, repo, number) in enumerate(keys):
+        variables.update({f"o{i}": owner, f"r{i}": repo, f"n{i}": number})
+    try:
+        data = make_github_graphql_request(_review_batch_query(len(keys)), variables)[
+            "data"
+        ]
+        result = {}
+        for i, key in enumerate(keys):
+            pull_request = (data.get(f"pr{i}") or {}).get("pullRequest")
+            if not pull_request:
+                continue
+            page = pull_request["reviews"]
+            if page["totalCount"] > len(page["nodes"]):
+                continue
+            result[key] = {
+                "review_decision": pull_request.get("reviewDecision"),
+                "reviews": [
+                    ((node.get("author") or {}).get("login"), node.get("state"))
+                    for node in page["nodes"]
+                    if node
+                ],
+            }
+        return result
+    except GitHubAuthenticationError:
+        raise
+    except (
+        GitHubGraphQLError,
+        requests.exceptions.RequestException,
+        KeyError,
+        TypeError,
+        AttributeError,
+    ) as exc:
+        logger.warning(
+            "review_batch_failed pr_count=%d error=%r falling_back=per_pr",
+            len(keys),
+            str(exc),
+        )
+        return {}
+
+
+def get_review_data_batch(pr_keys):
+    """Fetch review decisions and reviews for many PRs in a few requests.
+
+    PRs are asked about ``REVIEW_BATCH_SIZE`` at a time with GraphQL aliases,
+    instead of a GraphQL and a REST call per PR.
+
+    Args:
+        pr_keys: ``(owner, repo, number)`` tuples.
+
+    Returns:
+        dict: ``{(owner, repo, number): {"review_decision": str | None,
+        "reviews": [(login, state), ...]}}``. PRs missing from the result
+        (a failed chunk, an unanswerable PR, or too many reviews) should use
+        the per-PR path.
+
+    Raises:
+        GitHubAuthenticationError: If the token is rejected.
+        GitHubRateLimitError: If GitHub's rate limit outlasts the retries.
+    """
+    keys = list(dict.fromkeys(pr_keys))
+    chunks = [
+        keys[start : start + REVIEW_BATCH_SIZE]
+        for start in range(0, len(keys), REVIEW_BATCH_SIZE)
+    ]
+    result = {}
+    if not chunks:
+        return result
+    with ThreadPoolExecutor(max_workers=SEARCH_WORKERS) as executor:
+        for chunk_result in executor.map(_fetch_review_chunk, chunks):
+            result.update(chunk_result)
+            _show_progress()
+    return result
+
+
 def get_approval_summary(
     owner,
     repo,
     pr_number,
     base_branch=None,
     review_decision=_REVIEW_DECISION_SENTINEL,
+    reviews=None,
 ):
     """Return approval status plus optional obtained/required review counts.
 
@@ -676,12 +1216,18 @@ def get_approval_summary(
         review_decision: Optional pre-fetched GitHub ``reviewDecision`` value.
             When provided (including ``None``), skips the internal GraphQL
             query — used by ``get_approval_status`` to avoid a duplicate call.
+        reviews: Optional pre-fetched ``(login, state)`` review pairs, oldest
+            first, as ``get_review_data_batch`` returns them. When provided,
+            skips the REST reviews listing.
 
     Returns:
         dict: Summary with ``status`` and optional ``current`` / ``required``
         review counts.
     """
-    review_summary = _review_status_from_latest_reviews(owner, repo, pr_number)
+    if reviews is None:
+        review_summary = _review_status_from_latest_reviews(owner, repo, pr_number)
+    else:
+        review_summary = _summarize_reviews(reviews)
     current_reviews = review_summary["current"]
     required_reviews = None
 

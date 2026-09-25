@@ -66,15 +66,39 @@ If errors persist and no cached data exists:
 - Verify your token hasn't been revoked
 - Check your [API rate limit](https://docs.github.com/en/rest/rate-limit): `curl -H "Authorization: token $GH_TOKEN" https://api.github.com/rate_limit`
 
+## Rate limits and "GitHub refused the request (HTTP 403)"
+
+PR discovery runs a few GitHub searches in parallel. If GitHub's **secondary
+rate limit** kicks in, every request pauses for as long as GitHub asks (the
+`retry-after` header, or a minute without one) and then retries, showing:
+
+```text
+🐢 GitHub asked breakfast to slow down; waiting 60s...
+```
+
+If the limit outlasts the retries, or the hourly (primary) limit is used up,
+breakfast exits with a 🥞 message telling you when to try again.
+
+Any other 403 is printed with GitHub's own explanation, for example an
+organization that requires SAML SSO authorization for your token:
+
+```text
+🥞 GitHub refused the request (HTTP 403): Resource protected by organization SAML enforcement...
+```
+
+For SSO, authorize the token for that organization in GitHub's token settings.
+
+If you see many 🐢 pauses, you are probably searching a very busy owner as a
+whole. Narrow the run with `--repo-filter` or `-o owner:repo`: breakfast then
+searches only the matching repos, usually a handful of requests instead of
+hundreds.
+
 ## GitHub GraphQL resource limits
 
-GitHub may reject a query that asks it to process too many repositories and
-pull requests at once. breakfast automatically uses bounded repository pages
-and retries the same page with progressively fewer repositories when GitHub
-reports `RESOURCE_LIMITS_EXCEEDED`.
-
-If even a single-repository page cannot be served, breakfast exits cleanly
-without a Python traceback and prints:
+GitHub may reject a GraphQL query with `RESOURCE_LIMITS_EXCEEDED`. PR
+discovery uses search pages of 100 PRs and rarely hits this, but if a query
+cannot be served, breakfast exits cleanly without a Python traceback and
+prints:
 
 ```text
 🥞 GitHub couldn't return the PR list because the GraphQL query exceeded resource limits. Try again or narrow the requested repositories.
@@ -96,9 +120,26 @@ PR details are fetched in parallel (up to 8 concurrent requests), and results ar
 
 - Use `--repo-filter` to narrow down the repos queried
 - Use `--ignore-author` to reduce the number of PRs processed
-- Owners with many repos will take longer on the initial GraphQL query
+- Discovery costs one GraphQL search request per 100 PRs, however many repos the owner has. Owners with thousands of open PRs are split by creation date and searched in parallel, so expect a few seconds per thousand PRs
+- With repo filters, only matching repos are searched. The first run lists the owner's repo names (about a second per 100 repos); with `--cache`, later runs reuse that list for 24 hours
+- Fetching `--fetch-state closed` or `all` on a large owner means many more PRs to find and fetch
 
 Subsequent runs within the TTL window will be near-instant (served from the local cache). To force a fresh fetch, use `--no-cache`. To tune the cache window, use `--cache-ttl` (e.g. `--cache-ttl 10m`).
+
+## A PR is missing from the list
+
+- **It was opened moments ago.** PRs are found with GitHub search, whose index
+  can lag by a few seconds to a minute or so. Run again shortly, with
+  `--refresh` if the cache is on.
+- **Its repository is brand new.** With `--cache` and repo filters, the owner's
+  repo names are cached for 24 hours. Run with `--refresh` to re-list them.
+- **Its repository is archived.** Archived repos are skipped by default because
+  nobody can act on their PRs. Add `--include-archived` to see them.
+- **The owner has an enormous number of matching PRs.** GitHub search serves at
+  most 1,000 results per query. breakfast splits larger result sets by creation
+  date until each slice fits, but if more than 1,000 PRs were created in the
+  same second, only 1,000 of them can be fetched; a
+  `search_slice_over_cap` warning is written to the log.
 
 ## Terminal hyperlinks not working
 

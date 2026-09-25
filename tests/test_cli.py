@@ -3266,8 +3266,8 @@ def test_progress_emoji_emitted_after_check_status_fetch(monkeypatch):
 
     original_bundle = cli._fetch_pr_bundle
 
-    def tracked_bundle(url, fetch_checks, fetch_approvals):
-        result = original_bundle(url, fetch_checks, fetch_approvals)
+    def tracked_bundle(url, fetch_checks):
+        result = original_bundle(url, fetch_checks)
         call_log.append("bundle_complete")
         return result
 
@@ -5761,7 +5761,7 @@ def test_valid_numeric_options_still_work(monkeypatch):
         lambda *a: ["https://api.github.com/repos/org/repo/pulls/1"],
     )
     monkeypatch.setattr(
-        cli, "_fetch_pr_bundle", lambda *a, **kw: (_make_pr_detail(1), None, None)
+        cli, "_fetch_pr_bundle", lambda *a, **kw: (_make_pr_detail(1), None)
     )
 
     result = CliRunner().invoke(
@@ -6549,3 +6549,197 @@ def test_uncached_runs_do_not_cache_repository_names(monkeypatch):
 
     assert result.exit_code == 0
     assert seen == [None]
+
+
+# ---------------------------------------------------------------------------
+# Batched approval lookups
+# ---------------------------------------------------------------------------
+
+
+def _approval_pr(number):
+    return {
+        "base": {"repo": {"name": "repo", "owner": {"login": "org"}}, "ref": "main"},
+        "head": {"sha": f"sha{number}"},
+        "mergeable": True,
+        "mergeable_state": "clean",
+        "additions": 1,
+        "deletions": 1,
+        "title": f"PR number {number}",
+        "user": {"login": "alice"},
+        "state": "open",
+        "changed_files": 1,
+        "commits": 1,
+        "review_comments": 0,
+        "created_at": "2026-01-10T00:00:00Z",
+        "updated_at": "2026-01-11T00:00:00Z",
+        "html_url": f"https://github.com/org/repo/pull/{number}",
+        "number": number,
+        "id": 9000 + number,
+        "labels": [],
+        "requested_reviewers": [],
+        "draft": False,
+    }
+
+
+def _stub_batched_approvals(monkeypatch, decisions):
+    """Serve PR details over REST and review data only via the batch query.
+
+    ``decisions`` maps PR number to ``(reviewDecision, [(login, state), ...])``.
+    Returns the lists of REST paths and GraphQL calls made.
+    """
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    rest_paths, graphql_calls = [], []
+
+    def fake_rest(path):
+        rest_paths.append(path)
+        if "/protection/" in path:
+            return {"required_approving_review_count": 2}
+        number = int(path.rstrip("/").split("/")[-1])
+        return _approval_pr(number)
+
+    def fake_graphql(query, variables):
+        graphql_calls.append(variables)
+        data = {}
+        index = 0
+        while f"n{index}" in variables:
+            decision, reviews = decisions[variables[f"n{index}"]]
+            data[f"pr{index}"] = {
+                "pullRequest": {
+                    "reviewDecision": decision,
+                    "reviews": {
+                        "totalCount": len(reviews),
+                        "nodes": [
+                            {"author": {"login": login}, "state": state}
+                            for login, state in reviews
+                        ],
+                    },
+                }
+            }
+            index += 1
+        return {"data": data}
+
+    monkeypatch.setattr(api, "make_github_api_request", fake_rest)
+    monkeypatch.setattr(api, "make_github_graphql_request", fake_graphql)
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda *_a: [f"https://github.com/org/repo/pull/{n}" for n in decisions],
+    )
+    return rest_paths, graphql_calls
+
+
+_THREE_REVIEW_STATES = {
+    1: ("APPROVED", [("bob", "APPROVED"), ("eve", "APPROVED")]),
+    2: ("CHANGES_REQUESTED", [("bob", "CHANGES_REQUESTED")]),
+    3: ("REVIEW_REQUIRED", [("bob", "APPROVED"), ("bob", "COMMENTED")]),
+}
+
+
+def test_approvals_are_fetched_in_one_batched_request(monkeypatch):
+    rest_paths, graphql_calls = _stub_batched_approvals(
+        monkeypatch, _THREE_REVIEW_STATES
+    )
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--approvals", "--no-cache"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(graphql_calls) == 1
+    assert not [p for p in rest_paths if p.endswith("/reviews")]
+    # Branch protection requires two approvals, so counts are shown.
+    assert "✅ 2/2 approvals" in result.stdout
+    assert "❌ changes" in result.stdout
+    assert "✅ 1/2 approvals" in result.stdout
+
+
+def test_approval_lookups_scale_with_batches_not_prs(monkeypatch):
+    decisions = {n: ("REVIEW_REQUIRED", []) for n in range(1, 121)}
+    rest_paths, graphql_calls = _stub_batched_approvals(monkeypatch, decisions)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--approvals", "--no-cache"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(graphql_calls) == 3
+    assert not [p for p in rest_paths if p.endswith("/reviews")]
+
+
+def test_cached_prs_missing_approvals_are_batched_too(monkeypatch, tmp_path):
+    rest_paths, graphql_calls = _stub_batched_approvals(
+        monkeypatch, _THREE_REVIEW_STATES
+    )
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+    cache.write_pr_cache("org", "repo", [_approval_pr(n) for n in (1, 2, 3)])
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--approvals", "--cache"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(graphql_calls) == 1
+    assert not [p for p in rest_paths if p.endswith("/reviews")]
+    assert "❌ changes" in result.stdout
+    # The batch's progress gets its own finished line, not a stray emoji.
+    assert re.search(r"Fetching approvals\.\.\.[^.\n]+\.\.\.Done\n", result.stderr)
+
+
+@pytest.mark.parametrize(
+    "error, expected",
+    [
+        (api.GitHubRateLimitError("2026-09-24 10:00:00"), "rate limit"),
+        (api.GitHubAuthenticationError(token_var="GH_TOKEN"), "authentication"),
+    ],
+)
+def test_batched_approval_errors_exit_cleanly_on_a_live_run(
+    monkeypatch, error, expected
+):
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+
+    def fail(_keys):
+        raise error
+
+    monkeypatch.setattr(cli, "get_review_data_batch", fail)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--approvals", "--no-cache"]
+    )
+
+    assert result.exit_code == 1
+    assert expected in result.stderr.lower()
+    assert not isinstance(result.exception, (api.GitHubRateLimitError, TypeError))
+    assert "Traceback" not in result.stderr
+
+
+def test_prs_missing_from_the_batch_use_their_own_lookups(monkeypatch):
+    prs = [_approval_pr(1), _approval_pr(2)]
+    monkeypatch.setattr(
+        cli,
+        "get_review_data_batch",
+        lambda _keys: {
+            ("org", "repo", 1): {
+                "review_decision": "APPROVED",
+                "reviews": [("bob", "APPROVED")],
+            }
+        },
+    )
+    calls = []
+
+    def fake_summary(owner, repo, number, base_branch, **kwargs):
+        calls.append((number, sorted(kwargs)))
+        return {"status": "approved", "current": 1, "required": None}
+
+    monkeypatch.setattr(cli, "get_approval_summary", fake_summary)
+
+    details = cli._approval_details_for(prs, workers=4)
+
+    assert set(details) == {9001, 9002}
+    assert sorted(calls) == [
+        (1, ["review_decision", "reviews"]),
+        (2, []),
+    ]

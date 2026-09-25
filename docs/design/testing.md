@@ -324,8 +324,10 @@ listing page and one search page, plus one REST call per pull request. Against 5
 comfortable, but note CI triggers on both `push` and `pull_request`, so a branch
 push runs it twice.
 
-`--checks` and `--approvals` are deliberately **not** exercised live: both are
-per-PR GraphQL and would multiply the cost for little return.
+`--checks` and `--approvals` are deliberately **not** exercised live: checks
+cost two REST calls per PR, and approvals add a batched GraphQL request plus a
+branch-protection lookup per base branch, for little return over the unit
+tests.
 
 `api.py` already retries `{502, 503, 504}` up to `MAX_RETRIES`, which absorbs
 most transient failures; a 90-second subprocess timeout sits on top.

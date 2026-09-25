@@ -22,6 +22,8 @@ from .constants import (
     MAX_STORED_GRAPHQL_ERRORS,
     REQUEST_TIMEOUT,
     RETRY_STATUSES,
+    REVIEW_BATCH_PAGE_SIZE,
+    REVIEW_BATCH_SIZE,
     SEARCH_EARLIEST_CREATED,
     SEARCH_MAX_REPO_QUERIES,
     SEARCH_PAGE_SIZE,
@@ -52,6 +54,7 @@ __all__ = [
     "get_pr_age_days",
     "get_pr_inactive_days",
     "get_required_approving_review_count",
+    "get_review_data_batch",
     "make_github_api_request",
     "make_github_graphql_request",
     "make_paginated_github_api_request",
@@ -974,28 +977,21 @@ def get_authenticated_user_login():
     return login
 
 
-def _review_status_from_latest_reviews(owner, repo, pr_number):
-    """Aggregate approval state from the latest REST review events.
+def _summarize_reviews(reviews):
+    """Aggregate approval state from reviews in the order they were submitted.
+
+    Each reviewer's latest approving, changes-requested or dismissed review
+    counts; comments and pending reviews do not change their standing.
 
     Args:
-        owner: Repository owner login.
-        repo: Repository name.
-        pr_number: Pull request number.
+        reviews: ``(login, state)`` pairs, oldest first.
 
     Returns:
-        str: One of ``approved``, ``changes``, or ``pending``.
+        dict: ``status`` (``approved``, ``changes`` or ``pending``) and
+        ``current``, the number of reviewers whose standing is an approval.
     """
-    reviews = make_paginated_github_api_request(
-        f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
-    )
-
-    if not reviews:
-        return {"status": "pending", "current": 0}
-
     latest_by_reviewer = {}
-    for review in reviews:
-        reviewer = review.get("user", {}).get("login")
-        state = review.get("state")
+    for reviewer, state in reviews:
         if reviewer and state in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
             latest_by_reviewer[reviewer] = state
 
@@ -1010,6 +1006,25 @@ def _review_status_from_latest_reviews(owner, repo, pr_number):
     else:
         status = "pending"
     return {"status": status, "current": approval_count}
+
+
+def _review_status_from_latest_reviews(owner, repo, pr_number):
+    """Aggregate approval state from the PR's REST review events.
+
+    Args:
+        owner: Repository owner login.
+        repo: Repository name.
+        pr_number: Pull request number.
+
+    Returns:
+        dict: See ``_summarize_reviews``.
+    """
+    reviews = make_paginated_github_api_request(
+        f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
+    )
+    return _summarize_reviews(
+        (review.get("user", {}).get("login"), review.get("state")) for review in reviews
+    )
 
 
 @lru_cache(maxsize=None)
@@ -1078,12 +1093,118 @@ def _fetch_review_decision(owner, repo, pr_number):
         return None
 
 
+def _review_batch_query(count):
+    """Return an aliased query asking for the reviews of ``count`` PRs.
+
+    Owners, names and numbers travel as variables ``o<i>``, ``r<i>`` and
+    ``n<i>``, so no repository name is ever spliced into the query text.
+    """
+    params = ", ".join(
+        f"$o{i}: String!, $r{i}: String!, $n{i}: Int!" for i in range(count)
+    )
+    fields = "\n".join(
+        f"  pr{i}: repository(owner: $o{i}, name: $r{i}) {{\n"
+        f"    pullRequest(number: $n{i}) {{\n"
+        "      reviewDecision\n"
+        f"      reviews(first: {REVIEW_BATCH_PAGE_SIZE}) {{\n"
+        "        totalCount\n"
+        "        nodes { author { login } state }\n"
+        "      }\n"
+        "    }\n"
+        "  }"
+        for i in range(count)
+    )
+    return f"query({params}) {{\n{fields}\n}}"
+
+
+def _fetch_review_chunk(keys):
+    """Return review data for one chunk of PRs, or ``{}`` if the chunk fails.
+
+    A PR is left out when GitHub cannot answer for it or it has more reviews
+    than one page holds, so the caller falls back to the per-PR path.
+    """
+    variables = {}
+    for i, (owner, repo, number) in enumerate(keys):
+        variables.update({f"o{i}": owner, f"r{i}": repo, f"n{i}": number})
+    try:
+        data = make_github_graphql_request(_review_batch_query(len(keys)), variables)[
+            "data"
+        ]
+        result = {}
+        for i, key in enumerate(keys):
+            pull_request = (data.get(f"pr{i}") or {}).get("pullRequest")
+            if not pull_request:
+                continue
+            page = pull_request["reviews"]
+            if page["totalCount"] > len(page["nodes"]):
+                continue
+            result[key] = {
+                "review_decision": pull_request.get("reviewDecision"),
+                "reviews": [
+                    ((node.get("author") or {}).get("login"), node.get("state"))
+                    for node in page["nodes"]
+                    if node
+                ],
+            }
+        return result
+    except GitHubAuthenticationError:
+        raise
+    except (
+        GitHubGraphQLError,
+        requests.exceptions.RequestException,
+        KeyError,
+        TypeError,
+        AttributeError,
+    ) as exc:
+        logger.warning(
+            "review_batch_failed pr_count=%d error=%r falling_back=per_pr",
+            len(keys),
+            str(exc),
+        )
+        return {}
+
+
+def get_review_data_batch(pr_keys):
+    """Fetch review decisions and reviews for many PRs in a few requests.
+
+    PRs are asked about ``REVIEW_BATCH_SIZE`` at a time with GraphQL aliases,
+    instead of a GraphQL and a REST call per PR.
+
+    Args:
+        pr_keys: ``(owner, repo, number)`` tuples.
+
+    Returns:
+        dict: ``{(owner, repo, number): {"review_decision": str | None,
+        "reviews": [(login, state), ...]}}``. PRs missing from the result
+        (a failed chunk, an unanswerable PR, or too many reviews) should use
+        the per-PR path.
+
+    Raises:
+        GitHubAuthenticationError: If the token is rejected.
+        GitHubRateLimitError: If GitHub's rate limit outlasts the retries.
+    """
+    keys = list(dict.fromkeys(pr_keys))
+    chunks = [
+        keys[start : start + REVIEW_BATCH_SIZE]
+        for start in range(0, len(keys), REVIEW_BATCH_SIZE)
+    ]
+    result = {}
+    if not chunks:
+        return result
+    with ThreadPoolExecutor(max_workers=SEARCH_WORKERS) as executor:
+        for chunk_result in executor.map(_fetch_review_chunk, chunks):
+            result.update(chunk_result)
+            _show_progress()
+    return result
+
+
 def get_approval_summary(
     owner,
     repo,
     pr_number,
     base_branch=None,
     review_decision=_REVIEW_DECISION_SENTINEL,
+    reviews=None,
 ):
     """Return approval status plus optional obtained/required review counts.
 
@@ -1095,12 +1216,18 @@ def get_approval_summary(
         review_decision: Optional pre-fetched GitHub ``reviewDecision`` value.
             When provided (including ``None``), skips the internal GraphQL
             query — used by ``get_approval_status`` to avoid a duplicate call.
+        reviews: Optional pre-fetched ``(login, state)`` review pairs, oldest
+            first, as ``get_review_data_batch`` returns them. When provided,
+            skips the REST reviews listing.
 
     Returns:
         dict: Summary with ``status`` and optional ``current`` / ``required``
         review counts.
     """
-    review_summary = _review_status_from_latest_reviews(owner, repo, pr_number)
+    if reviews is None:
+        review_summary = _review_status_from_latest_reviews(owner, repo, pr_number)
+    else:
+        review_summary = _summarize_reviews(reviews)
     current_reviews = review_summary["current"]
     required_reviews = None
 

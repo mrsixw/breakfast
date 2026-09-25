@@ -28,6 +28,7 @@ from .api import (
     get_github_prs,
     get_graphql_rate_limit,
     get_pr_age_days,
+    get_review_data_batch,
     match_exclude_repos,
 )
 from .cache import (
@@ -422,11 +423,12 @@ def _extract_repo_name(url):
     return parts[1] if len(parts) >= 2 else ""
 
 
-def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
-    """Fetch a PR's detail plus optional check and approval statuses in one shot.
+def _fetch_pr_bundle(url, fetch_checks):
+    """Fetch a PR's detail plus its optional check status in one shot.
 
     Propagates RequestException from the detail fetch so the caller can skip
-    the PR. Check/approval failures fall back to sentinel values instead.
+    the PR. A check failure falls back to ``none`` instead. Approvals are
+    fetched afterwards for every PR at once; see ``_approval_details_for``.
     """
     pr_detail = fetch_pr_detail(url)
 
@@ -448,39 +450,60 @@ def _fetch_pr_bundle(url, fetch_checks, fetch_approvals):
         else:
             check_status = "none"
 
-    approval_detail = None
-    if fetch_approvals:
-        owner = pr_detail.get("base", {}).get("repo", {}).get("owner", {}).get("login")
-        repo_name = pr_detail.get("base", {}).get("repo", {}).get("name")
-        pr_number = pr_detail.get("number")
-        base_branch = pr_detail.get("base", {}).get("ref")
-        if owner and repo_name and pr_number is not None:
-            try:
-                approval_detail = get_approval_summary(
-                    owner,
-                    repo_name,
-                    pr_number,
-                    base_branch=base_branch,
-                )
-            except (ValueError, requests.exceptions.RequestException) as exc:
-                logger.warning(
-                    "approval_status_fetch_failed pr_id=%s error=%r",
-                    pr_detail.get("id"),
-                    str(exc),
-                )
-                approval_detail = {
-                    "status": "pending",
-                    "current": 0,
-                    "required": None,
-                }
-        else:
-            approval_detail = {
-                "status": "pending",
-                "current": 0,
-                "required": None,
-            }
+    return pr_detail, check_status
 
-    return pr_detail, check_status, approval_detail
+
+def _pending_approval():
+    return {"status": "pending", "current": 0, "required": None}
+
+
+def _approval_details_for(pr_details, workers):
+    """Return ``{pr_id: approval detail}`` for many PRs at once.
+
+    Review data comes from batched GraphQL requests; a PR the batch could not
+    answer falls back to its own lookups. Branch-protection lookups stay per
+    base branch (and are cached).
+    """
+    keys = {}
+    for pr_detail in pr_details:
+        base = pr_detail.get("base", {})
+        owner = base.get("repo", {}).get("owner", {}).get("login")
+        repo_name = base.get("repo", {}).get("name")
+        pr_number = pr_detail.get("number")
+        if owner and repo_name and pr_number is not None:
+            keys[pr_detail["id"]] = (owner, repo_name, pr_number, base.get("ref"))
+
+    review_data = get_review_data_batch([key[:3] for key in keys.values()])
+
+    def summarize(key):
+        owner, repo_name, pr_number, base_branch = key
+        data = review_data.get(key[:3])
+        if data is None:
+            return get_approval_summary(owner, repo_name, pr_number, base_branch)
+        return get_approval_summary(
+            owner,
+            repo_name,
+            pr_number,
+            base_branch,
+            review_decision=data["review_decision"],
+            reviews=data["reviews"],
+        )
+
+    details = {pr_detail["id"]: _pending_approval() for pr_detail in pr_details}
+    if not keys:
+        return details
+    with ThreadPoolExecutor(max_workers=min(workers, len(keys))) as executor:
+        futures = {
+            executor.submit(summarize, key): pr_id for pr_id, key in keys.items()
+        }
+    for future, pr_id in futures.items():
+        try:
+            details[pr_id] = future.result()
+        except (ValueError, requests.exceptions.RequestException) as exc:
+            logger.warning(
+                "approval_status_fetch_failed pr_id=%s error=%r", pr_id, str(exc)
+            )
+    return details
 
 
 @click.group(invoke_without_command=True, epilog="Made with ❤️ in the UK")
@@ -1677,13 +1700,13 @@ def breakfast(
                 max_workers = min(workers, len(urls_to_fetch))
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
                     future_to_url = {
-                        executor.submit(_fetch_pr_bundle, url, checks, approvals): url
+                        executor.submit(_fetch_pr_bundle, url, checks): url
                         for url in urls_to_fetch
                     }
                     for future in as_completed(future_to_url):
                         url = future_to_url[future]
                         try:
-                            pr_detail, check_status, approval_detail = future.result()
+                            pr_detail, check_status = future.result()
                             pr_details.append(pr_detail)
                             rname = pr_detail["base"]["repo"]["name"]
                             url_parts = urlparse(url).path.strip("/").split("/")
@@ -1701,17 +1724,6 @@ def breakfast(
                             if check_status is not None:
                                 check_statuses[pr_detail["id"]] = check_status
                                 rd["checks"][pr_detail["id"]] = check_status
-                            if approval_detail is not None:
-                                approval_statuses[pr_detail["id"]] = approval_detail[
-                                    "status"
-                                ]
-                                approval_details[pr_detail["id"]] = approval_detail
-                                rd["approvals"][pr_detail["id"]] = approval_detail[
-                                    "status"
-                                ]
-                                rd["approval_details"][
-                                    pr_detail["id"]
-                                ] = approval_detail
                             click.echo(
                                 random.choices(BREAKFAST_ITEMS)[0],
                                 nl=False,
@@ -1731,6 +1743,18 @@ def breakfast(
                                 "pr_detail_fetch_failed url=%s error=%r", url, str(exc)
                             )
                             failed_urls.append(url)
+
+            # Approvals for everything fetched above, in a few batched requests.
+            if approvals and pr_details:
+                fetched_approvals = _approval_details_for(pr_details, workers)
+                approval_details.update(fetched_approvals)
+                for pr_id, detail in fetched_approvals.items():
+                    approval_statuses[pr_id] = detail["status"]
+                for rdata in newly_fetched_by_repo.values():
+                    for pr in rdata["prs"]:
+                        detail = fetched_approvals[pr["id"]]
+                        rdata["approvals"][pr["id"]] = detail["status"]
+                        rdata["approval_details"][pr["id"]] = detail
 
             # Write per-repo cache for repos fetched in this run
             if cache_enabled and newly_fetched_by_repo:
@@ -1902,7 +1926,7 @@ def breakfast(
             needs_cache_write = True
 
     # Fetch approval statuses for cache-hit paths where statuses are absent.
-    # In the live-fetch path statuses are already populated by _fetch_pr_bundle.
+    # In the live-fetch path they were batched right after the fetch.
     if approvals and pr_details and not statuses_from_bundle:
         if cached_approval_statuses is not None and cached_approval_details is not None:
             approval_statuses = cached_approval_statuses
@@ -1927,35 +1951,19 @@ def breakfast(
                     "required": None,
                 }
         else:
-            max_workers = min(workers, len(pr_details))
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                approval_futures = []
-                for pr_detail in pr_details:
-                    owner = pr_detail["base"]["repo"]["owner"]["login"]
-                    repo_name = pr_detail["base"]["repo"]["name"]
-                    pr_number = pr_detail["number"]
-                    base_branch = pr_detail.get("base", {}).get("ref")
-                    future = executor.submit(
-                        get_approval_summary, owner, repo_name, pr_number, base_branch
-                    )
-                    approval_futures.append((pr_detail["id"], future))
-            for pr_id, future in approval_futures:
-                try:
-                    approval_detail = future.result()
-                    approval_statuses[pr_id] = approval_detail["status"]
-                    approval_details[pr_id] = approval_detail
-                except (ValueError, requests.exceptions.RequestException) as exc:
-                    logger.warning(
-                        "approval_status_fetch_failed pr_id=%s error=%r",
-                        pr_id,
-                        str(exc),
-                    )
-                    approval_statuses[pr_id] = "pending"
-                    approval_details[pr_id] = {
-                        "status": "pending",
-                        "current": 0,
-                        "required": None,
-                    }
+            click.echo("Fetching approvals...", nl=False, err=True)
+            try:
+                approval_details = _approval_details_for(pr_details, workers)
+                click.echo("...Done", err=True)
+            except GitHubAuthenticationError as exc:
+                click.echo("", err=True)
+                _handle_auth_error(exc, colour=colour, json_output=json_output)
+            except GitHubRateLimitError as exc:
+                click.echo("", err=True)
+                _handle_rate_limit(exc, json_output)
+            approval_statuses = {
+                pr_id: detail["status"] for pr_id, detail in approval_details.items()
+            }
             needs_cache_write = True
 
     logger.info(

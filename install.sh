@@ -22,26 +22,15 @@ echo -e "${BOLD}${BLUE}🍳 Serving up breakfast...${RESET}"
 
 # Find the latest release
 echo -e "${YELLOW}Finding the latest version...${RESET}"
-LATEST_RELEASE_JSON=$(curl -sf "https://api.github.com/repos/${REPO}/releases/latest") || {
-    echo -e "${BOLD}\033[31m❌ Failed to fetch release info for ${REPO}.${RESET}"
-    exit 1
-}
-LATEST_TAG=$(printf '%s' "${LATEST_RELEASE_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])") || {
-    echo -e "${BOLD}\033[31m❌ Failed to parse release tag for ${REPO}.${RESET}"
-    exit 1
-}
-RELEASE_BASE_URL="https://github.com/${REPO}/releases/download/${LATEST_TAG}"
-LATEST_RELEASE_URL=$(printf '%s' "${LATEST_RELEASE_JSON}" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-urls = [a['browser_download_url'] for a in data.get('assets', []) if a['name'] == '${BINARY_NAME}']
-print(urls[0] if urls else '')
-")
-
-if [ -z "${LATEST_RELEASE_URL}" ]; then
-    echo -e "${BOLD}\033[31m❌ Failed to find the latest release for ${REPO}.${RESET}"
-    exit 1
-fi
+# GitHub redirects this path to the newest release's asset, so there is no API
+# call and therefore no 60-per-hour unauthenticated rate limit to exhaust. That
+# budget is easy to spend by retrying a failing install, and once spent it
+# blocked installing outright — no error message could fix that, only not
+# needing the call. It also drops an install-time dependency on python3 being
+# present to parse JSON, which ran before the binary was even downloaded.
+# A release genuinely missing the asset still fails, on the download below.
+RELEASE_BASE_URL="https://github.com/${REPO}/releases/latest/download"
+LATEST_RELEASE_URL="${RELEASE_BASE_URL}/${BINARY_NAME}"
 
 echo -e "${GREEN}Found latest release! Downloading...${RESET}"
 

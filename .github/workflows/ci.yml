@@ -123,8 +123,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # Not crate-ci/typos: its entrypoint fetches the binary with a single
+      # unretried wget, and one transient TLS failure there skips `man`,
+      # `release` and `verify-release`. Our script retries. See issue #458.
+      - name: Install typos
+        run: utils/install_typos.sh "$HOME/.local/bin"
+
       - name: Check spelling
-        uses: crate-ci/typos@v1.48.0
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          make spell
 
   docs-lint:
     runs-on: ubuntu-latest

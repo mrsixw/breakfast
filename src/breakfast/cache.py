@@ -6,11 +6,12 @@ from pathlib import Path
 
 import click
 
-from .constants import TTL_SUFFIX_MAP
+from .constants import REPOSITORY_NAMES_CACHE_TTL, TTL_SUFFIX_MAP
 from .logger import logger
 from .xdg import get_cache_dir
 
 __all__ = [
+    "RepositoryNamesCache",
     "cache_path",
     "graphql_cache_path",
     "make_cache_key",
@@ -152,6 +153,86 @@ def write_graphql_cache(org: str, repo_filter: str, urls: list) -> None:
             click.style(f"Warning: failed to write GraphQL cache: {exc}", fg="yellow"),
             err=True,
         )
+
+
+class RepositoryNamesCache:
+    """Disk cache of an owner's repository names.
+
+    Repositories come and go far less often than PRs, so names are kept for a
+    day by default. PR discovery lists names to narrow its searches, and this
+    saves listing thousands of repositories on every uncached run.
+    """
+
+    def __init__(self, ttl: int = REPOSITORY_NAMES_CACHE_TTL, refresh: bool = False):
+        """
+        Args:
+            ttl: Seconds a cached list stays fresh.
+            refresh: Ignore cached lists (as ``--refresh`` does) while still
+                writing fresh ones.
+        """
+        self.ttl = ttl
+        self.refresh = refresh
+
+    @staticmethod
+    def path(owner: str, include_archived: bool) -> Path:
+        mode = "include-archived" if include_archived else ""
+        return _CACHE_DIR / f"repos_{make_cache_key(owner, mode)}.json"
+
+    def read(self, owner: str, include_archived: bool) -> list | None:
+        """Return cached repository names if present and fresh, else None."""
+        if self.refresh:
+            return None
+        path = self.path(owner, include_archived)
+        try:
+            if not path.exists():
+                logger.debug(
+                    "cache_miss layer=repos path=%s reason=file_not_found", path
+                )
+                return None
+            data = json.loads(path.read_text())
+            fetched_at = datetime.fromisoformat(data["fetched_at"])
+            age = (datetime.now(timezone.utc) - fetched_at).total_seconds()
+            if age > self.ttl:
+                logger.debug(
+                    "cache_miss layer=repos path=%s reason=expired age=%.0fs ttl=%ss",
+                    path,
+                    age,
+                    self.ttl,
+                )
+                return None
+            logger.debug(
+                "cache_hit layer=repos path=%s age=%.0fs repo_count=%d",
+                path,
+                age,
+                len(data["names"]),
+            )
+            return data["names"]
+        except (OSError, json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
+            logger.warning(
+                "cache_read_error layer=repos path=%s error=%r", path, str(exc)
+            )
+            return None
+
+    def write(self, owner: str, include_archived: bool, names: list) -> None:
+        """Write repository names to disk. Silently ignores write failures."""
+        path = self.path(owner, include_archived)
+        try:
+            _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+                "organization": owner,
+                "include_archived": include_archived,
+                "repo_count": len(names),
+                "names": names,
+            }
+            _atomic_write_text(path, json.dumps(payload))
+            logger.debug(
+                "cache_write layer=repos path=%s repo_count=%d", path, len(names)
+            )
+        except OSError as exc:
+            logger.warning(
+                "cache_write_error layer=repos path=%s error=%r", path, str(exc)
+            )
 
 
 def read_pr_cache(

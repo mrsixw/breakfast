@@ -43,6 +43,31 @@ breakfast -o my-org -r my-app \
   --ignore-author renovate[bot]
 ```
 
+### Slice by label
+
+Show the Labels column and narrow the table to the labels you care about. Matching is
+case-insensitive and understands glob patterns, which suits `area/…` or `team/…` conventions:
+
+```bash
+# Everything owned by one area, with the labels visible
+breakfast -o my-org --show-labels --label 'area/*'
+
+# High-priority bugs only — --label-match all requires BOTH labels
+breakfast -o my-org --show-labels --label bug --label priority-high --label-match all
+
+# Hide work in progress, however it is spelled
+breakfast -o my-org --exclude-label 'wip*' --exclude-label do-not-merge
+```
+
+Make the noisy exclusions permanent in your config file, then reach for `--label` per run:
+
+```toml
+exclude-label = ["wip", "do-not-merge"]
+```
+
+A CLI `--exclude-label` **adds to** that list, while a CLI `--label` **replaces** any
+configured `label` list — so saved exclusions keep applying while one-off filters stay sharp.
+
 ### Morning triage: PRs waiting on you
 
 The most actionable morning view — show only PRs where you are a requested reviewer, sorted oldest-first so the most overdue appear at the top:
@@ -216,8 +241,8 @@ breakfast -o my-org -r platform --cache-ttl 10m   # cache for 10 minutes
 ## How it works
 
 1. **Check cache** - Looks for a recent on-disk cache for the `(owner, repo-filter)` pair; if found and within the TTL, skips steps 2–3 entirely
-2. **Fetch repositories** - Uses the GitHub GraphQL API to paginate through all repositories for the owner (organization or personal account)
-3. **Filter repos** - Keeps only repos whose name contains the `--repo-filter` substring
+2. **Find PRs** - Uses GitHub GraphQL search to list the owner's PRs (organization or personal account), skipping archived repos unless `--include-archived` is set. With `--repo-filter` or `-o owner:repo`, breakfast first lists the owner's repo names (cached for 24 hours with `--cache`) and searches only the matching repos, which is much faster on large owners. Without filters, search costs one request per 100 PRs however many repos the owner has; large result sets are split by creation date and fetched in parallel
+3. **Filter repos** - Keeps only PRs whose repo name matches `--repo-filter` (substring or glob)
 4. **Fetch PR details** - Uses the GitHub REST API to fetch full details for each open PR (parallelized for speed); writes results to disk cache
 5. **Filter PRs** - Applies author filters (`--ignore-author`, `--filter-author`, `--mine-only`), title search (`--search`), and other filters
 6. **Display** - Renders results as a terminal table or JSON

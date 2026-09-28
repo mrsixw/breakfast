@@ -13,8 +13,9 @@ __all__ = [
     "EID_AL_FITR",
     "GITHUB_API_URL",
     "GITHUB_GRAPHQL_URL",
-    "GRAPHQL_REPOSITORY_PAGE_SIZE",
     "HANUKKAH_START",
+    "HEADER_STYLES",
+    "HEADER_STYLE_CHOICES",
     "HOLI_DATES",
     "HOLI_RAINBOW",
     "LEGENDARY_AGE_THRESHOLD_DAYS",
@@ -28,10 +29,21 @@ __all__ = [
     "PASSOVER_START",
     "PIZZA_RECIPES",
     "PRIDE_RAINBOW",
+    "REPOSITORY_NAMES_CACHE_TTL",
     "REQUEST_TIMEOUT",
     "RETRY_STATUSES",
+    "REVIEW_BATCH_PAGE_SIZE",
+    "REVIEW_BATCH_SIZE",
     "ROSH_HASHANAH",
+    "SEARCH_EARLIEST_CREATED",
+    "SEARCH_MAX_REPO_QUERIES",
+    "SEARCH_PAGE_SIZE",
+    "SEARCH_REPOS_PER_QUERY",
+    "SEARCH_RESULT_LIMIT",
+    "SEARCH_SLICE_TARGET",
+    "SEARCH_WORKERS",
     "SEASONAL_PALETTES",
+    "SECONDARY_RATE_LIMIT_DEFAULT_WAIT",
     "SUKKOT_START",
     "TTL_SUFFIX_MAP",
 ]
@@ -47,11 +59,36 @@ MAX_STORED_GRAPHQL_ERRORS = 10
 MAX_RETRIES = 3
 RETRY_STATUSES = {502, 503, 504}
 REQUEST_TIMEOUT = (5, 30)
-GRAPHQL_REPOSITORY_PAGE_SIZE = 25
+# PR discovery uses GraphQL search. Pages within one search must be fetched in
+# order, so a result set over SEARCH_SLICE_TARGET is split into `created:`
+# ranges, starting from SEARCH_EARLIEST_CREATED (before GitHub launched), that
+# are fetched SEARCH_WORKERS at a time. Splitting also keeps every range under
+# SEARCH_RESULT_LIMIT, the most GitHub serves for any one search.
+SEARCH_PAGE_SIZE = 100
+SEARCH_RESULT_LIMIT = 1000
+SEARCH_SLICE_TARGET = 300
+SEARCH_WORKERS = 4
+# With repo filters, matching repositories are searched SEARCH_REPOS_PER_QUERY
+# at a time via repo: terms. Past SEARCH_MAX_REPO_QUERIES such searches, one
+# probe fetches the owner's PR count and the whole owner is searched instead if
+# that takes fewer requests.
+SEARCH_REPOS_PER_QUERY = 20
+SEARCH_MAX_REPO_QUERIES = 10
+# GitHub's guidance for a secondary rate limit without a retry-after header:
+# wait at least one minute before retrying.
+SECONDARY_RATE_LIMIT_DEFAULT_WAIT = 60
+SEARCH_EARLIEST_CREATED = "2007-01-01T00:00:00+00:00"
+
+# Approval lookups ask about REVIEW_BATCH_SIZE PRs per GraphQL request, each
+# with up to REVIEW_BATCH_PAGE_SIZE reviews; PRs with more use the REST path.
+REVIEW_BATCH_SIZE = 50
+REVIEW_BATCH_PAGE_SIZE = 100
 
 # ── Cache Configuration ────────────────────────────────────────────────────
 
 DEFAULT_CACHE_TTL = 300
+# Repository names change rarely; see cache.RepositoryNamesCache.
+REPOSITORY_NAMES_CACHE_TTL = 24 * 60 * 60
 CACHE_DIR_ENV_VAR = "BREAKFAST_CACHE_DIR"
 CACHE_DISABLED_ENV_VAR = "BREAKFAST_NO_CACHE"
 TTL_SUFFIX_MAP = {"s": 1, "m": 60, "h": 3600}
@@ -83,20 +120,92 @@ COLUMN_DISPLAY_NAMES: dict[str, str] = {
     "link": "Link",
 }
 
+# Header presets for --header-style. Keys are canonical display names; values are
+# the header actually printed. "full" is the identity and so has no entry here.
+# The fitter's own late renames (Comments -> Cmt, Approved -> Apr, Mergeable? ->
+# Mrg) are included so a styled table still matches DROPPABLE_COLUMNS.
+HEADER_STYLES: dict[str, dict[str, str]] = {
+    "short": {
+        "Org": "Org",
+        "Repo": "Repo",
+        "PR Title": "Title",
+        "Author": "Author",
+        "State": "St",
+        "Files": "Fls",
+        "Commits": "Cmt",
+        "+/-": "+/-",
+        "Comments": "Cnv",
+        "Age": "Age",
+        "Checks": "Chk",
+        "Approved": "Apr",
+        "Head Branch": "Head",
+        "Base Branch": "Base",
+        "Reviewers": "Rev",
+        "Labels": "Lbl",
+        "Mergeable?": "Mrg",
+        "Link": "Link",
+    },
+    "emoji": {
+        "Org": "🏢",
+        "Repo": "📦",
+        "PR Title": "📝",
+        "Author": "👤",
+        "State": "🚩",
+        "Files": "📄",
+        "Commits": "🔨",
+        "+/-": "➕➖",
+        "Comments": "💬",
+        "Age": "⏳",
+        "Checks": "🚦",
+        "Approved": "👍",
+        "Head Branch": "🌿",
+        "Base Branch": "🎯",
+        "Reviewers": "👀",
+        "Labels": "🏷️",
+        "Mergeable?": "🔀",
+        "Link": "🔗",
+    },
+    "short_emoji": {
+        "Org": "🏢 Org",
+        "Repo": "📦 Repo",
+        "PR Title": "📝 Title",
+        "Author": "👤 Author",
+        "State": "🚩 St",
+        "Files": "📄 Fls",
+        "Commits": "🔨 Cmt",
+        "+/-": "➕➖",
+        "Comments": "💬 Cnv",
+        "Age": "⏳ Age",
+        "Checks": "🚦 Chk",
+        "Approved": "👍 Apr",
+        "Head Branch": "🌿 Head",
+        "Base Branch": "🎯 Base",
+        "Reviewers": "👀 Rev",
+        "Labels": "🏷️ Lbl",
+        "Mergeable?": "🔀 Mrg",
+        "Link": "🔗 Link",
+    },
+}
+
+HEADER_STYLE_CHOICES = ["full", "short", "emoji", "short_emoji"]
+
 DROPPABLE_COLUMNS = [
     "State",
     "Commits",
     "Files",
     "+/-",
     "Cmt",
+    "Comments",
     "Age",
     "Checks",
     "Apr",
+    "Approved",
     "Reviewers",
     "Labels",
     "Head Branch",
     "Base Branch",
     "Mrg",
+    "Mergeable?",
 ]
 
 # ── UI & Theming ───────────────────────────────────────────────────────────

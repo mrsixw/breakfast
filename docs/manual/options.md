@@ -165,6 +165,20 @@ breakfast -o my-org -r platform --fetch-state all       # every state
 
 Config key: `fetch-state = "open"`
 
+### `--include-archived`
+
+Include PRs in **archived** repositories. By default they are skipped: an
+archived repo is read-only, so nobody can review, merge or close its PRs.
+
+```bash
+breakfast -o my-org                       # archived repos skipped
+breakfast -o my-org --include-archived    # archived repos included
+```
+
+Runs with and without this flag are cached separately.
+
+Config key: `include-archived = false`
+
 ### `--filter-state`
 
 Only show PRs with a specific state. Accepted values: `open`, `closed`, `draft`. Repeat the flag to match multiple states.
@@ -225,21 +239,65 @@ breakfast -o my-org --filter-reviewer alice --filter-reviewer bob
 
 ### `--label`
 
-Only show PRs that have a specific label. Matching is **case-insensitive**. Repeat the flag to require any of the given labels (OR logic).
+Only show PRs that have a specific label. Matching is **case-insensitive** and supports
+**glob patterns** (`*`, `?`, `[`), using the same syntax as `--repo-filter`. Repeat the flag
+to match any of the given labels (OR logic — see `--label-match` to require all of them).
 
 ```bash
 breakfast -o my-org --label bug                          # only PRs labelled "bug"
 breakfast -o my-org --label bug --label enhancement      # PRs with "bug" OR "enhancement"
+breakfast -o my-org --label 'area/*'                     # every area/… label
+```
+
+Enable in config:
+
+```toml
+label = ["bug", "area/*"]
+```
+
+Passing `--label` on the command line **replaces** the config list for that run, so a one-off
+filter does not have to fight your saved defaults.
+
+> A label whose name literally contains `*`, `?` or `[` cannot be matched exactly, as those
+> characters are interpreted as glob metacharacters.
+
+### `--label-match`
+
+Control whether `--label` requires **any** of the given labels (the default) or **all** of
+them. Choices: `any`, `all`.
+
+```bash
+# PRs that are both a bug AND high priority
+breakfast -o my-org --label bug --label priority-high --label-match all
+```
+
+Enable in config:
+
+```toml
+label-match = "all"
 ```
 
 ### `--exclude-label`
 
-Exclude PRs that have a specific label. Matching is **case-insensitive**. Repeat to exclude any of the given labels.
+Exclude PRs that have a specific label. Matching is **case-insensitive** and glob-aware, the
+same as `--label`. Repeat to exclude any of the given labels. A PR is hidden if it carries
+**any** excluded label, whatever `--label-match` is set to.
 
 ```bash
 breakfast -o my-org --exclude-label wip                  # hide WIP PRs
 breakfast -o my-org --exclude-label wip --exclude-label blocked
+breakfast -o my-org --exclude-label 'wip*'               # wip, wip-backend, wip/ui…
 ```
+
+Enable in config:
+
+```toml
+exclude-label = ["wip", "do-not-merge"]
+```
+
+Unlike `--label`, passing `--exclude-label` on the command line **adds to** the config list
+rather than replacing it — exclusions are additive, so your saved "never show me this" rules
+keep applying.
 
 ### `--filter-stale`
 
@@ -516,7 +574,7 @@ With `--json --checks`, a `"checks"` field is included in each PR object:
 
 ### `--approvals`
 
-Show review approval status for each PR. This is opt-in because it requires an additional API call per PR.
+Show review approval status for each PR. This is opt-in because it costs extra API calls: review data for up to 50 PRs is fetched in one GraphQL request, plus one branch-protection lookup per base branch (to know how many approvals are required). A PR with more than 100 reviews falls back to its own lookups.
 
 ```text
 $ breakfast -o my-org -r platform --approvals
@@ -643,6 +701,8 @@ reviewers = true
 
 Add a "Labels" column showing the labels applied to each PR. Shows up to 2 labels, then `+N` overflow (e.g. `bug, enhancement +1`). Off by default.
 
+Each label name is a **hyperlink** to that repository's filtered pull request search — clicking `bug` opens `https://github.com/<owner>/<repo>/pulls?q=is:pr+is:open+label:"bug"`, i.e. every open PR in that repo carrying the label. In `--format markdown` the labels are emitted as `[name](url)` links. CSV, JSON and `--template` output keep plain label names, since those formats are meant for machines.
+
 ```text
 $ breakfast -o my-org -r platform --show-labels
 Fetching my-org PRs...🥐...Done
@@ -660,6 +720,44 @@ Enable in config:
 
 ```toml
 show-labels = true
+```
+
+### `--header-style`
+
+Choose how table column headers are rendered. A column is never narrower than its own header,
+so shorter headers reclaim real width — `Comments` (8 characters) forces a 12-column slot to
+show a single digit.
+
+| Value | Headers |
+| --- | --- |
+| `full` | **Default.** `Files`, `Commits`, `Comments`, `Approved`, `Mergeable?` |
+| `short` | `Fls`, `Cmt`, `Cnv`, `Apr`, `Mrg` |
+| `emoji` | 📄, 🔨, 💬, 👍, 🔀 — every column, including 📦 Repo, 📝 Title, 👤 Author, 🔗 Link |
+| `short_emoji` | Emoji plus abbreviation, e.g. `📄 Fls`, `💬 Cnv` |
+
+```bash
+breakfast -o my-org --header-style short
+breakfast -o my-org --header-style emoji --show-labels
+```
+
+Enable in config:
+
+```toml
+header-style = "emoji"
+```
+
+The reclaimed width is fed into the auto-fitter, so a narrow terminal keeps **more** columns.
+Against the demo repo at 72 columns, `emoji` retains seven columns where `full` retains six.
+
+> `short_emoji` is *wider* than `full` for columns whose real name is already short — `📦 Repo`
+> is six cells against `Repo`'s four. It trades width for legibility; use `short` or `emoji`
+> when space is the priority.
+
+A per-column `header` in a custom `columns` list always wins over the preset:
+
+```toml
+header-style = "short"
+columns = [{name = "repo"}, {name = "comments", header = "CHAT"}]
 ```
 
 ### `--status-style`
@@ -742,6 +840,11 @@ The table is compressed progressively, in order of least impact:
 6b. **Approved** header is shortened to `"Apr"`
 7. Low-priority columns are dropped entirely: State, Commits, Files, +/-, Cmt, Age, Checks, Approved/Apr
 
+> **Narrow terminals now shorten the PR title before sacrificing a column.** The title
+> truncation used to give up entirely when it could not reach its target, keeping the title at
+> full width while more useful columns such as Labels were dropped instead. It now shrinks to
+> its floor first.
+
 Auto-fit is a no-op when output is piped or redirected (not a TTY), so `--json` and scripting workflows are unaffected.
 
 ### `--limit`
@@ -817,7 +920,7 @@ Each entry in the list is an inline TOML table with a required `name` key and tw
 | `comments` | `Comments` | Yes | Number of review comments. Colour-graded by magnitude. |
 | `age` | `Age` | **Optional** (off by default) | Days since the PR was opened. Colour-graded: green < 10d, yellow < 20d, orange < 50d, red 50d+. |
 | `checks` | `Checks` | **Optional** (off by default) | CI check result: ✅ pass, ❌ fail, ⚠️ pending, ➖ none. Requires an extra API call per PR. |
-| `approvals` | `Approved` | **Optional** (off by default) | Review approval status: ✅ approved, ❌ changes, ⏳ pending. Requires an extra API call per PR. |
+| `approvals` | `Approved` | **Optional** (off by default) | Review approval status: ✅ approved, ❌ changes, ⏳ pending. Costs one batched request per 50 PRs. |
 | `head-branch` | `Head Branch` | **Optional** (off by default) | Source branch the PR was raised from, hyperlinked. |
 | `base-branch` | `Base Branch` | **Optional** (off by default) | Target branch the PR merges into, hyperlinked. |
 | `reviewers` | `Reviewers` | **Optional** (off by default) | Requested reviewers for the PR, up to 2 logins, then `+N` overflow. |
@@ -997,18 +1100,23 @@ Can also be set in the config file:
 offline = true
 ```
 
-breakfast caches in three layers: the **URL list** returned by the GraphQL
-search, a **per-repo** bundle of PR details, and the **full** result for the
-whole run.
+breakfast caches in four layers: the owner's **repo names** (used to narrow
+PR searches when repo filters are given, kept for 24 hours), the **URL list**
+returned by the GraphQL search, a **per-repo** bundle of PR details, and the
+**full** result for the whole run.
 
-| Flag | Cache active? | URL list | Per-repo PR cache | Full PR cache |
-| --- | --- | --- | --- | --- |
-| *(none)* | no | skip | skip | skip |
-| `--cache` | yes | read | read | read |
-| `--cache --refresh-prs` | yes | read | skip, write fresh | skip, write fresh |
-| `--cache --refresh` | yes | skip, write fresh | skip, write fresh | skip, write fresh |
-| `--no-cache` | no (override) | skip | skip | skip |
-| `--offline` | yes | not reached | not reached | read (ignore TTL, no write) |
+| Flag | Cache active? | Repo names (24h) | URL list | Per-repo PR cache | Full PR cache |
+| --- | --- | --- | --- | --- | --- |
+| *(none)* | no | skip | skip | skip | skip |
+| `--cache` | yes | read | read | read | read |
+| `--cache --refresh-prs` | yes | not reached | read | skip, write fresh | skip, write fresh |
+| `--cache --refresh` | yes | skip, write fresh | skip, write fresh | skip, write fresh | skip, write fresh |
+| `--no-cache` | no (override) | skip | skip | skip | skip |
+| `--offline` | yes | not reached | not reached | not reached | read (ignore TTL, no write) |
+
+The repo-name list ignores `--cache-ttl`: repos change far less often than
+PRs. A repo created since the list was cached appears after 24 hours, or on the
+next `--refresh`.
 
 A per-repo cache hit is always reconciled against the URL list for that run:
 cached PRs whose URL is no longer listed are dropped, and listed URLs the cache

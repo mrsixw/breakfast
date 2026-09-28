@@ -106,10 +106,50 @@ everything in the directory, so an untagged feature file can never leak into
 
 > **Note on `AGENTS.md`'s "documented APIs, not internals" rule:** pytest-bdd
 > reaches into `_pytest` privates. Our own code touches only its public
-> `scenario`, `scenarios`, `given`, `when`, `then` and `parsers`. pytest-bdd
-> 8.1.0 is verified working against the locked pytest 9.1.1; it does emit a
-> `PytestRemovedIn10Warning` about `FixtureDef(baseid=...)`, which will need
-> revisiting before pytest 10.
+> `scenario`, `scenarios`, `given`, `when`, `then` and `parsers`.
+
+### Why `pytest` is pinned below 10
+
+pytest-bdd 8.1.0 — the latest release — calls
+`FixtureManager._register_fixture` and `FixtureDef(baseid=...)`, both of which
+pytest 9 already flags as `PytestRemovedIn10Warning`. On pytest 10 the suite
+would stop collecting entirely, and because `release` is gated on the `e2e` job
+that blocks releases rather than merely failing a test.
+
+Nothing else pins pytest, so `uv` would be free to resolve 10 on any `uv sync`
+and the first sign would be a red job on an unrelated pull request. The pin in
+the `test` and `dev` extras makes the constraint deliberate instead.
+
+### How everything else is pinned
+
+That pin was the first, and for a while the only one, which made it look
+arbitrary. Every dependency now carries a floor and a ceiling:
+
+- **Floor** — the version currently in `uv.lock`, the one actually tested. A
+  lock refresh cannot silently resolve backwards to something never exercised.
+- **Ceiling** — the next breaking bump. The next major, or the next *minor* for
+  0.x projects like `ruff`, `wcwidth`, `tabulate` and `click-man`, where minors
+  are where breakage lives.
+
+`uv.lock` already pins exact versions, and CI runs `uv sync`, so installs are
+reproducible with or without these ranges. The ranges do a different job: they
+bound what `uv lock` may resolve *to* when it is next regenerated. `pytest<10`
+is the case that motivated them — a major bump landing on an unrelated pull
+request and reading as that change's fault.
+
+The `pytest` ceiling is the one exception to the rule above: it is not "the next
+major after the tested version" by coincidence but by necessity, for the
+pytest-bdd reason given above.
+
+The trade: ceilings on the four runtime dependencies constrain anyone installing
+`breakfast` as a library. For a CLI that ships as a zipapp, bounding what the
+released artifact can be built against is worth more than that flexibility.
+
+**Remove the pin** once pytest-bdd ships a release that no longer uses those
+APIs. Tracked in [#454](https://github.com/mrsixw/breakfast/issues/454).
+
+The warnings are deliberately **not** filtered. They are the signal that the
+upstream fix has landed: when they stop appearing, the pin can go.
 
 ## When to add a scenario
 
@@ -192,13 +232,15 @@ produces one obvious failure rather than eight confusing ones.
 
 ### Why scoped `-o mrsixw:breakfast-fixtures`
 
-`api.get_github_prs` paginates *every* repository belonging to an owner
-(`GRAPHQL_REPOSITORY_PAGE_SIZE = 25`) and applies repo filters client-side
-afterwards. `mrsixw` has ~48 repos, so each live scenario costs two GraphQL
-pages, rising by one per 25 new repos. The scoped syntax keeps the *result* set
-correct; it does not reduce the pagination cost. A dedicated organisation with a
-single repository would cost one page permanently — tracked as
-[#456](https://github.com/mrsixw/breakfast/issues/456).
+With repo filters, `api.get_github_prs` lists the owner's repository names
+(100 per page), matches the filters locally, and searches only the matching
+repos. `mrsixw` has a few dozen repos, so each live scenario costs one listing
+page and one search page.
+
+The fixture repo is archived, and archived repos are skipped by default
+([#473](https://github.com/mrsixw/breakfast/issues/473)), so every live scenario
+passes `--include-archived`. One scenario runs without it and asserts zero PRs,
+which proves the default through the real binary.
 
 The filter is a substring/glob match, and `breakfast` does not contain
 `breakfast-fixtures`, so only the fixture repo matches.
@@ -266,9 +308,8 @@ issues and the wiki *before* it archives. Archiving makes those largely
 redundant anyway (no bot can open a pull request on a read-only repo), but they
 cost nothing and document the intent.
 
-Archiving does **not** hide the pull requests: the suite was re-run after
-archiving and all 25 scenarios still pass, confirming the GraphQL query has no
-`isArchived` filter.
+Archiving hides the pull requests from a default run, which skips archived
+repos. The suite opts back in with `--include-archived`.
 
 ### Repairing the frozen fixtures
 
@@ -322,13 +363,15 @@ API, so the script dies and says the repository must be rebuilt elsewhere.
 
 ## Cost and flakiness
 
-Roughly 70 API requests per full live run: each scenario costs ~2 GraphQL
-repository pages plus one REST call per pull request. Against 5000/hour that is
+Roughly 80 API requests per full live run: each scenario costs one GraphQL
+listing page and one search page, plus one REST call per pull request. Against 5000/hour that is
 comfortable, but note CI triggers on both `push` and `pull_request`, so a branch
 push runs it twice.
 
-`--checks` and `--approvals` are deliberately **not** exercised live: both are
-per-PR GraphQL and would multiply the cost for little return.
+`--checks` and `--approvals` are deliberately **not** exercised live: checks
+cost two REST calls per PR, and approvals add a batched GraphQL request plus a
+branch-protection lookup per base branch, for little return over the unit
+tests.
 
 `api.py` already retries `{502, 503, 504}` up to `MAX_RETRIES`, which absorbs
 most transient failures; a 90-second subprocess timeout sits on top.

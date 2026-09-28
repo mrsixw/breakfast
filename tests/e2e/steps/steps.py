@@ -24,6 +24,19 @@ def _bogus_token(cli_env, value):
     cli_env["GH_TOKEN"] = value
 
 
+@given(parsers.parse('the config file contains "{line}"'))
+def _config_line(sandbox, line):
+    """Append one line to the sandbox config, creating it on first use.
+
+    Repeat the step to build up a multi-line file. Use TOML's single-quoted
+    literal strings for values, so the Gherkin double quotes stay unambiguous.
+    """
+    path = sandbox["config"] / "breakfast" / "config.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(line + "\n")
+
+
 @when(parsers.parse("I run `breakfast {args}`"), target_fixture="result")
 def _run_with_args(run_breakfast, args):
     return run_breakfast(shlex.split(args))
@@ -73,6 +86,15 @@ def _version_matches(result):
 def _config_written(sandbox):
     path = sandbox["config"] / "breakfast" / "config.toml"
     assert path.is_file(), f"{path} was not created — is XDG_CONFIG_HOME honoured?"
+
+
+@then(parsers.parse('the generated config documents "{key}"'))
+def _config_documents(sandbox, key):
+    """The generated template is how options are discovered, and it also drives
+    KNOWN_KEYS, so a key missing here is both undiscoverable and unrecognised."""
+    path = sandbox["config"] / "breakfast" / "config.toml"
+    content = path.read_text(encoding="utf-8")
+    assert f"# {key} = " in content, f"{key!r} not documented in:\n{content}"
 
 
 @then("running it again reports that the config already exists")

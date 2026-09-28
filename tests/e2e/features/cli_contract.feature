@@ -15,6 +15,8 @@ Feature: breakfast CLI contract
     And stdout contains "--owner"
     And stdout contains "--format"
     And stdout contains "--offline"
+    And stdout contains "--header-style"
+    And stdout contains "--label-match"
 
   Scenario: Missing owner is a usage error
     Given no GitHub token is set
@@ -80,9 +82,34 @@ Feature: breakfast CLI contract
     And stdout does not contain "deprecated"
     And stderr contains "deprecated"
 
+  # A bad value in a config file must degrade to a warning and still run. Two
+  # things here are invisible to CliRunner: that the warning lands on stderr
+  # while stdout stays clean, and that it fires before any network call is
+  # attempted. Costs no API requests, so it earns its place cheaply.
+  Scenario: A malformed label-match in config warns on stderr and falls back
+    Given no GitHub token is set
+    And the config file contains "label-match = 'every'"
+    When I run `breakfast --owner acme --no-colour`
+    Then the exit code is 1
+    And stderr contains "unrecognised label-match"
+    And stderr contains "Falling back to 'any'"
+    And stdout is empty
+
+  Scenario: A malformed header-style in config warns on stderr and falls back
+    Given no GitHub token is set
+    And the config file contains "header-style = 'enormous'"
+    When I run `breakfast --owner acme --no-colour`
+    Then the exit code is 1
+    And stderr contains "unrecognised header-style"
+    And stderr contains "Falling back to 'full'"
+    And stdout is empty
+
   Scenario: Generating a config writes a real file
     Given no GitHub token is set
     When I run `breakfast --init-config`
     Then the exit code is 0
     And the config file exists in the sandbox
+    And the generated config documents "header-style"
+    And the generated config documents "label-match"
+    And the generated config documents "exclude-label"
     And running it again reports that the config already exists

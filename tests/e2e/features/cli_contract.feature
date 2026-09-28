@@ -104,6 +104,32 @@ Feature: breakfast CLI contract
     And stderr contains "Falling back to 'full'"
     And stdout is empty
 
+  # A user's own calendar is a table rather than a single key, so a typo in one
+  # event must not cost them the other events or the run. CliRunner merges the
+  # streams, so only the real binary can show the warning going to stderr while
+  # stdout stays clean and pipeable. Costs no API requests.
+  Scenario: A malformed calendar event warns on stderr and keeps running
+    Given no GitHub token is set
+    And the config file contains "seasonal-calendar = 'custom'"
+    And the config file contains "[calendar]"
+    And the config file contains "[[calendar.event]]"
+    And the config file contains "name = 'Broken'"
+    And the config file contains "date = '03-14'"
+    And the config file contains "colour = 'chartreuse'"
+    When I run `breakfast --owner acme --no-colour`
+    Then the exit code is 1
+    And stderr contains "calendar event 'Broken'"
+    And stderr contains "bad colour"
+    And stdout is empty
+
+  Scenario: A custom calendar with no table warns on stderr
+    Given no GitHub token is set
+    And the config file contains "seasonal-calendar = 'custom'"
+    When I run `breakfast --owner acme --no-colour`
+    Then the exit code is 1
+    And stderr contains "needs a [calendar] table"
+    And stdout is empty
+
   Scenario: Generating a config writes a real file
     Given no GitHub token is set
     When I run `breakfast --init-config`
@@ -112,4 +138,5 @@ Feature: breakfast CLI contract
     And the generated config documents "header-style"
     And the generated config documents "label-match"
     And the generated config documents "exclude-label"
+    And the generated config documents "seasonal-calendar"
     And running it again reports that the config already exists

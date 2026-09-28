@@ -238,6 +238,35 @@ This indicates that your `breakfast.toml` (or `config.toml`) contains a key that
 - If you made a typo, correct the key name in your configuration file.
 - If you have an outdated config file, you can run `breakfast --update-config` to append any missing options from the newest default template.
 
+## My custom calendar events are not colouring anything
+
+Check these in order:
+
+1. **Is the calendar selected?** A `[calendar]` table does nothing on its own — you also need `seasonal-calendar = "custom"`.
+2. **Is there a warning on stderr?** A malformed event is skipped and named:
+
+   ```text
+   ⚠️  calendar event 'My birthday': bad colour — unknown colour 'chartreuse'
+   ```
+
+   Warnings go to stderr, so `breakfast 2>&1 | less` shows them if your terminal has scrolled past.
+3. **Is colour switched off?** `--no-colour`, `NO_COLOR`, `no-colour = true` and `seasonal-colours = false` each suppress every seasonal colour, custom events included. Piping to another command also drops colour.
+4. **Is `[calendar]` the last table in the file?** In TOML every key after a table header belongs to that table, so `owner` or `workers` written below `[calendar]` is read as a calendar setting and your real setting goes missing. Move `[calendar]` to the end.
+5. **Is an earlier event winning?** The first matching event takes the day. An event with `month = 6` swallows every June day before a `date = "06-15"` event further down can match — put the specific cases first.
+6. **Is it January?** January is birthday purple unless one of your own events matches that day.
+
+To see it working without waiting for the date, point an event at today with `weekday` or `month`.
+
+## "seasonal-calendar = \"custom\" needs a [calendar] table"
+
+breakfast was told to use your calendar but could not find one, so the output is left unthemed:
+
+```text
+⚠️  seasonal-calendar = "custom" needs a [calendar] table — no custom colours will be applied
+```
+
+Add a `[calendar]` table with at least one `[[calendar.event]]`, or set `seasonal-calendar` back to a built-in calendar such as `"western"`. `breakfast --init-config` writes a commented example you can copy.
+
 ## `Another breakfast shadows this install`
 
 The installer put the binary in `~/.local/bin`, but a different copy sits earlier in your `PATH` and wins every invocation. The installer names both paths and exits non-zero rather than reporting a success you cannot use.

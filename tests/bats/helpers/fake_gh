@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+#
+# 🎭 A fake `gh` for the setup_fixture_org.sh tests.
+#
+# It is a small stateful fake rather than a set of canned replies, because the
+# script under test reads its own writes: it reconciles a pull request, then
+# counts the inventory to check the result. A stub that logged mutations without
+# applying them would let a broken reconcile loop still pass verification.
+#
+# State lives in two files, both set up by the test:
+#   ${FAKE_GH_FIXTURES}  one row per pull request: number|title|state|draft|labels
+#   ${FAKE_GH_ARCHIVED}  "true" or "false"
+#   ${FAKE_GH_EXISTS}    "true" or "false" — flipped to true by `gh repo create`,
+#                        so the seeding path can be driven all the way through
+#
+# Knobs, all read from the environment:
+#   FAKE_GH_ORG_MISSING        `gh api orgs/X` fails
+#   FAKE_GH_STALE_BRANCHES     how many fixture-* branches the repo has
+#   FAKE_GH_ARCHIVE_FAILS      `gh repo archive` fails (and leaves it thawed)
+#   FAKE_GH_ARCHIVE_SILENT     archive "succeeds" but the repo stays thawed
+#   FAKE_GH_UNARCHIVE_FAILS    `gh repo unarchive` applies, then exits non-zero
+#   FAKE_GH_PR_LIST_FAILS      every `gh pr list` fails
+#   FAKE_GH_IGNORE_WRITES      pull request writes are logged but not applied,
+#                              so the inventory stays drifted after a repair
+
+set -uo pipefail
+
+printf '%s\n' "$*" >> "${STUB_LOG}/gh.log"
+printf '%s\n' "--" "$@" >> "${STUB_LOG}/gh.argv.log"
+
+FIXTURES="${FAKE_GH_FIXTURES}"
+ARCHIVED="${FAKE_GH_ARCHIVED}"
+EXISTS="${FAKE_GH_EXISTS}"
+
+field() { printf '%s' "$1" | cut -d'|' -f"$2"; }
+row_by_number() { grep "^$1|" "${FIXTURES}" 2>/dev/null | head -1; }
+row_by_title()  { awk -F'|' -v t="$1" '$2 == t {print; exit}' "${FIXTURES}" 2>/dev/null; }
+
+# Replace one field of one row, in place.
+set_field() { # <number> <field-index> <value>
+  [[ -n "${FAKE_GH_IGNORE_WRITES:-}" ]] && return 0
+  local tmp="${FIXTURES}.tmp"
+  awk -F'|' -v OFS='|' -v n="$1" -v f="$2" -v v="$3" \
+    '$1 == n { $f = v } { print }' "${FIXTURES}" > "${tmp}"
+  mv "${tmp}" "${FIXTURES}"
+}
+
+# The whole argument string, for the crude matching below.
+args="$*"
+
+case "${1:-}" in
+  auth) exit 0 ;;
+
+  api)
+    case "${2:-}" in
+      orgs/*)   [[ -n "${FAKE_GH_ORG_MISSING:-}" ]] && exit 1; exit 0 ;;
+      repos/*/branches)
+        # The script asks jq for a count of fixture-* branches.
+        printf '%s\n' "${FAKE_GH_STALE_BRANCHES:-0}"; exit 0 ;;
+      *) exit 0 ;;
+    esac ;;
+
+  label) exit 0 ;;
+
+  repo)
+    case "${2:-}" in
+      view)
+        [[ "$(cat "${EXISTS}")" != "true" ]] && exit 1
+        [[ "${args}" == *"isArchived"* ]] && cat "${ARCHIVED}"
+        exit 0 ;;
+      create)
+        printf 'true\n' > "${EXISTS}"
+        printf 'false\n' > "${ARCHIVED}"   # a fresh repo is not archived
+        exit 0 ;;
+      edit)      exit 0 ;;
+      unarchive)
+        printf 'false\n' > "${ARCHIVED}"   # applied server-side...
+        [[ -n "${FAKE_GH_UNARCHIVE_FAILS:-}" ]] && exit 1   # ...but gh still fails
+        exit 0 ;;
+      archive)
+        [[ -n "${FAKE_GH_ARCHIVE_FAILS:-}" ]] && exit 1
+        [[ -n "${FAKE_GH_ARCHIVE_SILENT:-}" ]] && exit 0    # exits 0, changes nothing
+        printf 'true\n' > "${ARCHIVED}"
+        exit 0 ;;
+      *) exit 0 ;;
+    esac ;;
+
+  pr)
+    [[ -n "${FAKE_GH_PR_LIST_FAILS:-}" && "${2:-}" == "list" ]] && exit 1
+    case "${2:-}" in
+      list)
+        if [[ "${args}" == *"number,title,state,isDraft,labels"* ]]; then
+          # The per-fixture lookup. The title is embedded in the --jq filter.
+          title="$(printf '%s' "${args}" | sed -n 's/.*select(\.title == "\([^"]*\)").*/\1/p')"
+          row="$(row_by_title "${title}")"
+          [[ -z "${row}" ]] && exit 0
+          printf '%s %s %s %s\n' \
+            "$(field "${row}" 1)" "$(field "${row}" 3)" \
+            "$(field "${row}" 4)" "$(field "${row}" 5)"
+          exit 0
+        fi
+        if [[ "${args}" == *"--json title"* ]]; then
+          cut -d'|' -f2 "${FIXTURES}"; exit 0
+        fi
+        if [[ "${args}" == *"--json isDraft"* ]]; then
+          awk -F'|' '$3 == "OPEN" && $4 == "true"' "${FIXTURES}" | grep -c . || true
+          exit 0
+        fi
+        if [[ "${args}" == *"--state open"* ]]; then
+          awk -F'|' '$3 == "OPEN"' "${FIXTURES}" | grep -c . || true; exit 0
+        fi
+        grep -c . "${FIXTURES}" || true   # --state all --json number
+        exit 0 ;;
+
+      create)
+        # Mint the next number, and record what was asked for.
+        title="$(printf '%s' "${args}" | sed -n 's/.*--title \(.*\) --body.*/\1/p')"
+        highest="$(cut -d'|' -f1 "${FIXTURES}" | sort -n | tail -1)"
+        n=$(( ${highest:-0} + 1 ))
+        draft=false
+        [[ "${args}" == *"--draft"* ]] && draft=true
+        printf '%s|%s|OPEN|%s|\n' "${n}" "${title}" "${draft}" >> "${FIXTURES}"
+        printf 'https://github.com/fake/fake/pull/%s\n' "${n}"
+        exit 0 ;;
+
+      edit)
+        n="$3"; row="$(row_by_number "${n}")"
+        labels="$(field "${row}" 5)"
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            --add-label)
+              labels="${labels:+${labels},}$2"
+              labels="$(printf '%s' "${labels}" | tr ',' '\n' | sort | paste -sd, -)"
+              shift 2 ;;
+            --remove-label)
+              labels="$(printf '%s' "${labels}" | tr ',' '\n' | grep -vFx "$2" | paste -sd, -)"
+              shift 2 ;;
+            *) shift ;;
+          esac
+        done
+        set_field "${n}" 5 "${labels}"
+        exit 0 ;;
+
+      close)  set_field "$3" 3 CLOSED; exit 0 ;;
+      reopen) set_field "$3" 3 OPEN;   exit 0 ;;
+      merge)  set_field "$3" 3 MERGED; exit 0 ;;
+      ready)
+        if [[ "${args}" == *"--undo"* ]]; then set_field "$3" 4 true
+        else set_field "$3" 4 false; fi
+        exit 0 ;;
+      *) exit 0 ;;
+    esac ;;
+
+  *) exit 0 ;;
+esac

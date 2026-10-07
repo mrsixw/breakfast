@@ -12,8 +12,8 @@ setup() {
   load 'helpers/common'
   common_setup
 
-  # curl answers three different jobs: the release API query, the binary
-  # download, and the man page and completion downloads.
+  # curl answers two different jobs: the binary download, and the man page
+  # and completion downloads. There is no release API query to answer.
   stub curl <<'STUB'
 url=""; out=""; prev=""
 for arg in "$@"; do
@@ -23,14 +23,6 @@ for arg in "$@"; do
 done
 
 case "${url}" in
-  *api.github.com*)
-    [[ -n "${API_FAILS:-}" ]] && exit 22
-    if [[ -n "${NO_ASSET:-}" ]]; then
-      printf '{"tag_name": "v1.2.3", "assets": []}\n'
-    else
-      printf '{"tag_name": "v1.2.3", "assets": [{"name": "breakfast", "browser_download_url": "https://example.invalid/breakfast"}]}\n'
-    fi
-    exit 0 ;;
   */breakfast)
     [[ -n "${BINARY_FAILS:-}" ]] && exit 22
     # A stand-in for the real zipapp: enough to answer --version and
@@ -67,10 +59,12 @@ STUB
   assert_output_contains "Initializing default configuration"
 }
 
-@test "downloads the asset URL named in the release, not a guessed one" {
+@test "downloads the binary from the latest-release redirect" {
+  # No API call resolves an asset URL any more: GitHub redirects this path to
+  # the newest release's asset, so the installer asks for it by name.
   run bash "${REPO_ROOT}/install.sh"
 
-  assert_called curl "https://example.invalid/breakfast"
+  assert_called curl "https://github.com/mrsixw/breakfast/releases/latest/download/breakfast"
 }
 
 @test "installs the man page and all three completions" {
@@ -83,30 +77,17 @@ STUB
   [ -f "${FAKE_HOME}/.config/fish/completions/breakfast.fish" ]
 }
 
-@test "pulls the extras from the tagged release directory" {
-  # They must come from the same tag as the binary, not from a floating latest.
+@test "pulls every extra from the latest-release redirect too" {
+  # Each file is asked for by the same floating path as the binary, so none is
+  # fetched from a tag pinned at build time. GitHub resolves each request
+  # independently, so this does not promise all five come from one release —
+  # a release published mid-install could split them.
   run bash "${REPO_ROOT}/install.sh"
 
-  assert_called curl "/releases/download/v1.2.3/breakfast.1.gz"
-}
-
-@test "fails when the release API is unreachable" {
-  export API_FAILS=1
-
-  run bash "${REPO_ROOT}/install.sh"
-
-  [ "$status" -eq 1 ]
-  assert_output_contains "Failed to fetch release info"
-}
-
-@test "fails when the release carries no binary asset" {
-  export NO_ASSET=1
-
-  run bash "${REPO_ROOT}/install.sh"
-
-  [ "$status" -eq 1 ]
-  assert_output_contains "Failed to find the latest release"
-  [ ! -e "${FAKE_HOME}/.local/bin/breakfast" ]
+  assert_called curl "/releases/latest/download/breakfast.1.gz"
+  assert_called curl "/releases/latest/download/breakfast.bash"
+  assert_called curl "/releases/latest/download/_breakfast"
+  assert_called curl "/releases/latest/download/breakfast.fish"
 }
 
 @test "fails when the binary download fails" {

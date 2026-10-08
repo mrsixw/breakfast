@@ -9,6 +9,8 @@ def isolate_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path / "breakfast_cache")
     api.reset_api_stats()
     api.get_required_approving_review_count.cache_clear()
+    # The shared GitHub slow-down pause must not leak between tests.
+    monkeypatch.setattr(api, "_throttle_until", 0.0, raising=False)
 
 
 @pytest.fixture(autouse=True)

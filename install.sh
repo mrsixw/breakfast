@@ -22,26 +22,15 @@ echo -e "${BOLD}${BLUE}🍳 Serving up breakfast...${RESET}"
 
 # Find the latest release
 echo -e "${YELLOW}Finding the latest version...${RESET}"
-LATEST_RELEASE_JSON=$(curl -sf "https://api.github.com/repos/${REPO}/releases/latest") || {
-    echo -e "${BOLD}\033[31m❌ Failed to fetch release info for ${REPO}.${RESET}"
-    exit 1
-}
-LATEST_TAG=$(printf '%s' "${LATEST_RELEASE_JSON}" | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])") || {
-    echo -e "${BOLD}\033[31m❌ Failed to parse release tag for ${REPO}.${RESET}"
-    exit 1
-}
-RELEASE_BASE_URL="https://github.com/${REPO}/releases/download/${LATEST_TAG}"
-LATEST_RELEASE_URL=$(printf '%s' "${LATEST_RELEASE_JSON}" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-urls = [a['browser_download_url'] for a in data.get('assets', []) if a['name'] == '${BINARY_NAME}']
-print(urls[0] if urls else '')
-")
-
-if [ -z "${LATEST_RELEASE_URL}" ]; then
-    echo -e "${BOLD}\033[31m❌ Failed to find the latest release for ${REPO}.${RESET}"
-    exit 1
-fi
+# GitHub redirects this path to the newest release's asset, so there is no API
+# call and therefore no 60-per-hour unauthenticated rate limit to exhaust. That
+# budget is easy to spend by retrying a failing install, and once spent it
+# blocked installing outright — no error message could fix that, only not
+# needing the call. It also drops an install-time dependency on python3 being
+# present to parse JSON, which ran before the binary was even downloaded.
+# A release genuinely missing the asset still fails, on the download below.
+RELEASE_BASE_URL="https://github.com/${REPO}/releases/latest/download"
+LATEST_RELEASE_URL="${RELEASE_BASE_URL}/${BINARY_NAME}"
 
 echo -e "${GREEN}Found latest release! Downloading...${RESET}"
 
@@ -148,5 +137,52 @@ if ! man --path 2>/dev/null | tr ':' '\n' | grep -qx "${MAN_DIR%/man1}"; then
     echo -e "  ${BOLD}export MANPATH=\"${MAN_DIR%/man1}:\${MANPATH}\"${RESET}"
 fi
 
-echo -e "\n${BOLD}Try running it now:${RESET}"
-echo -e "  ${BINARY_NAME} --help"
+# Resolve a path to its real location, following symlinked directories, so a
+# ~/.local/bin that is itself a symlink does not read as a different install.
+# Only the directory is resolved: the binary we install may legitimately be a
+# symlink, and replacing the link is what an install is supposed to do.
+resolve_path() {
+    local target="${1}" dir base
+    dir="$(dirname "${target}")"
+    base="$(basename "${target}")"
+    if [ -d "${dir}" ]; then
+        dir="$(cd -P "${dir}" 2>/dev/null && pwd)" || dir="$(dirname "${target}")"
+    fi
+    printf '%s/%s' "${dir}" "${base}"
+}
+
+# Having ${INSTALL_DIR} on PATH is not the same as winning on PATH. A stale copy
+# earlier in the search order silently takes every invocation, and the installer
+# above has just reported complete success — so the user runs an old binary and
+# blames the features that appear to be missing: `completions` reports "No such
+# command", `update` rewrites a copy they never invoke. Check what the shell
+# would actually resolve, not merely where we put the file.
+SHADOW_STATUS=0
+RESOLVED_PATH="$(command -v "${BINARY_NAME}" 2>/dev/null || true)"
+if [ -n "${RESOLVED_PATH}" ] \
+    && [ "$(resolve_path "${RESOLVED_PATH}")" != "$(resolve_path "${EXECUTABLE_PATH}")" ]; then
+    echo -e "\n${BOLD}\033[31m❌ Another ${BINARY_NAME} shadows this install.${RESET}"
+    echo -e "   ${BOLD}Installed:${RESET} ${EXECUTABLE_PATH}"
+    echo -e "   ${BOLD}Shadowed by:${RESET} ${RESOLVED_PATH}  ${YELLOW}← this is what runs${RESET}"
+    echo -e "\nThe rogue copy wins because it comes first in your PATH. Until it is"
+    echo -e "removed or your PATH is reordered, ${BINARY_NAME} will keep running the"
+    echo -e "old binary — which is how a missing ${BOLD}completions${RESET} command, or"
+    echo -e "an ${BOLD}update${RESET} that never seems to take effect usually shows up."
+    echo -e "\nRemove it with:"
+    echo -e "  ${BOLD}rm \"${RESOLVED_PATH}\"${RESET}"
+    echo -e "then re-run this installer to confirm."
+    SHADOW_STATUS=1
+fi
+
+# Suppressed when shadowed: pointing the user at `${BINARY_NAME} --help` directly
+# below a warning that `${BINARY_NAME}` runs something else would be telling them
+# to invoke the very binary we just said is the wrong one.
+if [ "${SHADOW_STATUS}" -eq 0 ]; then
+    echo -e "\n${BOLD}Try running it now:${RESET}"
+    echo -e "  ${BINARY_NAME} --help"
+fi
+
+# Non-zero when shadowed: the install did put the binary in place, but the
+# command the user is about to type still is not it. Reporting success there is
+# the bug this exits for.
+exit ${SHADOW_STATUS}

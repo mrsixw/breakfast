@@ -53,6 +53,7 @@ def _offline_replay(result, run_breakfast):
         [
             "-o",
             "mrsixw:breakfast-fixtures",
+            "--include-archived",
             "--cache",
             "--offline",
             "--format",

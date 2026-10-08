@@ -242,11 +242,10 @@ If GitHub exhausts a REST or GraphQL rate limit, a cache-enabled run automatical
 
 ## How it works
 
-1. **Check cache** - Looks for a recent full on-disk cache for the `(owner, repo-filter)` pair before making avoidable GitHub requests
-2. **Resolve identity** - Uses the token-specific cached login for identity-dependent filters, or fetches and caches it when needed
-3. **Fetch repositories** - Uses the GitHub GraphQL API to paginate through all repositories for the owner (organization or personal account)
-4. **Filter repos** - Keeps only repos matching the active repository filters
-5. **Fetch PR details** - Uses the GitHub REST API to fetch full details for each open PR (parallelized for speed); writes complete results to disk cache
-6. **Fall back safely** - If a rate limit or connection failure interrupts acquisition, discards partial results and reads the latest coherent full cache
-7. **Filter PRs** - Applies author filters (`--ignore-author`, `--filter-author`, `--mine-only`), title search (`--search`), and other filters
-8. **Display** - Renders results as a terminal table or JSON
+1. **Check cache** - Looks for a recent on-disk cache for the `(owner, repo-filter)` pair; if found and within the TTL, skips steps 2–3 entirely
+2. **Find PRs** - Uses GitHub GraphQL search to list the owner's PRs (organization or personal account), skipping archived repos unless `--include-archived` is set. With `--repo-filter` or `-o owner:repo`, breakfast first lists the owner's repo names (cached for 24 hours with `--cache`) and searches only the matching repos, which is much faster on large owners. Without filters, search costs one request per 100 PRs however many repos the owner has; large result sets are split by creation date and fetched in parallel
+3. **Filter repos** - Keeps only PRs whose repo name matches `--repo-filter` (substring or glob)
+4. **Fetch PR details** - Uses the GitHub REST API to fetch full details for each open PR (parallelized for speed); writes results to disk cache
+5. **Fall back safely** - If a rate limit or connection failure interrupts acquisition, discards partial results and reads the latest coherent full cache
+6. **Filter PRs** - Applies author filters (`--ignore-author`, `--filter-author`, `--mine-only`), title search (`--search`), and other filters
+7. **Display** - Renders results as a terminal table or JSON

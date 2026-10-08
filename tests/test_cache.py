@@ -499,3 +499,108 @@ def test_read_pr_cache_expired_but_ignored(monkeypatch, tmp_path):
     assert result is not None
     assert result["prs"] == pr_details
     assert result["fetched_at"] == old_time
+
+
+# ---------------------------------------------------------------------------
+# user login cache (#334), now scoped per token — see the roundtrip and
+# token-scoping tests above for the cache's shape and isolation.
+# ---------------------------------------------------------------------------
+
+
+def test_write_and_read_cached_user_login(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_cached_user_login("token-one", "alice")
+    assert cache.read_cached_user_login("token-one") == "alice"
+
+
+def test_read_cached_user_login_returns_none_when_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    assert cache.read_cached_user_login("token-one") is None
+
+
+def test_read_cached_user_login_returns_none_on_corrupt_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    path = cache.identity_cache_path("token-one")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("not json{{")
+    assert cache.read_cached_user_login("token-one") is None
+
+
+def test_write_cached_user_login_overwrites(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_cached_user_login("token-one", "alice")
+    cache.write_cached_user_login("token-one", "bob")
+    assert cache.read_cached_user_login("token-one") == "bob"
+
+
+# ---------------------------------------------------------------------------
+# Repository names cache
+# ---------------------------------------------------------------------------
+
+
+def test_repository_names_cache_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    names_cache = cache.RepositoryNamesCache()
+
+    names_cache.write("Acme", False, ["api", "web"])
+
+    assert names_cache.read("acme", False) == ["api", "web"]
+    assert list(tmp_path.glob("repos_*.json"))
+
+
+def test_repository_names_cache_miss_no_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+
+    assert cache.RepositoryNamesCache().read("acme", False) is None
+
+
+def test_repository_names_cache_keeps_archived_modes_apart(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    names_cache = cache.RepositoryNamesCache()
+
+    names_cache.write("acme", False, ["api"])
+
+    assert names_cache.read("acme", True) is None
+
+
+def test_repository_names_cache_lasts_a_day_by_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    names_cache = cache.RepositoryNamesCache()
+    names_cache.write("acme", False, ["api"])
+    path = next(tmp_path.glob("repos_*.json"))
+    data = json.loads(path.read_text())
+
+    data["fetched_at"] = (datetime.now(timezone.utc) - timedelta(hours=23)).isoformat()
+    path.write_text(json.dumps(data))
+    assert names_cache.read("acme", False) == ["api"]
+
+    data["fetched_at"] = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+    path.write_text(json.dumps(data))
+    assert names_cache.read("acme", False) is None
+
+
+def test_repository_names_cache_refresh_skips_reads_but_writes(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.RepositoryNamesCache().write("acme", False, ["old"])
+    refreshing = cache.RepositoryNamesCache(refresh=True)
+
+    assert refreshing.read("acme", False) is None
+    refreshing.write("acme", False, ["new"])
+    assert cache.RepositoryNamesCache().read("acme", False) == ["new"]
+
+
+def test_repository_names_cache_corrupt_file_is_a_miss(tmp_path, monkeypatch):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    names_cache = cache.RepositoryNamesCache()
+    names_cache.write("acme", False, ["api"])
+    next(tmp_path.glob("repos_*.json")).write_text("}{ bad json")
+
+    assert names_cache.read("acme", False) is None
+
+
+def test_repository_names_cache_write_failure_is_ignored(tmp_path, monkeypatch):
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("")
+    monkeypatch.setattr(cache, "_CACHE_DIR", blocker)
+
+    cache.RepositoryNamesCache().write("acme", False, ["api"])

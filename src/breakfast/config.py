@@ -71,6 +71,11 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Equivalent to: --fetch-state <value>
 # fetch-state = "open"
 
+# Include PRs in archived repositories. They are skipped by default, since
+# nobody can act on them.
+# Equivalent to: --include-archived
+# include-archived = false
+
 # Repositories to exclude from results. Supports glob patterns (same syntax as
 # --repo-filter). Useful for hiding archived repos, forks, or internal tooling.
 # Equivalent to: --exclude-repo "old-*" --exclude-repo "infra-*"
@@ -206,6 +211,16 @@ _DEFAULT_CONFIG_CONTENT = """\
 #   ascii  — plain text fallback, e.g. pass, fail — safe for all terminals
 # Equivalent to: --status-style emoji|ascii
 # status-style = "emoji"
+
+# Style of the table column headers.
+#   full         - Files, Commits, Comments, Approved, Mergeable?  (default)
+#   short        - Fls, Cmt, Cnv, Apr, Mrg
+#   emoji        - a single emoji per column
+#   short_emoji  - emoji plus abbreviation, e.g. "\U0001f4c4 Fls"
+# Shorter headers reclaim width, since a column is never narrower than its
+# header. A per-column "header" in the columns list still wins over this.
+# Equivalent to: --header-style full|short|emoji|short_emoji
+# header-style = "full"
 
 # A little something extra for the observant. 🌟
 # seasonal-colours = true

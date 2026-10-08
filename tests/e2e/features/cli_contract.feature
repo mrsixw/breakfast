@@ -15,6 +15,8 @@ Feature: breakfast CLI contract
     And stdout contains "--owner"
     And stdout contains "--format"
     And stdout contains "--offline"
+    And stdout contains "--header-style"
+    And stdout contains "--label-match"
 
   Scenario: Missing owner is a usage error
     Given no GitHub token is set
@@ -93,9 +95,21 @@ Feature: breakfast CLI contract
     And stderr contains "Falling back to 'any'"
     And stdout is empty
 
+  Scenario: A malformed header-style in config warns on stderr and falls back
+    Given no GitHub token is set
+    And the config file contains "header-style = 'enormous'"
+    When I run `breakfast --owner acme --no-colour`
+    Then the exit code is 1
+    And stderr contains "unrecognised header-style"
+    And stderr contains "Falling back to 'full'"
+    And stdout is empty
+
   Scenario: Generating a config writes a real file
     Given no GitHub token is set
     When I run `breakfast --init-config`
     Then the exit code is 0
     And the config file exists in the sandbox
+    And the generated config documents "header-style"
+    And the generated config documents "label-match"
+    And the generated config documents "exclude-label"
     And running it again reports that the config already exists

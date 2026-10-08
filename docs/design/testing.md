@@ -8,6 +8,7 @@ How breakfast is tested, and — more usefully — which layer a new test belong
 | --- | --- | --- | --- | --- |
 | Unit | `tests/test_*.py` | no | no | `make test` |
 | CLI | `tests/test_cli.py` | no (in-process `CliRunner`) | no (faked) | `make test` |
+| Shell | `tests/bats/` | n/a — it tests the *scripts* | no (stubbed) | `make bats` |
 | End-to-end | `tests/e2e/` | **yes**, the built zipapp as a subprocess | **yes**, real GitHub | `make e2e` |
 
 ### The rule
@@ -38,6 +39,7 @@ than assumed. See [#99](https://github.com/mrsixw/breakfast/issues/99).
 
 ```bash
 make test      # unit + CLI. Offline, fast. e2e is excluded by default.
+make bats      # the shell scripts. Offline, fast.
 make e2e       # builds the zipapp, then runs everything in tests/e2e
 make e2e-ci    # CI variant: uses an already-built binary, fails instead of skipping
 
@@ -60,6 +62,53 @@ failures, so the suite cannot quietly rot to green.
 | `BREAKFAST_E2E_REQUIRE` | Fail rather than skip when the zipapp is missing |
 | `BREAKFAST_E2E_REQUIRE_LIVE` | Fail rather than skip when no token is set |
 | `BREAKFAST_E2E_TIMEOUT` | Per-invocation subprocess timeout in seconds (default 90) |
+
+## The shell layer
+
+Python is not the only thing this repository ships. `install.sh` is the
+published `curl | bash` install path, and `utils/` holds the scripts that cut
+releases and provision the end-to-end fixtures. They went untested for as long
+as they did because `tests/` is a pytest suite and has no way to harness a shell
+script — see [#466](https://github.com/mrsixw/breakfast/issues/466).
+
+[bats](https://github.com/bats-core/bats-core) fills that gap, and
+[shellcheck](https://www.shellcheck.net) covers the static half. Both arrive
+through `npx`, exactly as `markdownlint-cli2` does, so there is nothing to
+install by hand:
+
+```bash
+make bats        # the shell test suite
+make shellcheck  # static analysis (also part of `make lint`)
+```
+
+### How the scripts are driven
+
+Each test runs the **real script as a subprocess** with its collaborators — `gh`,
+`git`, `curl`, `tar`, `install` — replaced by stubs on `PATH`, and with `HOME`
+redirected into the test's temporary directory. Nothing reaches the network, and
+an installer test cannot scribble on the machine running it.
+
+`tests/bats/helpers/common.bash` provides the machinery: `stub` writes an
+executable that records its arguments before running a body, so a test can
+assert *what the script asked for* rather than only what it printed.
+
+Two helpers are worth knowing about:
+
+- **`helpers/fake_gh`** is a stateful fake rather than a stub. The fixture
+  provisioner reads its own writes — it reconciles a pull request, then counts
+  the inventory to check the result — so a fake that logged mutations without
+  applying them would let a broken reconcile loop still pass verification.
+- **`helpers/run_pty.py`** runs a script on a real pseudo-terminal. Anything
+  that gates on `[[ -t 0 ]]` and prompts with `read` cannot be tested through a
+  pipe, and `script(1)` takes incompatible arguments on macOS and Linux.
+  Python's `pty` module behaves the same on both.
+
+### By the project's own rule, this is a unit layer
+
+It fakes part of the system under test, so it belongs in `tests/`, not
+`tests/e2e/`. The scripts it covers mostly *cannot* be exercised for real
+without cutting a release or writing to the frozen fixture repository, which is
+precisely why the stubs earn their place here.
 
 ## Why the tests are written in Gherkin
 
@@ -232,13 +281,15 @@ produces one obvious failure rather than eight confusing ones.
 
 ### Why scoped `-o mrsixw:breakfast-fixtures`
 
-`api.get_github_prs` paginates *every* repository belonging to an owner
-(`GRAPHQL_REPOSITORY_PAGE_SIZE = 25`) and applies repo filters client-side
-afterwards. `mrsixw` has ~48 repos, so each live scenario costs two GraphQL
-pages, rising by one per 25 new repos. The scoped syntax keeps the *result* set
-correct; it does not reduce the pagination cost. A dedicated organisation with a
-single repository would cost one page permanently — worth revisiting if the
-budget ever tightens.
+With repo filters, `api.get_github_prs` lists the owner's repository names
+(100 per page), matches the filters locally, and searches only the matching
+repos. `mrsixw` has a few dozen repos, so each live scenario costs one listing
+page and one search page.
+
+The fixture repo is archived, and archived repos are skipped by default
+([#473](https://github.com/mrsixw/breakfast/issues/473)), so every live scenario
+passes `--include-archived`. One scenario runs without it and asserts zero PRs,
+which proves the default through the real binary.
 
 The filter is a substring/glob match, and `breakfast` does not contain
 `breakfast-fixtures`, so only the fixture repo matches.
@@ -257,74 +308,119 @@ what end-to-end owes you. Multi-author combinatorics stay in `tests/test_cli.py`
 where fixtures are free.
 
 Adding a `breakfast-fixture-bot` machine account would unlock the rest. It costs
-a second credential to manage and is tracked separately.
+a second credential to manage and is tracked in
+[#452](https://github.com/mrsixw/breakfast/issues/452).
 
 ### Recreating it from scratch
 
+The inventory is built by [`utils/setup_fixture_org.sh`](../../utils/setup_fixture_org.sh),
+not by copy-pasting a recipe out of this document. The script is the executable
+form of the table above: it creates the repository, the three labels, the eight
+branches and their pull requests, applies the labels, closes fixture 7, merges
+fixture 8, and then **verifies** the result really is six open / eight total /
+two drafts before it will let you freeze anything.
+
 ```bash
-gh repo create mrsixw/breakfast-fixtures --public \
-  --description "Frozen PR fixtures for breakfast's end-to-end suite. Do not modify."
-cd "$(mktemp -d)" && gh repo clone mrsixw/breakfast-fixtures && cd breakfast-fixtures
+# See what it would do, touching nothing.
+./utils/setup_fixture_org.sh <org> --dry-run
 
-printf '# breakfast-fixtures\n\n> [!WARNING]\n> Frozen fixtures for the breakfast end-to-end suite. Changing anything here\n> breaks CI on mrsixw/breakfast. See docs/design/testing.md in that repo.\n' > README.md
-git add README.md && git commit -m "docs: add fixture warning" && git push
+# Provision for real.
+./utils/setup_fixture_org.sh <org>
 
-gh label create wip --color ededed --force
-for l in bug enhancement; do gh label create "$l" --force 2>/dev/null || true; done
-
-# Eight branches, one commit each, then eight PRs.
-n=1
-for title in \
-  "Open PR with no labels" "Open PR labelled bug" \
-  "Open PR labelled enhancement" "Open PR with two labels" \
-  "Draft PR awaiting work" "Second draft PR" \
-  "Closed without merging" "Merged fixture PR"; do
-  git checkout -q main && git checkout -q -b "fixture-$n"
-  echo "$title" > "fixture-$n.txt"
-  git add . && git commit -q -m "$title" && git push -q -u origin "fixture-$n"
-  if [ "$n" -eq 5 ] || [ "$n" -eq 6 ]; then
-    gh pr create --draft --title "$title" --body "Frozen fixture. Do not modify."
-  else
-    gh pr create --title "$title" --body "Frozen fixture. Do not modify."
-  fi
-  n=$((n+1))
-done
-
-gh pr edit 2 --add-label bug
-gh pr edit 3 --add-label enhancement
-gh pr edit 4 --add-label bug --add-label wip
-gh pr edit 6 --add-label enhancement
-gh pr close 7
-gh pr merge 8 --merge
-
-# Freeze it. Archiving is the strongest lock available: archived repos are
-# read-only and accept no new PRs, but existing ones stay queryable — the
-# GraphQL query has no isArchived filter.
-gh api -X DELETE repos/mrsixw/breakfast-fixtures/vulnerability-alerts
-gh repo edit mrsixw/breakfast-fixtures --enable-issues=false --enable-wiki=false
-gh repo archive mrsixw/breakfast-fixtures --yes
+# Only once `make e2e` is green against the new fixtures:
+./utils/setup_fixture_org.sh <org> --archive
 ```
 
-Archive **last**, after verifying with `make e2e` — an archived repo is
-read-only, so a mistake in the inventory would need unarchiving to fix. Settings
-changes are also rejected once archived, which is why the Dependabot and
-issues/wiki steps come first. Archiving makes those largely redundant anyway (no
-bot can open a pull request on a read-only repo), but they cost nothing and
-document the intent.
+Three things the script does that a fenced code block could not:
 
-Archiving does **not** hide the pull requests: the suite was re-run after
-archiving and all 25 scenarios still pass, confirming the GraphQL query has no
-`isArchived` filter.
+- It **refuses** to seed `mrsixw/breakfast-fixtures`. That repo is frozen and
+  asserted by exact count, so the guard is case-insensitive and the only way
+  past it is `--update`, which repairs rather than seeds — see below.
+- It reads each pull request number back from `gh` instead of assuming they are
+  numbered 1 through 8. One stray pull request would otherwise shift every later
+  `gh pr edit` onto the wrong target — silently, since the labels would still
+  apply cleanly to whatever they hit.
+- It refuses to seed a repository that already holds pull requests, so a second
+  run cannot quietly double the inventory — and refuses one holding orphaned
+  `fixture-*` branches from a half-finished run, because re-pushing those would
+  need a force push.
+
+GitHub has no API for creating an organisation, so the organisation itself must
+exist before you start — see [organizations/plan](https://github.com/organizations/plan).
+The script checks for it and says so rather than failing eight steps later.
+
+Archive **last**, after verifying with `make e2e` — an archived repo is
+read-only, so a mistake in the inventory would need unarchiving to fix. That is
+why `--archive` is opt-in rather than the default. Settings changes are also
+rejected once archived, which is why the flag turns off Dependabot alerts,
+issues and the wiki *before* it archives. Archiving makes those largely
+redundant anyway (no bot can open a pull request on a read-only repo), but they
+cost nothing and document the intent.
+
+Archiving hides the pull requests from a default run, which skips archived
+repos. The suite opts back in with `--include-archived`.
+
+### Repairing the frozen fixtures
+
+Freezing the repository is not the same as never touching it again. If the
+inventory ever drifts — a label removed, a draft readied, a fixture deleted —
+the same script repairs it in place:
+
+```bash
+# See what it would change, touching nothing.
+./utils/setup_fixture_org.sh mrsixw --repo breakfast-fixtures --update --dry-run
+
+# Repair for real. Asks you to type UNFREEZE before it unarchives anything.
+./utils/setup_fixture_org.sh mrsixw --repo breakfast-fixtures --update
+```
+
+`--update` reconciles rather than seeds: for each of the eight fixtures it looks
+the pull request up **by title**, creates it if it is missing, and otherwise
+corrects its labels, its draft flag and its state until they match the table
+above. Nothing already correct is touched, so a run against undrifted fixtures
+is a read-only no-op.
+
+The unfreezing is deliberately noisy, because an unfrozen fixture repository is
+a live hazard to CI:
+
+- It **asserts the repository is archived** before it starts. Finding it thawed
+  means an earlier run never refroze it, and the inventory may have drifted
+  while it was writable — so the script stops and tells a human to look.
+- It **surveys the live inventory while the repository is still read-only**, and
+  refuses to thaw one holding duplicate or undocumented pull requests. Neither
+  can be deleted through the API, so discovering them halfway through a repair
+  would be the worst of both worlds.
+- It prints the exact `gh repo unarchive` command it is about to run, and will
+  not run it until you type `UNFREEZE` at an interactive prompt. There is no
+  non-interactive escape hatch: with no terminal, it refuses.
+- The refreeze hangs off an `EXIT` trap, so it fires on success, on any failure,
+  and on Ctrl-C alike. The trap is armed *before* the unarchive request is sent,
+  not after it succeeds: a transport failure can still have applied the change
+  server-side.
+- The trap does not trust `gh repo archive`'s exit status — archiving an already
+  archived repository is an error too. It asks the repository what state it is
+  actually in, and if that is anything but archived it shouts, prints the manual
+  `gh repo archive` command, and **exits 75 even when the repair itself
+  succeeded**. A green exit is how a tired human decides it is safe to walk
+  away, so an unconfirmed refreeze must never produce one.
+- It leaves `main` alone. Update mode only reconciles pull requests; it will not
+  rewrite the README of a repository it just unfroze.
+
+One drift it cannot repair: a fixture that has been **merged** when the
+inventory says it should be open or closed. A merge cannot be undone through the
+API, so the script dies and says the repository must be rebuilt elsewhere.
 
 ## Cost and flakiness
 
-Roughly 70 API requests per full live run: each scenario costs ~2 GraphQL
-repository pages plus one REST call per pull request. Against 5000/hour that is
+Roughly 80 API requests per full live run: each scenario costs one GraphQL
+listing page and one search page, plus one REST call per pull request. Against 5000/hour that is
 comfortable, but note CI triggers on both `push` and `pull_request`, so a branch
 push runs it twice.
 
-`--checks` and `--approvals` are deliberately **not** exercised live: both are
-per-PR GraphQL and would multiply the cost for little return.
+`--checks` and `--approvals` are deliberately **not** exercised live: checks
+cost two REST calls per PR, and approvals add a batched GraphQL request plus a
+branch-protection lookup per base branch, for little return over the unit
+tests.
 
 `api.py` already retries `{502, 503, 504}` up to `MAX_RETRIES`, which absorbs
 most transient failures; a 90-second subprocess timeout sits on top.

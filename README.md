@@ -80,6 +80,7 @@ breakfast update
 - `--head-branch`: Add a head branch column.
 - `--base-branch`: Add a base branch column.
 - `--status-style`: Render status cells with `emoji` (default) or `ascii` labels.
+- `--header-style`: Table header style — `full` (default), `short`, `emoji`, or `short_emoji`. Shorter headers reclaim width on narrow terminals.
 - `--limit`: Cap the number of PRs shown.
 - `--max-title-length`: Truncate PR titles to this many characters.
 

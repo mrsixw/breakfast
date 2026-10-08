@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-api_url="https://api.github.com/repos/idc101/git-mkver/releases/latest"
-
+# The API URL lives in the embedded Python below, which is what actually calls
+# GitHub. A second copy out here would be one more thing to keep in step.
 asset_url=$(python - <<'PY'
 import json
 import os

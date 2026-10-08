@@ -6605,10 +6605,6 @@ def _run_finish(monkeypatch, **kwargs):
         no_update_check=False,
         api_stats=False,
         colour=False,
-        # Added by the rate-limit cache fallback work; this test predates them
-        # and only cares about how show_update_summary is forwarded.
-        data_source="live",
-        cache_age_seconds=None,
         **kwargs,
     )
     return seen.get("show_summary")

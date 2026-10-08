@@ -364,8 +364,11 @@ def finish_run(
     show_update_summary,
     api_stats,
     colour,
-    data_source,
-    cache_age_seconds,
+    # Defaulted so a caller that predates the cache fallback, or one that has
+    # no degraded run to describe, needs no say in it. These are what a run
+    # that went to GitHub and back reports.
+    data_source="live GitHub API",
+    cache_age_seconds=None,
     pizza=False,
     cake=False,
 ):

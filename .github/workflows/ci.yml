@@ -2,7 +2,14 @@ name: CI
 
 on:
   pull_request:
+  # Branches are covered by pull_request. Without this filter a push to a
+  # branch with an open PR ran the whole workflow twice for one commit,
+  # doubling the e2e job's real GitHub API calls and listing every check
+  # twice. main still runs on push, which release and verify-release gate on.
   push:
+    branches: [main]
+  # So a branch with no pull request can still be run deliberately.
+  workflow_dispatch:
 
 permissions: read-all
 

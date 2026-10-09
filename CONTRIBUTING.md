@@ -177,6 +177,16 @@ All four files convey the same project rules. **When updating project convention
 - **Formatter:** [black](https://black.readthedocs.io/) (line length 88, target Python 3.11)
 - Run checks locally before pushing. CI will also verify these.
 
+## When CI runs
+
+CI runs on every pull request, and on pushes to `main`. A branch push is
+deliberately **not** a trigger on its own: the pull request covers it, and
+running both fired the whole workflow twice for one commit, which doubled the
+end-to-end job's real GitHub API calls and listed every check twice.
+
+So a branch with no pull request open gets no automatic run. Open the pull
+request, or trigger one by hand from the Actions tab (`workflow_dispatch`).
+
 ## mkver / Versioning
 
 - Do **not** run `git mkver patch` on feature branches — it mutates the version file.

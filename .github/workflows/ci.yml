@@ -216,13 +216,15 @@ jobs:
           uv run python -m breakfast.cli completions zsh | grep -q "_BREAKFAST_COMPLETE"
           uv run python -m breakfast.cli completions fish | grep -q "_BREAKFAST_COMPLETE"
 
-      - name: Verify the deprecated --completion flag keeps stdout evaluable
+      - name: Verify the removed --completion flag writes nothing to stdout
         run: |
-          # The deprecation notice must stay on stderr: stdout is eval'd by the
-          # user's shell, so a stray notice there is a startup syntax error.
-          uv run python -m breakfast.cli --completion bash 2>/dev/null | grep -q "_BREAKFAST_COMPLETE"
-          ! uv run python -m breakfast.cli --completion bash 2>/dev/null | grep -q "deprecated"
-          uv run python -m breakfast.cli --completion bash 2>&1 >/dev/null | grep -q "deprecated"
+          # #417 removed the flag. A shell profile still carrying
+          # eval "$(breakfast --completion bash)" must get an empty stdout,
+          # not a half-written script its shell tries to evaluate.
+          ! uv run python -m breakfast.cli --completion bash 2>/dev/null
+          [ -z "$(uv run python -m breakfast.cli --completion bash 2>/dev/null)" ]
+          uv run python -m breakfast.cli --completion bash 2>&1 >/dev/null \
+            | grep -q "No such option"
 
   release:
     if: "github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore: bump version')"

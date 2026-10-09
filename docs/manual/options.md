@@ -1296,9 +1296,10 @@ breakfast completions fish  # print fish completion script
 
 See [Installation → Shell completions](installation.md#shell-completions) for setup instructions.
 
-The older `--completion SHELL` flag is deprecated and hidden from `--help`. It
-still prints the same script to stdout, with a deprecation notice on stderr, and
-will be removed in a future release.
+The older `--completion SHELL` flag has been removed. If you have
+`eval "$(breakfast --completion bash)"` in a shell profile, change it to
+`eval "$(breakfast completions bash)"` — the old spelling now fails with
+`No such option`.
 
 ### `update`
 

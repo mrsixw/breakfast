@@ -508,16 +508,6 @@ def _approval_details_for(pr_details, workers):
 
 @click.group(invoke_without_command=True, epilog="Made with ❤️ in the UK")
 @click.pass_context
-@click.option(
-    "--completion",
-    "completion_shell",
-    type=click.Choice(_SHELL_CHOICES),
-    default=None,
-    is_eager=True,
-    expose_value=True,
-    hidden=True,
-    help="Deprecated: use 'breakfast completions SHELL' instead.",
-)
 @click.option("--config", help="Path to config file.")
 @click.option("--show-config", is_flag=True, help="Print the resolved config and exit.")
 @click.option(
@@ -999,7 +989,6 @@ def _approval_details_for(pr_details, workers):
 @click.version_option(package_name="breakfast")
 def breakfast(
     ctx,
-    completion_shell,
     config,
     show_config,
     init_config,
@@ -1079,20 +1068,6 @@ def breakfast(
     # fallback further down.
     no_colour = no_colour or env_flag_is_set("NO_COLOR")
     no_update_check = no_update_check or env_flag_is_set("BREAKFAST_NO_UPDATE_CHECK")
-
-    if completion_shell:
-        click.echo(
-            click.style(
-                "⚠️  --completion is deprecated; use 'breakfast completions "
-                f"{completion_shell}' instead.",
-                fg="yellow",
-            ),
-            # stderr, always: this command's stdout gets eval'd by the user's
-            # shell, so a notice on stdout becomes a shell startup syntax error.
-            err=True,
-        )
-        _emit_completion_script(completion_shell)
-        sys.exit(0)
 
     if colour_diagnostics:
         click.echo(render_colour_diagnostics(), color=True)

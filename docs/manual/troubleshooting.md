@@ -194,6 +194,23 @@ Example output:
 2026-03-23 08:00:05 INFO    render format=table row_count=38
 ```
 
+## "Error: config file not found: ..."
+
+`--config` names a file that is not there. breakfast treats this as a typo
+rather than a reason to fall back to defaults, because falling back silently
+drops every setting in the file you meant and then complains about something
+unrelated, usually a missing owner.
+
+Check the path, remembering that `~` is expanded and relative paths resolve
+against the current directory:
+
+```bash
+ls -l "$(eval echo ~/your-config.toml)"
+```
+
+To run with no config file at all, simply omit `--config`: the default search
+paths are optional and an absent one is skipped quietly.
+
 ## "Owner not found" errors
 
 breakfast uses the `repositoryOwner` GitHub GraphQL field, which resolves both

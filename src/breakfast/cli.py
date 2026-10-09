@@ -30,6 +30,7 @@ from .api import (
     get_pr_age_days,
     get_review_data_batch,
     match_exclude_repos,
+    pr_author,
 )
 from .cache import (
     RepositoryNamesCache,
@@ -378,7 +379,7 @@ def _group_prs_by(pr_details, group_by):
     groups = {}
     for pr in pr_details:
         if group_by == "user":
-            author = pr["user"]
+            author = pr_author(pr)
             key = author["login"]
             url = author.get("html_url") or f"https://github.com/{key}"
         else:
@@ -2042,7 +2043,7 @@ def breakfast(
         "repo": lambda pr: pr["base"]["repo"]["name"],
         "age": lambda pr: get_pr_age_days(pr),
         "updated": lambda pr: pr.get("updated_at", ""),
-        "author": lambda pr: pr.get("user", {}).get("login", "").lower(),
+        "author": lambda pr: pr_author(pr)["login"].lower(),
         "comments": lambda pr: pr.get("comments", 0) + pr.get("review_comments", 0),
         "reviews": lambda pr: pr.get("review_comments", 0),
         "size": lambda pr: pr.get("additions", 0) + pr.get("deletions", 0),

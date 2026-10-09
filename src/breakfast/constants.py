@@ -11,6 +11,7 @@ __all__ = [
     "DROPPABLE_COLUMNS",
     "EID_AL_ADHA",
     "EID_AL_FITR",
+    "GHOST_AUTHOR",
     "GITHUB_API_URL",
     "GITHUB_GRAPHQL_URL",
     "HANUKKAH_START",
@@ -49,6 +50,11 @@ __all__ = [
 ]
 
 # ── GitHub API Configuration ───────────────────────────────────────────────
+
+# What GitHub shows in place of a deleted account. The REST payload sends
+# ``"user": null`` once the account is gone; the web UI calls it "ghost", and
+# https://github.com/ghost is a real page explaining why.
+GHOST_AUTHOR = {"login": "ghost", "html_url": "https://github.com/ghost"}
 
 GITHUB_API_URL = "https://api.github.com"
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"

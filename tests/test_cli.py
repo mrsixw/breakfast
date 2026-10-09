@@ -600,6 +600,114 @@ def _stub_two_author_prs(monkeypatch):
     monkeypatch.setattr(api, "make_github_api_request", fake_api_request)
 
 
+def _stub_ghost_author_pr(monkeypatch):
+    """One PR whose author account has been deleted — GitHub sends user: null."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+
+    monkeypatch.setattr(
+        cli,
+        "get_github_prs",
+        lambda *_a, **_kw: ["https://github.com/org/repo/pull/7"],
+    )
+    monkeypatch.setattr(
+        api,
+        "make_github_api_request",
+        lambda _path: {
+            "base": {"repo": {"name": "repo", "owner": {"login": "org"}}},
+            "mergeable": True,
+            "mergeable_state": "clean",
+            "additions": 5,
+            "deletions": 2,
+            "title": "Orphaned PR",
+            # The key is present and null. `.get("user", {})` does not help.
+            "user": None,
+            "state": "open",
+            "changed_files": 1,
+            "commits": 1,
+            "review_comments": 0,
+            "created_at": "2026-01-10T00:00:00Z",
+            "html_url": "https://github.com/org/repo/pull/7",
+            "number": 7,
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    "fmt_args",
+    [
+        pytest.param([], id="table"),
+        pytest.param(["--format", "json"], id="json"),
+        pytest.param(["--format", "markdown"], id="markdown"),
+        pytest.param(["--format", "csv"], id="csv"),
+        pytest.param(
+            ["--format", "template", "--template", "{author} {title}"], id="template"
+        ),
+    ],
+)
+def test_a_ghost_authored_pr_renders_in_every_format(monkeypatch, fmt_args):
+    """#385: one deleted account must not take the whole run down."""
+    _stub_ghost_author_pr(monkeypatch)
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo", *fmt_args])
+
+    assert result.exit_code == 0, result.output
+    assert "ghost" in result.stdout
+    assert "Orphaned PR" in result.stdout or "{author}" not in result.stdout
+
+
+def test_a_ghost_author_is_linked_to_githubs_ghost_page(monkeypatch):
+    """The placeholder is a real GitHub page, so it should still be a link."""
+    _stub_ghost_author_pr(monkeypatch)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--format", "markdown"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "[ghost](https://github.com/ghost)" in result.stdout
+
+
+def test_a_ghost_authored_pr_survives_sorting_by_author(monkeypatch):
+    _stub_ghost_author_pr(monkeypatch)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--sort", "author"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "ghost" in result.stdout
+
+
+def test_a_ghost_authored_pr_survives_the_user_summary(monkeypatch):
+    _stub_ghost_author_pr(monkeypatch)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--summarise-user-prs"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "ghost" in result.stdout
+
+
+def test_a_ghost_author_can_still_be_filtered_on(monkeypatch):
+    """Filters must treat the ghost as a real name, not crash or match all."""
+    _stub_ghost_author_pr(monkeypatch)
+
+    kept = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--filter-author", "ghost"]
+    )
+    dropped = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--ignore-author", "ghost"]
+    )
+
+    assert kept.exit_code == 0, kept.output
+    assert "Orphaned PR" in kept.stdout
+    assert dropped.exit_code == 0, dropped.output
+    assert "Orphaned PR" not in dropped.stdout
+
+
 def test_cli_filter_author_shows_only_named_authors(monkeypatch):
     _stub_two_author_prs(monkeypatch)
 

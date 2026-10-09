@@ -14,6 +14,7 @@ import requests
 
 from .constants import (
     BREAKFAST_ITEMS,
+    GHOST_AUTHOR,
     GITHUB_API_URL,
     GITHUB_GRAPHQL_URL,
     MAX_GRAPHQL_ERROR_MESSAGE_LENGTH,
@@ -59,6 +60,7 @@ __all__ = [
     "make_github_graphql_request",
     "make_paginated_github_api_request",
     "match_exclude_repos",
+    "pr_author",
 ]
 
 
@@ -977,6 +979,26 @@ def get_authenticated_user_login():
     return login
 
 
+def pr_author(payload):
+    """Return the author of a PR or review payload, substituting the ghost.
+
+    GitHub sends ``"user": null`` once an account is deleted, so the key is
+    present with a null value. That makes ``payload.get("user", {})`` a false
+    safety net — it defends against a missing key, which GitHub does not send,
+    and not against the null it does. One such PR anywhere in a result set
+    used to end the whole run, because filtering and rendering happen after
+    every fetch.
+
+    Args:
+        payload: A PR detail or review dict carrying a ``user`` field.
+
+    Returns:
+        dict: The author, or a copy of :data:`GHOST_AUTHOR`. A copy, so a
+        caller that mutates what it gets back cannot poison later ghosts.
+    """
+    return payload.get("user") or dict(GHOST_AUTHOR)
+
+
 def _summarize_reviews(reviews):
     """Aggregate approval state from reviews in the order they were submitted.
 
@@ -1023,7 +1045,7 @@ def _review_status_from_latest_reviews(owner, repo, pr_number):
         f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
     )
     return _summarize_reviews(
-        (review.get("user", {}).get("login"), review.get("state")) for review in reviews
+        (pr_author(review)["login"], review.get("state")) for review in reviews
     )
 
 

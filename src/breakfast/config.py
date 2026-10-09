@@ -10,7 +10,7 @@ from pathlib import Path
 
 import click
 
-from .api import get_pr_age_days, get_pr_inactive_days
+from .api import get_pr_age_days, get_pr_inactive_days, pr_author
 from .logger import logger
 from .xdg import get_config_dir, get_config_paths
 
@@ -780,7 +780,7 @@ def filter_pr_details(
     )
     filtered = []
     for pr_detail in pr_details:
-        author_login = pr_detail.get("user", {}).get("login", "")
+        author_login = pr_author(pr_detail)["login"]
         author_login_normalized = author_login.lower()
 
         if author_login_normalized in ignore_set:

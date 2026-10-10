@@ -122,6 +122,21 @@ This repository provides standardized automated workflows for managing issues. A
 ## Commit Messages
 - Use Conventional Commits (e.g., `feat: ...`, `fix: ...`, `chore: ...`, `docs: ...`, `refactor: ...`, `test: ...`, `ci: ...`).
 - Keep the summary short and imperative.
+- **A `!` after the type, or `BREAKING CHANGE` anywhere in the body, releases a
+  new MAJOR version.** `feat!: drop the old flag` is what took this project from
+  0.107.1 to 1.0.0. These are the *only* things that cause a major bump, so
+  neither is a decoration for "this is important" — use one when you mean to
+  change the first number, and say so in the PR description when you do.
+- The version a merge will release is computed from these messages by
+  `git mkver`, not chosen by hand. The `version` CI job prints it on every pull
+  request, so check it before merging rather than discovering it afterwards.
+- **Mentioning either marker in a commit body counts as using it.** mkver scans
+  every line of every commit message since the last tag for the marker as a
+  substring, so a body explaining that "#417 was committed as `feat!:`" reads
+  to mkver exactly like a declaration, and releases a major version. When you
+  need to write about them, break the string: `feat!` without the colon, or
+  spell the footer with a hyphen. This is not hypothetical — it happened to the
+  commit that added this very warning.
 
 ## Pull Requests
 - Include the issue number in PR titles (e.g., `#7: Split test deps and migrate to uv`).

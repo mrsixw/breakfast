@@ -153,6 +153,36 @@ jobs:
       - name: Lint markdown docs
         run: make docs-lint
 
+  # What version would merging this actually release? The release job only runs
+  # on pushes to main, so until this existed the answer arrived after the tag
+  # had been cut. #417 was committed as `feat!:`, which is correct Conventional
+  # Commits and also an instruction to bump the major version: 0.107.1 became
+  # 1.0.0 and nobody saw it coming. This also means a malformed mkver.conf
+  # fails here rather than on main.
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # mkver reads the whole history and every tag to find the last
+          # release and the commits since it. The default shallow clone has
+          # neither.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install git-mkver
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: utils/install_git_mkver.sh
+
+      - name: Report the version this would release
+        run: utils/report_next_version.sh
+
   man:
     runs-on: ubuntu-latest
     needs: [test, lint, spell, docs-lint]

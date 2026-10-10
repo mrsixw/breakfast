@@ -126,6 +126,19 @@ PR details are fetched in parallel (up to 8 concurrent requests), and results ar
 
 Subsequent runs within the TTL window will be near-instant (served from the local cache). To force a fresh fetch, use `--no-cache`. To tune the cache window, use `--cache-ttl` (e.g. `--cache-ttl 10m`).
 
+## A PR's author shows as "ghost"
+
+The author's GitHub account has been deleted. GitHub itself has no name left to
+report — the API sends a null author — so breakfast shows `ghost`, matching
+what the GitHub web UI does, and links it to <https://github.com/ghost>.
+
+The placeholder behaves like any other author name, so filters work on it:
+
+```bash
+breakfast -o my-org --ignore-author ghost    # hide them
+breakfast -o my-org --filter-author ghost    # show only them
+```
+
 ## A PR is missing from the list
 
 - **It was opened moments ago.** PRs are found with GitHub search, whose index

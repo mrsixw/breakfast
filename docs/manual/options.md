@@ -1404,6 +1404,33 @@ Config key: `sort-reverse = false`
 
 ## Other options
 
+### `--config`
+
+Read settings from a specific config file instead of searching the default
+locations.
+
+```bash
+breakfast --config ~/work/breakfast.toml
+```
+
+A path you name here must exist. If it does not, breakfast stops with an error
+on `stderr` and exit code 1 rather than carrying on with defaults:
+
+```text
+$ breakfast --config ~/typo.toml -o my-org
+Error: config file not found: /home/you/typo.toml
+```
+
+That strictness applies only to `--config`. The default search paths are
+optional by design, so an absent one is skipped without comment.
+
+A file that exists but contains invalid TOML is a different case, and still
+warns and continues with the settings it could read:
+
+```text
+Warning: Failed to parse config /home/you/breakfast.toml: ...
+```
+
 ### `--version`
 
 ```text

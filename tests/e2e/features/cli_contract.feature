@@ -71,16 +71,18 @@ Feature: breakfast CLI contract
       | zsh   |
       | fish  |
 
-  # The user's shell evaluates stdout, so a notice landing there is a startup
-  # syntax error rather than a cosmetic wart. Only genuinely separate streams
-  # can prove this, which is why it belongs at this layer.
-  Scenario: The deprecated --completion flag keeps stdout evaluable
+  # --completion was removed in #417 after its deprecation window. The exit
+  # code and the stream split are both the point: a user with
+  # `eval "$(breakfast --completion bash)"` still in their shell profile must
+  # get a loud failure and an empty stdout, not a half-written script their
+  # shell tries to evaluate. CliRunner merges the streams, so only this layer
+  # can prove stdout stayed clean. Costs no API requests.
+  Scenario: The removed --completion flag fails without writing to stdout
     Given no GitHub token is set
     When I run `breakfast --completion bash`
-    Then the exit code is 0
-    And stdout contains "_BREAKFAST_COMPLETE"
-    And stdout does not contain "deprecated"
-    And stderr contains "deprecated"
+    Then the exit code is 2
+    And stdout is empty
+    And stderr contains "No such option"
 
   # A bad value in a config file must degrade to a warning and still run. Two
   # things here are invisible to CliRunner: that the warning lands on stderr

@@ -5465,18 +5465,26 @@ def test_shell_enum_members_are_their_lowercase_names():
     assert cli.Shell.BASH == "bash"
 
 
-def test_deprecated_completion_flag_keeps_stdout_evaluable():
-    """The notice must not land on stdout — the shell eval's it verbatim."""
+def test_the_removed_completion_flag_is_rejected():
+    """#417: the deprecation window closed, so this is an unknown option now."""
     runner = CliRunner()
     result = runner.invoke(cli.breakfast, ["--completion", "bash"])
-    assert result.exit_code == 0
-    assert "_BREAKFAST_COMPLETE" in result.stdout
-    assert "deprecated" not in result.stdout
-    assert "deprecated" in result.stderr
-    assert "breakfast completions bash" in result.stderr
+    assert result.exit_code == 2
+    assert "no such option" in result.output.lower()
+    # Not a deprecation notice any more, and nothing eval-able on stdout.
+    assert "deprecated" not in result.output.lower()
+    assert "_BREAKFAST_COMPLETE" not in result.stdout
 
 
-def test_deprecated_completion_flag_is_hidden_from_help():
+def test_the_completions_subcommand_is_untouched():
+    runner = CliRunner()
+    for shell in ("bash", "zsh", "fish"):
+        result = runner.invoke(cli.breakfast, ["completions", shell])
+        assert result.exit_code == 0, shell
+        assert "_BREAKFAST_COMPLETE" in result.stdout, shell
+
+
+def test_completion_flag_is_absent_from_help():
     runner = CliRunner()
     result = runner.invoke(cli.breakfast, ["--help"])
     assert "--completion" not in result.stdout

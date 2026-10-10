@@ -3,7 +3,7 @@ import fnmatch
 import os
 import re
 import tomllib
-from datetime import datetime
+from datetime import date, datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 from pathlib import Path
@@ -12,6 +12,14 @@ import click
 
 from .api import get_pr_age_days, get_pr_inactive_days
 from .logger import logger
+from .ui import (
+    CALENDARS,
+    DATE_RULES,
+    WEEKDAY_NAMES,
+    CalendarEvent,
+    CustomCalendar,
+    parse_calendar_colour,
+)
 from .xdg import get_config_dir, get_config_paths
 
 __all__ = [
@@ -19,6 +27,7 @@ __all__ = [
     "filter_pr_details",
     "generate_default_config",
     "load_config",
+    "load_custom_calendar",
     "normalize_author_logins",
     "parse_columns_config",
     "update_config",
@@ -233,6 +242,7 @@ _DEFAULT_CONFIG_CONTENT = """\
 #   rainbow    — permanent Pride 🌈 cycle, every day of the year
 #   sikh       — Vaisakhi 🌾, Bandi Chhor Divas 🪔
 #   western    — Christmas 🎄, Easter 🐣, Pride Month 🌈, Halloween 🎃 (default)
+#   custom     — your own days, from the [calendar] table at the end of this file
 #   off        — disable seasonal colours entirely
 # Note: seasonal-colours = false is equivalent to seasonal-calendar = "off"
 # seasonal-calendar = "western"
@@ -351,6 +361,51 @@ _DEFAULT_CONFIG_CONTENT = """\
 # Reverse the sort order.
 # Equivalent to: --reverse
 # sort-reverse = false
+
+
+# -----------------------------------------------------------------------------
+# Your own calendar 🎨
+# Paint your own days: a birthday, a launch, a hack week, Pizza Friday.
+# Needs seasonal-calendar = "custom" above. Keep this table LAST — in TOML
+# every key after a table header belongs to that table.
+# -----------------------------------------------------------------------------
+
+# [calendar]
+# Fall back to a built-in calendar on days no event of yours matches.
+# Omit it and unmatched days stay unthemed.
+#   extends = "western"
+
+# One [[calendar.event]] per day you care about. Events are tried top to
+# bottom and the first match wins, so put the special cases first.
+#
+# Each event needs a name, exactly ONE date rule, and a colour:
+#   date    = "03-14"                  MM-DD, every year
+#   start/end = "2026-10-05"/"2026-10-09"   one-off range, inclusive
+#   dates   = ["2027-03-28", "2028-04-16"]  a movable feast, spelled out
+#   weekday = "friday"                 every week
+#   month   = 7                        the whole month
+# Optional: days = 3 widens a date/dates window (default 1).
+#
+# A colour is a palette name (purple, yellow, orange, green, red, pink, blue,
+# gold, spring_green, lny, red_white), "pride" or "holi" for a rainbow, a
+# 256-colour number 0-255, or a "#rrggbb" hex value. A LIST of any of those
+# cycles by PR number, so each row gets the next colour along.
+#
+# [[calendar.event]]
+#   name   = "My birthday"
+#   date   = "03-14"
+#   colour = "pink"
+#
+# [[calendar.event]]
+#   name    = "Pizza Friday"
+#   weekday = "friday"
+#   colour  = "orange"
+#
+# [[calendar.event]]
+#   name   = "Hack week"
+#   start  = "2026-10-05"
+#   end    = "2026-10-09"
+#   colour = ["red", "orange", "yellow"]
 """
 
 
@@ -387,7 +442,7 @@ def _extract_option_blocks(content: str) -> list[tuple[str, str]]:
     return results
 
 
-_EXPLICIT_EXTRAS = {"organization", "drafts-only", "offline"}
+_EXPLICIT_EXTRAS = {"organization", "drafts-only", "offline", "calendar"}
 _KNOWN_KEYS_FROM_TEMPLATE = {
     k for k, _ in _extract_option_blocks(_DEFAULT_CONFIG_CONTENT)
 }
@@ -609,6 +664,37 @@ def generate_default_config():
     return True
 
 
+#: A TOML table header on its own line: [name], [[name]], quoted or dotted.
+_TABLE_HEADER_RE = re.compile(r"^[ \t]*\[\[?[^\[\]]+\]\]?[ \t]*(#.*)?$")
+
+
+def _splice_options(existing_content: str, addition: str) -> str:
+    """Return *existing_content* with *addition* inserted at top level.
+
+    Appending would be simpler, but TOML binds every key that follows a table
+    header to that table, so options added after ``[calendar]`` would silently
+    become calendar settings. Anything from the first table header onwards is
+    therefore pushed down rather than written past.
+
+    A row of a multi-line array also begins with ``[``, so the header has to
+    be recognised by shape rather than by first character — otherwise the new
+    options land inside the array, legal until the day someone uncomments one.
+    """
+    lines = existing_content.splitlines(keepends=True)
+    first_table = next(
+        (i for i, line in enumerate(lines) if _TABLE_HEADER_RE.match(line)),
+        None,
+    )
+    if first_table is None:
+        head, tail = existing_content, ""
+    else:
+        head = "".join(lines[:first_table])
+        tail = "".join(lines[first_table:])
+    if head and not head.endswith("\n"):
+        head += "\n"
+    return head + addition + ("\n" + tail if tail else "")
+
+
 def update_config():
     """Append any missing options to the existing config file.
 
@@ -661,10 +747,7 @@ def update_config():
         return False
     click.echo(f"💾 Backup saved to {backup_path}")
 
-    # Append missing option blocks
-    new_content = existing_content
-    if not new_content.endswith("\n"):
-        new_content += "\n"
+    # Build the block of missing options
     try:
         _version = pkg_version("breakfast")
     except PackageNotFoundError:
@@ -673,9 +756,11 @@ def update_config():
     separator = (
         f"# --- Added by --update-config (breakfast v{_version}) on {readable_ts} ---"
     )
-    new_content += f"\n{separator}\n"
+    addition = f"\n{separator}\n"
     for _key, block in missing:
-        new_content += f"\n{block}\n"
+        addition += f"\n{block}\n"
+
+    new_content = _splice_options(existing_content, addition)
 
     try:
         existing_path.write_text(new_content)
@@ -688,6 +773,183 @@ def update_config():
         click.echo(f"   {key}")
 
     return True
+
+
+# Keys an event may carry beyond its date rule. ``gift`` and ``message`` are
+# reserved for #479 and #481: accepting them now keeps configs written for
+# those parts warning-free on this release.
+_EVENT_KEYS = frozenset(
+    {"name", "colour", "color", "days", "end", "gift", "message", *DATE_RULES}
+)
+
+
+class _BadEvent(Exception):
+    """Raised once an event has been reported, to unwind to the skip."""
+
+
+def _calendar_warn(message, use_colour=True):
+    """Warn about a malformed calendar entry without stopping the run."""
+    logger.warning("calendar_config_error %s", message)
+    text = f"⚠️  {message}"
+    click.echo(click.style(text, fg="yellow") if use_colour else text, err=True)
+
+
+def _require_iso_date(value, where, use_colour):
+    """Return *value* parsed as a YYYY-MM-DD date, or report it and give up."""
+    try:
+        return date.fromisoformat(value)
+    except (TypeError, ValueError):
+        _calendar_warn(f"{where}: bad date {value!r} — use YYYY-MM-DD", use_colour)
+        raise _BadEvent from None
+
+
+def _parse_date_rule(rule, raw, where, use_colour):
+    """Validate one date rule and return it as CalendarEvent keyword arguments."""
+    value = raw[rule]
+
+    if rule == "month":
+        valid = isinstance(value, int) and not isinstance(value, bool)
+        if not valid or not 1 <= value <= 12:
+            _calendar_warn(f"{where}: bad month {value!r} — must be 1-12", use_colour)
+            raise _BadEvent
+        return {"month": value}
+
+    if rule == "weekday":
+        if not isinstance(value, str) or value.lower() not in WEEKDAY_NAMES:
+            _calendar_warn(
+                f"{where}: bad weekday {value!r} — use monday-sunday", use_colour
+            )
+            raise _BadEvent
+        return {"weekday": value.lower()}
+
+    if rule == "date":
+        if not isinstance(value, str) or not re.fullmatch(r"\d{2}-\d{2}", value):
+            _calendar_warn(f"{where}: bad date {value!r} — use MM-DD", use_colour)
+            raise _BadEvent
+        month, day = (int(part) for part in value.split("-"))
+        try:
+            # 2024 is a leap year, so 02-29 is accepted here; CalendarEvent
+            # degrades it to the 28th in common years.
+            date(2024, month, day)
+        except ValueError:
+            _calendar_warn(f"{where}: bad date {value!r} — no such day", use_colour)
+            raise _BadEvent from None
+        return {"date": value}
+
+    if rule == "dates":
+        if not isinstance(value, list) or not value:
+            _calendar_warn(
+                f"{where}: bad dates — expected a non-empty list", use_colour
+            )
+            raise _BadEvent
+        for one in value:
+            _require_iso_date(one, where, use_colour)
+        return {"dates": list(value)}
+
+    # rule == "start"
+    end = raw.get("end")
+    if end is None:
+        _calendar_warn(f"{where}: start needs a matching end", use_colour)
+        raise _BadEvent
+    start_date = _require_iso_date(value, where, use_colour)
+    end_date = _require_iso_date(end, where, use_colour)
+    if end_date < start_date:
+        _calendar_warn(f"{where}: end {end!r} falls before start {value!r}", use_colour)
+        raise _BadEvent
+    return {"start": value, "end": end}
+
+
+def _parse_event(raw, use_colour=True):
+    """Build a CalendarEvent from one ``[[calendar.event]]`` table.
+
+    Returns None (after warning) if the entry is malformed — a bad event is
+    skipped rather than allowed to abort a morning's PR listing.
+    """
+    if not isinstance(raw, dict):
+        _calendar_warn(
+            f"calendar event: expected a table, got {type(raw).__name__}", use_colour
+        )
+        return None
+
+    label = raw.get("name")
+    if not isinstance(label, str) or not label.strip():
+        _calendar_warn("calendar event: missing a name", use_colour)
+        return None
+    where = f"calendar event {label!r}"
+
+    unknown = sorted(set(raw) - _EVENT_KEYS)
+    if unknown:
+        _calendar_warn(f"{where}: unknown key(s) {', '.join(unknown)}", use_colour)
+        return None
+
+    present = [rule for rule in DATE_RULES if rule in raw]
+    if len(present) != 1:
+        _calendar_warn(
+            f"{where}: needs exactly one date rule"
+            f" ({', '.join(DATE_RULES)}) — found {len(present)}",
+            use_colour,
+        )
+        return None
+
+    days = raw.get("days", 1)
+    if not isinstance(days, int) or isinstance(days, bool) or not 1 <= days <= 366:
+        _calendar_warn(f"{where}: bad days {days!r} — must be 1 to 366", use_colour)
+        return None
+
+    if "end" in raw and "start" not in raw:
+        _calendar_warn(f"{where}: end needs a matching start", use_colour)
+        return None
+
+    colour = raw.get("colour", raw.get("color"))
+    try:
+        parse_calendar_colour(colour)
+    except ValueError as exc:
+        _calendar_warn(f"{where}: bad colour — {exc}", use_colour)
+        return None
+
+    kwargs = {"name": label, "colour": colour, "days": days}
+    try:
+        kwargs.update(_parse_date_rule(present[0], raw, where, use_colour))
+    except _BadEvent:
+        return None
+    return CalendarEvent(**kwargs)
+
+
+def load_custom_calendar(cfg, use_colour=True):
+    """Build a CustomCalendar from the ``[calendar]`` table of *cfg*.
+
+    Returns None when the table is missing, which the caller treats as "no
+    seasonal colours" rather than an error.
+    """
+    table = cfg.get("calendar")
+    if not isinstance(table, dict):
+        _calendar_warn(
+            'seasonal-calendar = "custom" needs a [calendar] table —'
+            " no custom colours will be applied",
+            use_colour,
+        )
+        return None
+
+    extends = table.get("extends")
+    known_extends = isinstance(extends, str) and extends in CALENDARS
+    if extends is not None and not known_extends:
+        _calendar_warn(
+            f"calendar: unknown extends {extends!r} — no fallback calendar",
+            use_colour,
+        )
+        extends = None
+
+    raw_events = table.get("event", [])
+    if not isinstance(raw_events, list):
+        _calendar_warn("calendar: event must be a list of tables", use_colour)
+        raw_events = []
+
+    events = [
+        event
+        for event in (_parse_event(raw, use_colour) for raw in raw_events)
+        if event is not None
+    ]
+    return CustomCalendar(events, extends=extends)
 
 
 def normalize_author_logins(author_logins):

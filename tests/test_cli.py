@@ -6751,3 +6751,90 @@ def test_prs_missing_from_the_batch_use_their_own_lookups(monkeypatch):
         (1, ["review_decision", "reviews"]),
         (2, []),
     ]
+
+
+# ---------------------------------------------------------------------------
+# User-defined calendars (#478)
+# ---------------------------------------------------------------------------
+
+
+_CUSTOM_CALENDAR_CONFIG = """
+seasonal-calendar = "custom"
+
+[calendar]
+
+[[calendar.event]]
+name = "Every day of June"
+month = 6
+colour = "#ff69b4"
+"""
+
+
+def _run_with_calendar_config(monkeypatch, tmp_path, body, args=()):
+    _setup_colour_index_mocks(monkeypatch)
+    cfg_file = tmp_path / "test.toml"
+    cfg_file.write_text(body)
+    return CliRunner().invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--config", str(cfg_file), *args],
+    )
+
+
+def test_custom_calendar_config_colours_output(monkeypatch, tmp_path):
+    monkeypatch.undo()
+    _setup_colour_index_mocks(monkeypatch)
+    monkeypatch.setattr(
+        renderers, "apply_seasonal_colour", ui.apply_seasonal_colour, raising=False
+    )
+    cfg_file = tmp_path / "test.toml"
+    cfg_file.write_text(_CUSTOM_CALENDAR_CONFIG)
+    with freeze_time("2026-06-15"):
+        result = CliRunner().invoke(
+            cli.breakfast, ["-o", "org", "-r", "repo", "--config", str(cfg_file)]
+        )
+    assert result.exit_code == 0
+    # The event's #ff69b4 truecolour escape reaches the table
+    assert "\033[38;2;255;105;180m" in result.stdout
+
+
+def test_custom_calendar_without_table_warns_on_stderr(monkeypatch, tmp_path):
+    result = _run_with_calendar_config(
+        monkeypatch, tmp_path, 'seasonal-calendar = "custom"\n'
+    )
+    assert result.exit_code == 0
+    assert "[calendar]" in result.stderr
+
+
+def test_custom_calendar_malformed_event_warns_but_still_lists(monkeypatch, tmp_path):
+    body = """
+seasonal-calendar = "custom"
+
+[calendar]
+
+[[calendar.event]]
+name = "Broken"
+colour = "chartreuse"
+date = "03-14"
+"""
+    result = _run_with_calendar_config(monkeypatch, tmp_path, body)
+    assert result.exit_code == 0
+    assert "Broken" in result.stderr
+    # The run still produces its table
+    assert "Test PR" in result.stdout
+
+
+def test_custom_calendar_no_colour_suppresses_it(monkeypatch, tmp_path):
+    with freeze_time("2026-06-15"):
+        result = _run_with_calendar_config(
+            monkeypatch, tmp_path, _CUSTOM_CALENDAR_CONFIG, args=("--no-colour",)
+        )
+    assert result.exit_code == 0
+    assert "\033[" not in result.stdout
+
+
+def test_custom_calendar_seasonal_colours_false_wins(monkeypatch, tmp_path):
+    body = "seasonal-colours = false\n" + _CUSTOM_CALENDAR_CONFIG
+    with freeze_time("2026-06-15"):
+        result = _run_with_calendar_config(monkeypatch, tmp_path, body)
+    assert result.exit_code == 0
+    assert "\033[38;2;255;105;180m" not in result.stdout

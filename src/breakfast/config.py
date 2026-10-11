@@ -2,6 +2,7 @@ import difflib
 import fnmatch
 import os
 import re
+import sys
 import tomllib
 from datetime import datetime
 from importlib.metadata import PackageNotFoundError
@@ -503,9 +504,32 @@ def parse_columns_config(columns_raw):
     return specs or None
 
 
+def _colour_is_suppressed():
+    """Return whether colour must be withheld from a config-time message.
+
+    Config is read before the CLI resolves colour, so this asks the two
+    sources that are already known: --no-colour as parsed, and NO_COLOR.
+    """
+    ctx = click.get_current_context(silent=True)
+    no_colour_cli = ctx.params.get("no_colour", False) if ctx else False
+    return bool(no_colour_cli or os.getenv("NO_COLOR") is not None)
+
+
 def load_config(config_path=None):
     if config_path:
         paths = [Path(config_path).expanduser().resolve()]
+        # An absent search path is normal and skipped below; an absent path the
+        # user named is a typo. Shrugging it off drops every setting in the
+        # file they meant and reports something unrelated instead, like
+        # "Owner must be provided".
+        if not paths[0].exists():
+            logger.error("config_file_not_found path=%s", paths[0])
+            msg = f"Error: config file not found: {paths[0]}"
+            if _colour_is_suppressed():
+                click.echo(msg, err=True)
+            else:
+                click.echo(click.style(msg, fg="red", bold=True), err=True)
+            sys.exit(1)
     else:
         paths = get_config_paths()
 
@@ -513,26 +537,24 @@ def load_config(config_path=None):
     for path in reversed(paths):
         if path.exists():
             with open(path, "rb") as f:
-                # Resolve color suppression before TOML parse error might occur
-                ctx = click.get_current_context(silent=True)
-                no_color_cli = ctx.params.get("no_colour", False) if ctx else False
-                no_color_env = os.getenv("NO_COLOR") is not None
+                # Resolved before the TOML parse error might occur.
+                colour_off = _colour_is_suppressed()
                 try:
                     data = tomllib.load(f)
                 except tomllib.TOMLDecodeError as e:
                     logger.warning("config_parse_error path=%s error=%r", path, str(e))
                     msg = f"Warning: Failed to parse config {path}: {e}"
-                    if not (no_color_cli or no_color_env):
-                        click.echo(click.style(msg, fg="yellow"), err=True)
-                    else:
+                    if colour_off:
                         click.echo(msg, err=True)
+                    else:
+                        click.echo(click.style(msg, fg="yellow"), err=True)
                     continue
 
             # Determine final color usage state including config setting
             no_color_config = data.get("no-colour", False) or data.get(
                 "no-color", False
             )
-            use_color = not (no_color_cli or no_color_env or no_color_config)
+            use_color = not (colour_off or no_color_config)
 
             # Check for unknown config keys and warn
             for key in sorted(data.keys()):

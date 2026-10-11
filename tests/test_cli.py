@@ -11,7 +11,7 @@ import requests
 from click.testing import CliRunner
 from freezegun import freeze_time
 
-from breakfast import api, cache, cli, renderers, ui
+from breakfast import api, cache, cli, config, renderers, ui
 
 
 @pytest.fixture(autouse=True)
@@ -628,6 +628,37 @@ def test_cli_filter_author_config_key_applies(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert "Alice PR" in result.stdout
     assert "Bob PR" not in result.stdout
+
+
+def test_cli_config_missing_file_is_an_error(tmp_path):
+    """#388: an explicit --config that is not there must not be shrugged off.
+
+    Silently falling back to defaults drops every setting in the intended
+    file, and the user sees an unrelated complaint — "Owner must be
+    provided" — instead of the typo they actually made.
+    """
+    missing = tmp_path / "does-not-exist.toml"
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["--config", str(missing), "-o", "org", "-r", "repo"]
+    )
+
+    assert result.exit_code == 1
+    assert "config file not found" in result.stderr.lower()
+    assert str(missing) in result.stderr
+    # The error belongs on stderr, leaving stdout clean for piping.
+    assert result.stdout == ""
+
+
+def test_cli_config_default_paths_tolerate_absent_files(monkeypatch, tmp_path):
+    """The leniency that --config gives up is still right for the search paths."""
+    _stub_two_author_prs(monkeypatch)
+    monkeypatch.setattr(config, "get_config_paths", lambda: [tmp_path / "nope.toml"])
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert "config file not found" not in result.stderr.lower()
 
 
 def test_cli_filter_author_cli_replaces_config(monkeypatch, tmp_path):

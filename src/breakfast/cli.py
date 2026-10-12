@@ -47,6 +47,7 @@ from .config import (
     filter_pr_details,
     generate_default_config,
     load_config,
+    load_custom_calendar,
     parse_columns_config,
     update_config,
 )
@@ -1311,6 +1312,11 @@ def breakfast(
         )
     seasonal_colours = cfg.get("seasonal-colours", True)
     seasonal_calendar = cfg.get("seasonal-calendar", "western")
+    if seasonal_calendar == "custom":
+        # A calendar that could not be built leaves the day unthemed rather
+        # than silently reverting to western, which would look like the
+        # user's events had been ignored.
+        seasonal_calendar = load_custom_calendar(cfg, use_colour=colour) or "off"
     if not seasonal_colours:
         seasonal_calendar = "off"
     colour_index = cfg.get("colour-index", False)

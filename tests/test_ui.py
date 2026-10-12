@@ -815,3 +815,191 @@ def test_christmas_gift_state_tracking(tmp_path):
     assert ui.has_shown_holiday_gift("christmas", d2, state_dir=tmp_path) is False
     ui.mark_holiday_gift_shown("christmas", d2, state_dir=tmp_path)
     assert ui.has_shown_holiday_gift("christmas", d2, state_dir=tmp_path) is True
+
+
+# ---------------------------------------------------------------------------
+# User-defined calendars (#478)
+# ---------------------------------------------------------------------------
+
+
+SEASONAL_RED = ui.SEASONAL_PALETTES["red"]
+
+
+def _event(**kwargs):
+    """Build a CalendarEvent, defaulting the fields most tests do not care about."""
+    kwargs.setdefault("name", "Test event")
+    kwargs.setdefault("colour", "pink")
+    return ui.CalendarEvent(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "spec,expected",
+    [
+        ("pink", ui.SEASONAL_PALETTES["pink"]),
+        ("gold", ui.SEASONAL_PALETTES["gold"]),
+        ("pride", ui.PRIDE_RAINBOW),
+        ("holi", ui.HOLI_RAINBOW),
+        (208, "\033[38;5;208m"),
+        (0, "\033[38;5;0m"),
+        (255, "\033[38;5;255m"),
+        ("#ff69b4", "\033[38;2;255;105;180m"),
+        ("#FF69B4", "\033[38;2;255;105;180m"),
+    ],
+)
+def test_parse_calendar_colour_forms(spec, expected):
+    assert ui.parse_calendar_colour(spec) == expected
+
+
+def test_parse_calendar_colour_list_maps_each_entry():
+    result = ui.parse_calendar_colour(["pink", 208, "#000000"])
+    assert result == [
+        ui.SEASONAL_PALETTES["pink"],
+        "\033[38;5;208m",
+        "\033[38;2;0;0;0m",
+    ]
+
+
+@pytest.mark.parametrize(
+    "spec",
+    ["nosuchcolour", -1, 256, "#12345", "#gggggg", "", [], 1.5, None],
+)
+def test_parse_calendar_colour_rejects_bad_values(spec):
+    with pytest.raises(ValueError):
+        ui.parse_calendar_colour(spec)
+
+
+def test_custom_calendar_matches_recurring_date():
+    cal = ui.CustomCalendar([_event(date="03-14", colour="pink")])
+    assert cal(_today(3, 14)) == ui.SEASONAL_PALETTES["pink"]
+    assert cal(_today(3, 15)) is None
+    # Recurs every year
+    assert cal(_today(3, 14, year=2031)) == ui.SEASONAL_PALETTES["pink"]
+
+
+def test_custom_calendar_date_honours_days_window():
+    cal = ui.CustomCalendar([_event(date="03-14", days=3, colour="pink")])
+    for day in (14, 15, 16):
+        assert cal(_today(3, day)) is not None, f"day={day}"
+    assert cal(_today(3, 17)) is None
+
+
+def test_custom_calendar_window_spans_year_boundary():
+    cal = ui.CustomCalendar([_event(date="12-30", days=4, colour="gold")])
+    assert cal(datetime.date(2026, 12, 31)) == ui.SEASONAL_PALETTES["gold"]
+    # The window runs into the next year
+    assert cal(datetime.date(2027, 1, 2)) == ui.SEASONAL_PALETTES["gold"]
+    assert cal(datetime.date(2027, 1, 3)) is None
+
+
+def test_custom_calendar_feb_29_falls_back_in_common_years():
+    cal = ui.CustomCalendar([_event(date="02-29", colour="blue")])
+    assert cal(datetime.date(2028, 2, 29)) == ui.SEASONAL_PALETTES["blue"]
+    # 2027 has no Feb 29 — the event lands on Feb 28 rather than vanishing
+    assert cal(datetime.date(2027, 2, 28)) == ui.SEASONAL_PALETTES["blue"]
+    assert cal(datetime.date(2027, 3, 1)) is None
+
+
+def test_custom_calendar_start_end_range_is_inclusive():
+    cal = ui.CustomCalendar(
+        [_event(start="2026-10-05", end="2026-10-09", colour="orange")]
+    )
+    assert cal(datetime.date(2026, 10, 5)) == ui.SEASONAL_PALETTES["orange"]
+    assert cal(datetime.date(2026, 10, 9)) == ui.SEASONAL_PALETTES["orange"]
+    assert cal(datetime.date(2026, 10, 10)) is None
+    # One-off: the same dates a year later do not match
+    assert cal(datetime.date(2027, 10, 6)) is None
+
+
+def test_custom_calendar_dates_list_with_window():
+    cal = ui.CustomCalendar(
+        [_event(dates=["2027-03-28", "2028-04-16"], days=2, colour="gold")]
+    )
+    assert cal(datetime.date(2027, 3, 28)) == ui.SEASONAL_PALETTES["gold"]
+    assert cal(datetime.date(2027, 3, 29)) == ui.SEASONAL_PALETTES["gold"]
+    assert cal(datetime.date(2027, 3, 30)) is None
+    assert cal(datetime.date(2028, 4, 16)) == ui.SEASONAL_PALETTES["gold"]
+
+
+def test_custom_calendar_weekday_matches_every_week():
+    cal = ui.CustomCalendar([_event(weekday="friday", colour="orange")])
+    assert cal(datetime.date(2026, 9, 25)) == ui.SEASONAL_PALETTES["orange"]
+    assert cal(datetime.date(2026, 10, 2)) == ui.SEASONAL_PALETTES["orange"]
+    assert cal(datetime.date(2026, 9, 24)) is None
+
+
+def test_custom_calendar_month_matches_whole_month():
+    cal = ui.CustomCalendar([_event(month=7, colour="yellow")])
+    for day in (1, 15, 31):
+        assert cal(datetime.date(2026, 7, day)) == ui.SEASONAL_PALETTES["yellow"]
+    assert cal(datetime.date(2026, 8, 1)) is None
+
+
+def test_custom_calendar_first_match_wins():
+    cal = ui.CustomCalendar(
+        [
+            _event(name="first", date="03-14", colour="pink"),
+            _event(name="second", date="03-14", colour="gold"),
+        ]
+    )
+    assert cal(_today(3, 14)) == ui.SEASONAL_PALETTES["pink"]
+
+
+def test_custom_calendar_list_colour_cycles_by_pr_number():
+    cal = ui.CustomCalendar([_event(month=9, colour=["pink", "gold"])])
+    with freeze_time("2026-09-03"):
+        results = [ui.apply_seasonal_colour("x", i, calendar=cal) for i in range(4)]
+    assert results[0].startswith(ui.SEASONAL_PALETTES["pink"])
+    assert results[1].startswith(ui.SEASONAL_PALETTES["gold"])
+    assert results[2].startswith(ui.SEASONAL_PALETTES["pink"])
+    assert results[3].startswith(ui.SEASONAL_PALETTES["gold"])
+
+
+def test_custom_calendar_falls_through_to_extends():
+    cal = ui.CustomCalendar([_event(date="03-14", colour="pink")], extends="western")
+    # No event matches in June, so the western calendar's Pride cycle applies
+    assert cal(_today(6, 15)) == ui.PRIDE_RAINBOW
+
+
+def test_custom_calendar_without_extends_returns_none():
+    cal = ui.CustomCalendar([_event(date="03-14", colour="pink")])
+    assert cal(_today(6, 15)) is None
+
+
+def test_custom_calendar_event_beats_january_purple():
+    cal = ui.CustomCalendar([_event(date="01-15", colour="pink")])
+    with freeze_time("2026-01-15"):
+        result = ui.apply_seasonal_colour("x", 0, calendar=cal)
+    assert result.startswith(ui.SEASONAL_PALETTES["pink"])
+    assert not result.startswith(ui.SEASONAL_PALETTES["purple"])
+
+
+def test_custom_calendar_january_purple_still_applies_on_fallthrough():
+    # No event matches, so January purple governs the extends calendar as usual.
+    cal = ui.CustomCalendar([_event(date="03-14", colour="pink")], extends="western")
+    with freeze_time("2026-01-15"):
+        result = ui.apply_seasonal_colour("x", 0, calendar=cal)
+    assert result.startswith(ui.SEASONAL_PALETTES["purple"])
+
+
+def test_custom_calendar_empty_event_list_is_inert():
+    cal = ui.CustomCalendar([])
+    with freeze_time("2026-06-15"):
+        assert ui.apply_seasonal_colour("x", 0, calendar=cal) == "x"
+
+
+def test_parse_calendar_colour_flattens_named_cycles_in_a_list():
+    # The manual promises "a list of any of those", named rainbows included.
+    result = ui.parse_calendar_colour(["pride", "red"])
+    assert result == [*ui.PRIDE_RAINBOW, SEASONAL_RED]
+    # Still a flat list of escapes, so cycling by PR number stays meaningful
+    assert all(isinstance(item, str) for item in result)
+
+
+def test_custom_calendar_absurd_days_does_not_overflow():
+    # TOML integers are 64-bit while timedelta tops out near a million years,
+    # so matching must not add one. config rejects a window this silly, but
+    # matching is reached directly by anything holding a CalendarEvent.
+    event = ui.CalendarEvent(name="huge", colour="pink", date="03-14", days=10**15)
+    assert event.matches(datetime.date(2026, 3, 14)) is True
+    # A window that long swallows every date rather than raising
+    assert event.matches(datetime.date(2026, 3, 13)) is True

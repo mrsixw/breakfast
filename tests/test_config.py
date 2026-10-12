@@ -1,5 +1,7 @@
 import re
 
+import pytest
+
 from breakfast import config
 
 
@@ -1169,3 +1171,281 @@ def test_load_config_all_known_keys_no_warnings(monkeypatch, tmp_path):
     config.load_config()
     # Check that no unknown key warnings were emitted
     assert not any("Unknown config key" in w for w in warnings)
+
+
+# ---------------------------------------------------------------------------
+# User-defined calendars (#478)
+# ---------------------------------------------------------------------------
+
+
+def _load(tmp_path, text):
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(text)
+    return config.load_config(str(cfg))
+
+
+def test_calendar_is_a_known_key():
+    assert "calendar" in config.KNOWN_KEYS
+
+
+def test_load_custom_calendar_parses_events(tmp_path):
+    cfg = _load(
+        tmp_path,
+        """
+        seasonal-calendar = "custom"
+
+        [calendar]
+        extends = "western"
+
+        [[calendar.event]]
+        name = "My birthday"
+        date = "03-14"
+        colour = "pink"
+        """,
+    )
+    cal = config.load_custom_calendar(cfg)
+    assert cal.extends == "western"
+    assert len(cal.events) == 1
+    assert cal.events[0].name == "My birthday"
+    assert cal.events[0].date == "03-14"
+
+
+def test_load_custom_calendar_preserves_event_order(tmp_path):
+    cfg = _load(
+        tmp_path,
+        """
+        [calendar]
+        [[calendar.event]]
+        name = "first"
+        date = "03-14"
+        colour = "pink"
+        [[calendar.event]]
+        name = "second"
+        date = "03-14"
+        colour = "gold"
+        """,
+    )
+    cal = config.load_custom_calendar(cfg)
+    assert [e.name for e in cal.events] == ["first", "second"]
+
+
+def test_load_custom_calendar_defaults_days_to_one(tmp_path):
+    cfg = _load(
+        tmp_path,
+        """
+        [calendar]
+        [[calendar.event]]
+        name = "one day"
+        date = "03-14"
+        colour = "pink"
+        """,
+    )
+    assert config.load_custom_calendar(cfg).events[0].days == 1
+
+
+def test_load_custom_calendar_accepts_reserved_gift_keys(tmp_path, capsys):
+    # gift/message land in #479 and #481; accepting them now keeps configs
+    # written for those parts warning-free on this release.
+    cfg = _load(
+        tmp_path,
+        """
+        [calendar]
+        [[calendar.event]]
+        name = "birthday"
+        date = "03-14"
+        colour = "pink"
+        gift = "cake"
+        message = "hello"
+        """,
+    )
+    cal = config.load_custom_calendar(cfg)
+    assert len(cal.events) == 1
+    assert "gift" not in capsys.readouterr().err
+
+
+def test_load_custom_calendar_no_table_warns_and_returns_none(tmp_path, capsys):
+    cfg = _load(tmp_path, 'seasonal-calendar = "custom"\n')
+    assert config.load_custom_calendar(cfg) is None
+    assert "calendar" in capsys.readouterr().err.lower()
+
+
+def test_load_custom_calendar_missing_extends_calendar_warns(tmp_path, capsys):
+    cfg = _load(
+        tmp_path,
+        """
+        [calendar]
+        extends = "nosuchcalendar"
+        [[calendar.event]]
+        name = "birthday"
+        date = "03-14"
+        colour = "pink"
+        """,
+    )
+    cal = config.load_custom_calendar(cfg)
+    assert cal.extends is None
+    assert "nosuchcalendar" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "event_toml,expected_in_warning",
+    [
+        ('name = "no rule"\ncolour = "pink"', "date rule"),
+        ('name = "two rules"\ndate = "03-14"\nmonth = 7\ncolour = "pink"', "date rule"),
+        ('name = "bad date"\ndate = "31-31"\ncolour = "pink"', "bad date"),
+        ('name = "bad colour"\ndate = "03-14"\ncolour = "chartreuse"', "bad colour"),
+        ('name = "bad weekday"\nweekday = "funday"\ncolour = "pink"', "bad weekday"),
+        ('name = "bad month"\nmonth = 13\ncolour = "pink"', "bad month"),
+        ('name = "bad days"\ndate = "03-14"\ndays = 0\ncolour = "pink"', "bad days"),
+        ('name = "end before start"\nstart = "2026-10-09"\nend = "2026-10-05"', "end"),
+        ('name = "unknown key"\ndate = "03-14"\ncolour = "pink"\nnope = 1', "nope"),
+        ('date = "03-14"\ncolour = "pink"', "name"),
+    ],
+)
+def test_load_custom_calendar_skips_malformed_event(
+    tmp_path, capsys, event_toml, expected_in_warning
+):
+    cfg = _load(
+        tmp_path,
+        f"""
+        [calendar]
+        [[calendar.event]]
+        {event_toml}
+
+        [[calendar.event]]
+        name = "good"
+        date = "07-04"
+        colour = "gold"
+        """,
+    )
+    cal = config.load_custom_calendar(cfg)
+    # The malformed event is skipped; the good one survives
+    assert [e.name for e in cal.events] == ["good"]
+    assert expected_in_warning in capsys.readouterr().err.lower()
+
+
+def test_load_custom_calendar_names_the_offending_event(tmp_path, capsys):
+    cfg = _load(
+        tmp_path,
+        """
+        [calendar]
+        [[calendar.event]]
+        name = "Wonky Wednesday"
+        weekday = "funday"
+        colour = "pink"
+        """,
+    )
+    config.load_custom_calendar(cfg)
+    assert "Wonky Wednesday" in capsys.readouterr().err
+
+
+def test_default_config_template_documents_calendar():
+    assert "[calendar]" in config._DEFAULT_CONFIG_CONTENT
+    assert "[[calendar.event]]" in config._DEFAULT_CONFIG_CONTENT
+
+
+def test_update_config_inserts_options_before_calendar_table(tmp_path, monkeypatch):
+    # TOML binds every key after a table header to that table, so appended
+    # options must land above [calendar] or they silently join it.
+    monkeypatch.setattr(config.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    config_dir = tmp_path / ".config" / "breakfast"
+    config_dir.mkdir(parents=True)
+    config_file = config_dir / "config.toml"
+    config_file.write_text(
+        'owner = "my-org"\n\n[calendar]\n\n[[calendar.event]]\n'
+        'name = "birthday"\ndate = "03-14"\ncolour = "pink"\n'
+    )
+
+    assert config.update_config() is True
+
+    updated = config_file.read_text()
+    table_at = re.search(r"^\[calendar\]", updated, re.MULTILINE).start()
+    assert updated.index("# workers = 64") < table_at
+    # The file still parses, the appended keys stayed top level, and the
+    # calendar table is intact.
+    reloaded = config.load_config(str(config_file))
+    assert reloaded["owner"] == "my-org"
+    assert "workers" not in reloaded["calendar"]
+    assert reloaded["calendar"]["event"][0]["name"] == "birthday"
+
+
+def test_splice_options_leaves_multiline_arrays_intact():
+    # A bracketed line inside a multi-line array is not a table header, and
+    # splicing there would split the array and break the file.
+    content = 'owner = "my-org"\nmatrix = [\n  [1, 2],\n  [3, 4],\n]\n\n[calendar]\n'
+    spliced = config._splice_options(content, "\n# workers = 64\n")
+    assert "matrix = [\n  [1, 2],\n  [3, 4],\n]" in spliced
+    table_at = re.search(r"^\[calendar\]", spliced, re.MULTILINE).start()
+    assert spliced.index("# workers = 64") < table_at
+
+
+def test_update_config_does_not_write_inside_an_array(tmp_path, monkeypatch):
+    # The inner rows start with "[", which must not be mistaken for a table.
+    # Comments are legal inside an array, so the file would still parse — but
+    # every appended option would be trapped there, breaking the file the
+    # moment the user uncommented one.
+    monkeypatch.setattr(config.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    config_dir = tmp_path / ".config" / "breakfast"
+    config_dir.mkdir(parents=True)
+    config_file = config_dir / "config.toml"
+    config_file.write_text('owner = "my-org"\nmatrix = [\n  [1, 2],\n  [3, 4],\n]\n')
+
+    assert config.update_config() is True
+
+    lines = config_file.read_text().splitlines()
+    array_closes = lines.index("]")
+    separator = next(i for i, line in enumerate(lines) if "--update-config" in line)
+    assert separator > array_closes, "options were written inside the array"
+    reloaded = config.load_config(str(config_file))
+    assert reloaded["matrix"] == [[1, 2], [3, 4]]
+
+
+def test_load_custom_calendar_non_string_extends_warns(tmp_path, capsys):
+    cfg = _load(
+        tmp_path,
+        """
+        [calendar]
+        extends = []
+        [[calendar.event]]
+        name = "birthday"
+        date = "03-14"
+        colour = "pink"
+        """,
+    )
+    cal = config.load_custom_calendar(cfg)
+    assert cal.extends is None
+    assert [e.name for e in cal.events] == ["birthday"]
+    assert "extends" in capsys.readouterr().err
+
+
+def test_load_custom_calendar_rejects_orphan_end(tmp_path, capsys):
+    cfg = _load(
+        tmp_path,
+        """
+        [calendar]
+        [[calendar.event]]
+        name = "Orphan"
+        date = "03-14"
+        end = "2026-03-16"
+        colour = "pink"
+        """,
+    )
+    assert config.load_custom_calendar(cfg).events == []
+    assert "end" in capsys.readouterr().err
+
+
+def test_load_custom_calendar_rejects_absurd_days(tmp_path, capsys):
+    cfg = _load(
+        tmp_path,
+        """
+        [calendar]
+        [[calendar.event]]
+        name = "Forever"
+        date = "03-14"
+        days = 100000000000
+        colour = "pink"
+        """,
+    )
+    assert config.load_custom_calendar(cfg).events == []
+    assert "days" in capsys.readouterr().err

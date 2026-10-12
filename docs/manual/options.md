@@ -1217,6 +1217,7 @@ Choose which cultural holiday calendar drives the seasonal colour effects in the
 | `"rainbow"` | Permanent Pride 🌈 cycle, every day of the year — no holiday detection |
 | `"sikh"` | Vaisakhi 🌾 (spring green), Bandi Chhor Divas 🪔 (gold) |
 | `"western"` | Gregorian calendar: Christmas 🎄, Easter 🐣, Pride Month 🌈, Halloween 🎃, Valentine's Day 💕, Lunar New Year 🧧 (default) |
+| `"custom"` | Your own days, declared in a `[calendar]` table — see below |
 | `"off"` | Disable seasonal colours entirely |
 
 ```toml
@@ -1226,6 +1227,82 @@ seasonal-calendar = "east-asian"
 Note: `seasonal-colours = false` is a backward-compatible alias for `seasonal-calendar = "off"`.
 
 Note: every other calendar defers to purple in January; `"rainbow"` is the one exception and keeps cycling through the Pride colours all year, including January.
+
+### `[calendar]` — your own seasonal days (config only)
+
+Set `seasonal-calendar = "custom"` and declare your own days in a `[calendar]` table. Each `[[calendar.event]]` pairs a date rule with a colour: a birthday, a launch, a hack week, Pizza Friday 🍕.
+
+```toml
+seasonal-calendar = "custom"
+
+[calendar]
+extends = "western"          # optional: what to use on days no event matches
+
+[[calendar.event]]
+name   = "My birthday"
+date   = "03-14"             # MM-DD, every year
+colour = "pink"
+
+[[calendar.event]]
+name    = "Pizza Friday"
+weekday = "friday"
+colour  = "orange"
+
+[[calendar.event]]
+name   = "Hack week"
+start  = "2026-10-05"        # one-off range, inclusive
+end    = "2026-10-09"
+colour = ["red", "orange", "yellow"]   # a list cycles by PR number
+
+[[calendar.event]]
+name   = "Conference"
+dates  = ["2027-03-28", "2028-04-16"]  # for days with no yearly rule
+days   = 2                   # window length, default 1
+colour = "#ff69b4"
+```
+
+Keep `[calendar]` **last** in the file. In TOML every key after a table header belongs to that table, so options written below it would become calendar settings rather than breakfast settings.
+
+#### Event fields
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `name` | yes | Names the event in any warning about it |
+| `date` | one date rule | `MM-DD`, every year |
+| `start` + `end` | one date rule | `YYYY-MM-DD`, inclusive, one-off |
+| `dates` | one date rule | List of `YYYY-MM-DD` |
+| `weekday` | one date rule | `monday` … `sunday`, every week |
+| `month` | one date rule | `1`–`12`, the whole month |
+| `days` | no | Window length for `date` and `dates`, 1 to 366 (default `1`) |
+| `colour` | yes | See below |
+
+Each event needs **exactly one** date rule. An event with none, or with two, is skipped with a warning.
+
+A leap-day event (`date = "02-29"`) is served on 28 February in common years, so it never skips three years in four. A window that runs past 31 December carries on into January.
+
+#### Colours
+
+| Form | Example |
+| --- | --- |
+| Palette name | `"pink"`, `"gold"`, `"blue"`, `"purple"`, `"yellow"`, `"orange"`, `"green"`, `"red"`, `"spring_green"`, `"lny"`, `"red_white"` |
+| Named rainbow | `"pride"`, `"holi"` |
+| 256-colour number | `208` |
+| Truecolour hex | `"#ff69b4"` |
+| A list of any of those | `["red", 208, "#ffd700"]` — cycles by PR number. `"pride"` or `"holi"` in a list spreads its colours into the cycle |
+
+#### Which colour wins
+
+1. `seasonal-colours = false`, `--no-colour` or `NO_COLOR` — no colour at all.
+2. The first event that matches today, in the order written.
+3. Otherwise the `extends` calendar, or nothing if `extends` is unset.
+
+A matching event overrides January's birthday purple, because you picked that date deliberately. On days where no event matches, January purple applies as usual.
+
+#### When something is wrong
+
+A malformed event prints a warning to stderr naming the event, and is skipped — the rest of your calendar still works, and your PRs still appear. `seasonal-calendar = "custom"` with no `[calendar]` table warns and leaves the output unthemed.
+
+The `gift` and `message` fields are accepted and ignored for now. They are reserved for a later release.
 
 ### `--colour-diagnostics` / `--color-diagnostics`
 

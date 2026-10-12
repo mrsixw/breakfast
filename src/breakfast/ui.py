@@ -3,8 +3,10 @@ import json
 import math
 import os
 import random
+import re
 import sys
 import unicodedata
+from dataclasses import dataclass
 from datetime import date as _real_date
 from datetime import timedelta as _real_timedelta
 from pathlib import Path
@@ -32,6 +34,10 @@ from .xdg import get_state_dir
 
 __all__ = [
     "CALENDARS",
+    "CalendarEvent",
+    "CustomCalendar",
+    "DATE_RULES",
+    "WEEKDAY_NAMES",
     "apply_seasonal_colour",
     "click_colour_grade_number",
     "error_exit",
@@ -46,6 +52,7 @@ __all__ = [
     "is_christmas",
     "is_steves_birthday",
     "mark_holiday_gift_shown",
+    "parse_calendar_colour",
     "render_cake_recipe",
     "render_colour_diagnostics",
     "render_pizza_recipe",
@@ -304,6 +311,146 @@ CALENDARS: dict[str, object] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# User-defined calendars (#478)
+# ---------------------------------------------------------------------------
+
+#: Colour names that stand for a whole cycling palette rather than one colour.
+_NAMED_CYCLES = {"pride": PRIDE_RAINBOW, "holi": HOLI_RAINBOW}
+
+WEEKDAY_NAMES = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
+
+#: The date rules an event may carry. Exactly one must be present.
+DATE_RULES = ("date", "start", "dates", "weekday", "month")
+
+
+def parse_calendar_colour(spec):
+    """Resolve a user-supplied colour *spec* into ANSI escape code(s).
+
+    Accepts a palette name, ``"pride"``/``"holi"``, a 256-colour number, a
+    ``#rrggbb`` string, or a list of any of those (which cycles by PR number).
+
+    Raises:
+        ValueError: if *spec* is not one of the documented forms.
+    """
+    if isinstance(spec, list):
+        if not spec:
+            raise ValueError("colour list is empty")
+        flattened: list[str] = []
+        for item in spec:
+            if isinstance(item, list):
+                raise ValueError("colour lists cannot be nested")
+            resolved = parse_calendar_colour(item)
+            # "pride" and "holi" each stand for a whole cycle, so a list that
+            # names one spreads it out rather than nesting it.
+            flattened.extend(resolved if isinstance(resolved, list) else [resolved])
+        return flattened
+    # bool is an int subclass, and True/False are never a colour.
+    if isinstance(spec, int) and not isinstance(spec, bool):
+        if not 0 <= spec <= 255:
+            raise ValueError(f"colour number {spec} is outside 0-255")
+        return f"\033[38;5;{spec}m"
+    if isinstance(spec, str):
+        if spec in _NAMED_CYCLES:
+            return _NAMED_CYCLES[spec]
+        if spec in SEASONAL_PALETTES:
+            return SEASONAL_PALETTES[spec]
+        if re.fullmatch(r"#[0-9a-fA-F]{6}", spec):
+            r, g, b = (int(spec[i : i + 2], 16) for i in (1, 3, 5))
+            return f"\033[38;2;{r};{g};{b}m"
+    raise ValueError(f"unknown colour {spec!r}")
+
+
+@dataclass(frozen=True)
+class CalendarEvent:
+    """One user-defined event: when it falls, and what colour it paints."""
+
+    name: str
+    colour: "str | list[str]"
+    date: "str | None" = None
+    start: "str | None" = None
+    end: "str | None" = None
+    dates: "list[str] | None" = None
+    weekday: "str | None" = None
+    month: "int | None" = None
+    days: int = 1
+
+    def _recurring_anchor(self, year: int) -> datetime.date:
+        """Return this year's anchor date for a recurring ``MM-DD`` event.
+
+        29 February falls back to the 28th in common years, so a leap-day
+        event is served every year rather than three years in four.
+        """
+        month, day = (int(part) for part in self.date.split("-"))
+        try:
+            return _real_date(year, month, day)
+        except ValueError:
+            return _real_date(year, month, day - 1)
+
+    def _in_window(self, today: datetime.date, anchor: datetime.date) -> bool:
+        # Subtracting rather than adding keeps an absurd ``days`` from
+        # overflowing timedelta, which tops out near a million years.
+        return anchor <= today and (today - anchor).days < self.days
+
+    def matches(self, today: datetime.date) -> bool:
+        """Return True if *today* falls inside this event's window."""
+        if self.month is not None:
+            return today.month == self.month
+        if self.weekday is not None:
+            return today.weekday() == WEEKDAY_NAMES[self.weekday]
+        if self.start is not None:
+            start = datetime.date.fromisoformat(self.start)
+            end = datetime.date.fromisoformat(self.end)
+            return start <= today <= end
+        if self.dates is not None:
+            return any(
+                self._in_window(today, datetime.date.fromisoformat(one))
+                for one in self.dates
+            )
+        # A window opened late in December runs on into January, so last
+        # year's anchor is still a candidate.
+        return any(
+            self._in_window(today, self._recurring_anchor(year))
+            for year in (today.year, today.year - 1)
+        )
+
+
+class CustomCalendar:
+    """A calendar built from user-defined events, with an optional fallback.
+
+    Events are tried in file order and the first match wins. When none match,
+    the *extends* calendar decides, or the day goes unthemed if there is none.
+    """
+
+    def __init__(self, events, extends: "str | None" = None):
+        self.events = list(events)
+        self.extends = extends
+
+    def event_colour(self, today: datetime.date) -> "str | list[str] | None":
+        """Return the colour of the first matching event, or None."""
+        for event in self.events:
+            if event.matches(today):
+                return parse_calendar_colour(event.colour)
+        return None
+
+    def extends_colour(self, today: datetime.date) -> "str | list[str] | None":
+        """Return the colour the *extends* calendar gives *today*, if any."""
+        calendar_fn = CALENDARS.get(self.extends) if self.extends else None
+        return calendar_fn(today) if calendar_fn else None
+
+    def __call__(self, today: datetime.date) -> "str | list[str] | None":
+        result = self.event_colour(today)
+        return result if result is not None else self.extends_colour(today)
+
+
 def _seasonal_colour() -> "str | None":
     """Return the ANSI colour for the current month (western calendar, legacy API).
 
@@ -319,26 +466,21 @@ def _seasonal_colour() -> "str | None":
     return result
 
 
-def apply_seasonal_colour(text: str, pr_number: int, calendar: str = "western") -> str:
+def apply_seasonal_colour(text: str, pr_number: int, calendar="western") -> str:
     """Wrap *text* in a seasonal ANSI colour based on the current date.
 
     The *calendar* argument selects which cultural calendar's holidays drive
     the seasonal colours. Valid values: ``"western"`` (default), ``"jewish"``,
     ``"islamic"``, ``"hindu"``, ``"sikh"``, ``"rainbow"`` (permanent Pride
-    cycle, any date), or ``"off"`` to disable entirely.
+    cycle, any date), or ``"off"`` to disable entirely. It may also be a
+    :class:`CustomCalendar` built from the user's own events.
 
     Lists (December candy-cane, June Pride, Holi rainbow) cycle by PR number.
     """
     if calendar == "off":
         return text
-    calendar_fn = CALENDARS.get(calendar)
-    if calendar_fn is None:
-        return text
     today = datetime.date.today()
-    if today.month == 1 and calendar != "rainbow":
-        colour = SEASONAL_PALETTES["purple"]
-        return f"{colour}{text}\033[0m"
-    result = calendar_fn(today)
+    result = _resolve_calendar_colour(calendar, today)
     if result is None:
         return text
     if isinstance(result, list):
@@ -346,6 +488,28 @@ def apply_seasonal_colour(text: str, pr_number: int, calendar: str = "western") 
     else:
         colour = result
     return f"{colour}{text}\033[0m"
+
+
+def _resolve_calendar_colour(calendar, today: datetime.date):
+    """Return the colour(s) *calendar* gives *today*, honouring January purple.
+
+    January belongs to the birthday purple on every date-driven calendar. The
+    two deliberate exemptions are ``rainbow``, a permanent user choice, and a
+    matching custom event, which the user picked for that exact date.
+    """
+    if isinstance(calendar, CustomCalendar):
+        result = calendar.event_colour(today)
+        if result is not None:
+            return result
+        if today.month == 1:
+            return SEASONAL_PALETTES["purple"] if calendar.extends else None
+        return calendar.extends_colour(today)
+    calendar_fn = CALENDARS.get(calendar)
+    if calendar_fn is None:
+        return None
+    if today.month == 1 and calendar != "rainbow":
+        return SEASONAL_PALETTES["purple"]
+    return calendar_fn(today)
 
 
 def format_pr_state(state, is_draft=False):

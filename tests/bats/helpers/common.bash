@@ -31,7 +31,12 @@ common_setup() {
   #    tests treat as the thing under test; inheriting them made those tests
   #    pass locally and fail on Actions. Tokens go too, so nothing here could
   #    authenticate against real GitHub even if a stub were missed.
+  #    XDG_* go too: HOME is redirected here, but an inherited XDG_CONFIG_HOME
+  #    still points at the real machine, so a script honouring the XDG spec
+  #    would look outside the sandbox. GitHub Actions sets it, which is how
+  #    this was found: a test passed locally and failed on CI.
   unset GITHUB_HEAD_REF GITHUB_REF_NAME GITHUB_TOKEN GH_TOKEN GITHUB_ACTIONS CI
+  unset XDG_CONFIG_HOME XDG_CACHE_HOME XDG_DATA_HOME
 
   export PATH HOME STUB_BIN STUB_LOG FAKE_HOME
 }
@@ -44,7 +49,12 @@ common_setup() {
 stub() {
   local name="$1"
   {
-    printf '#!/usr/bin/env bash\n'
+    # An absolute shebang, not `/usr/bin/env bash`: a test that reduces PATH to
+    # the stub directory alone — the only way to prove a command is genuinely
+    # absent — leaves `env` unable to find bash, and the stub then fails to run
+    # at all. That fails silently as empty output, which looks like a stub that
+    # ran and said nothing.
+    printf '#!/bin/bash\n'
     # shellcheck disable=SC2016  # Deliberate: this is the generated stub's own
     # source. "$*" and ${STUB_LOG} must expand when the stub runs, not now.
     #

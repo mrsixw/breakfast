@@ -67,7 +67,7 @@ There are four layers, described in full in [docs/design/testing.md](docs/design
 - **Shell tests** (`tests/bats/`) run each shell script as a subprocess with `gh`, `git` and `curl` stubbed and `HOME` redirected into a temporary directory. Offline, and safe to run anywhere. These are what `make bats` runs.
 - **End-to-end tests** (`tests/e2e/`) are [pytest-bdd](https://pytest-bdd.readthedocs.io/) `.feature` files that run the built `./breakfast` zipapp as a subprocess against the real GitHub API. They are excluded from `make test` by default.
 
-`bats` and `shellcheck` are fetched on demand with `npx`, the same way `make docs-lint` fetches `markdownlint-cli2`. Nothing to install by hand; you do need `node` on your PATH.
+`bats` is fetched on demand with `npx`, the same way `make docs-lint` fetches `markdownlint-cli2`, so there is nothing to install by hand; you do need `node` on your PATH. `shellcheck` and `typos` come through `uvx` instead, pinned in the `Makefile` so the same versions run locally and in CI. The three sibling repos that share this harness — gh-snitch, five-clis and jeeves — fetch their tools the same way.
 
 The rule for deciding where a new test goes: **if it monkeypatches `breakfast.*`, it is a unit test** and belongs in `tests/`.
 

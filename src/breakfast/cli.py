@@ -3,8 +3,9 @@ import random
 import re
 import shutil
 import sys
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from enum import StrEnum, auto
 from urllib.parse import urlparse
@@ -19,17 +20,20 @@ from .api import (
     GitHubGraphQLError,
     GitHubGraphQLResourceLimitError,
     GitHubRateLimitError,
+    GitHubSecondaryRateLimitError,
     OwnerNotFoundError,
+    clear_api_request_stop_event,
     fetch_pr_detail,
     get_api_stats,
     get_approval_summary,
     get_authenticated_user_login,
     get_check_status,
     get_github_prs,
-    get_graphql_rate_limit,
     get_pr_age_days,
     get_review_data_batch,
     match_exclude_repos,
+    reset_api_stats,
+    set_api_request_stop_event,
 )
 from .cache import (
     RepositoryNamesCache,
@@ -132,6 +136,85 @@ def format_cache_age(age_seconds: float) -> str:
         return f"{int(age_seconds // 86400)} days ago"
 
 
+def _cache_age_seconds(cache_result: dict) -> float:
+    """Return the non-negative age of a full-cache result in seconds."""
+    fetched_at = datetime.fromisoformat(cache_result["fetched_at"])
+    return max(0, (datetime.now(timezone.utc) - fetched_at).total_seconds())
+
+
+def _rate_limit_api_name(exc: GitHubRateLimitError) -> str:
+    """Return a user-facing API name for a typed rate-limit error."""
+    return "GitHub GraphQL API" if exc.resource == "graphql" else "GitHub REST API"
+
+
+def _emit_rate_limit_cache_banner(
+    exc: GitHubRateLimitError,
+    cache_age_seconds: float,
+    *,
+    refresh_requested: bool,
+    colour: bool,
+) -> None:
+    """Explain that rate limiting forced a local-cache fallback."""
+    refresh_text = "Refresh could not be completed; " if refresh_requested else ""
+    message = (
+        f"🥞 {_rate_limit_api_name(exc)} rate limit exceeded; "
+        f"{refresh_text}displaying local cached data from "
+        f"{format_cache_age(cache_age_seconds)}."
+    )
+    if exc.reset_time:
+        message += f" Live GitHub data should be available after {exc.reset_time} UTC."
+    click.echo(
+        click.style(message, fg="yellow", bold=True),
+        err=True,
+        color=colour,
+    )
+
+
+def _read_degraded_cache(
+    org_cache_key: str,
+    repo_cache_key: str,
+    cache_ttl_seconds: int,
+    *,
+    cache_enabled: bool,
+) -> dict | None:
+    """Return the latest full cache for degraded mode, including expired data."""
+    if not cache_enabled:
+        return None
+    return read_pr_cache(
+        org_cache_key,
+        repo_cache_key,
+        cache_ttl_seconds,
+        ignore_ttl=True,
+    )
+
+
+def _cached_status_maps(
+    pr_details: list,
+    cached_check_statuses: dict | None,
+    cached_approval_statuses: dict | None,
+    cached_approval_details: dict | None,
+    *,
+    checks: bool,
+    approvals: bool,
+) -> tuple[dict, dict, dict]:
+    """Build complete status maps from a coherent full-cache snapshot."""
+    check_statuses = dict(cached_check_statuses or {})
+    approval_statuses = dict(cached_approval_statuses or {})
+    approval_details = dict(cached_approval_details or {})
+
+    for pr_detail in pr_details:
+        pr_id = pr_detail["id"]
+        if checks:
+            check_statuses.setdefault(pr_id, "none")
+        if approvals:
+            approval_statuses.setdefault(pr_id, "pending")
+            approval_details.setdefault(
+                pr_id,
+                {"status": "pending", "current": 0, "required": None},
+            )
+    return check_statuses, approval_statuses, approval_details
+
+
 def _stdout_is_tty():
     return sys.stdout.isatty()
 
@@ -191,10 +274,24 @@ def _require_positive_int(value, key, colour):
     return parsed
 
 
-def _handle_rate_limit(exc, json_output=False):
+def _handle_rate_limit(exc, json_output=False, *, cache_unavailable=False):
     """Print a friendly rate-limit message and exit non-zero."""
+    if cache_unavailable:
+        message = (
+            f"🥞 {_rate_limit_api_name(exc)} rate limit exceeded and no local "
+            "cached data is available."
+        )
+        if exc.reset_time:
+            message += f" Try again after {exc.reset_time} UTC."
+        elif isinstance(exc, GitHubSecondaryRateLimitError):
+            # A secondary limit reports no reset time, so the generic note
+            # above would be the only thing the user saw. Pass on the advice
+            # the error itself carries instead.
+            message += f" {exc}"
+    else:
+        message = f"🥞 {exc}"
     click.echo(
-        click.style(f"🥞 {exc}", fg="red", bold=True),
+        click.style(message, fg="red", bold=True),
         err=True,
     )
     sys.exit(1)
@@ -210,9 +307,15 @@ def _handle_auth_error(exc, colour=None, json_output=False):
     sys.exit(1)
 
 
-def _print_debug_summary(t0, pr_count, api_stats, graphql_rate_limit):
-    from datetime import datetime, timezone
-
+def _print_debug_summary(
+    t0,
+    pr_count,
+    api_stats,
+    *,
+    data_source,
+    cache_age_seconds=None,
+):
+    """Print request counts, captured rate limits, and the rendered data source."""
     elapsed = time.monotonic() - t0
     total_calls = api_stats["rest_calls"] + api_stats["graphql_calls"]
     lines = [
@@ -222,20 +325,34 @@ def _print_debug_summary(t0, pr_count, api_stats, graphql_rate_limit):
         f"  API calls:        {total_calls}"
         f" ({api_stats['rest_calls']} REST + {api_stats['graphql_calls']} GraphQL)",
     ]
-    remaining = api_stats.get("rest_rate_limit_remaining")
-    reset_ts = api_stats.get("rest_rate_limit_reset")
-    if remaining is not None:
-        lines.append(f"  REST rate limit:  {remaining} requests remaining")
-    if reset_ts is not None:
-        reset_dt = datetime.fromtimestamp(reset_ts, tz=timezone.utc)
-        lines.append(f"  REST rate resets: {reset_dt.strftime('%H:%M:%S UTC')}")
-    if graphql_rate_limit:
-        gql_remaining = graphql_rate_limit.get("remaining")
-        gql_reset = graphql_rate_limit.get("resetAt")
-        if gql_remaining is not None:
-            lines.append(f"  GQL rate limit:   {gql_remaining} points remaining")
-        if gql_reset:
-            lines.append(f"  GQL rate resets:  {gql_reset}")
+
+    for resource, label, unit in (
+        ("rest", "REST", "requests"),
+        ("graphql", "GQL", "points"),
+    ):
+        remaining = api_stats.get(f"{resource}_rate_limit_remaining")
+        exhausted = api_stats.get(f"{resource}_rate_limit_exhausted", False)
+        if exhausted:
+            detail = (
+                f" ({remaining} {unit} remaining)"
+                if remaining is not None
+                else " (remaining unavailable)"
+            )
+            lines.append(f"  {label} rate limit:   exhausted{detail}")
+        elif remaining is not None:
+            lines.append(f"  {label} rate limit:   {remaining} {unit} remaining")
+        else:
+            lines.append(f"  {label} rate limit:   not reported this run")
+
+        reset_ts = api_stats.get(f"{resource}_rate_limit_reset")
+        if reset_ts is not None:
+            reset_dt = datetime.fromtimestamp(reset_ts, tz=timezone.utc)
+            lines.append(f"  {label} rate resets:  {reset_dt.strftime('%H:%M:%S UTC')}")
+
+    source_text = data_source
+    if data_source == "local cache" and cache_age_seconds is not None:
+        source_text += f" ({format_cache_age(cache_age_seconds)})"
+    lines.append(f"  Data source:      {source_text}")
     click.echo("\n".join(lines), err=True)
 
 
@@ -247,6 +364,11 @@ def finish_run(
     show_update_summary,
     api_stats,
     colour,
+    # Defaulted so a caller that predates the cache fallback, or one that has
+    # no degraded run to describe, needs no say in it. These are what a run
+    # that went to GitHub and back reports.
+    data_source="live GitHub API",
+    cache_age_seconds=None,
     pizza=False,
     cake=False,
 ):
@@ -291,7 +413,11 @@ def finish_run(
         )
     if api_stats:
         _print_debug_summary(
-            t0_total, pr_count, get_api_stats(), get_graphql_rate_limit()
+            t0_total,
+            pr_count,
+            get_api_stats(),
+            data_source=data_source,
+            cache_age_seconds=cache_age_seconds,
         )
 
 
@@ -496,13 +622,23 @@ def _approval_details_for(pr_details, workers):
         futures = {
             executor.submit(summarize, key): pr_id for pr_id, key in keys.items()
         }
+    rate_limit_error = None
     for future, pr_id in futures.items():
         try:
             details[pr_id] = future.result()
+        except GitHubRateLimitError as exc:
+            # Remembered rather than raised here: the workers still in flight
+            # raise CancelledError once the limit is signalled, and reporting
+            # one of those instead of the limit itself would hide the cause.
+            rate_limit_error = rate_limit_error or exc
+        except CancelledError:
+            continue
         except (ValueError, requests.exceptions.RequestException) as exc:
             logger.warning(
                 "approval_status_fetch_failed pr_id=%s error=%r", pr_id, str(exc)
             )
+    if rate_limit_error is not None:
+        raise rate_limit_error
     return details
 
 
@@ -1054,6 +1190,7 @@ def breakfast(
     cake,
 ):
     t0_total = time.monotonic()
+    reset_api_stats()
     configure_logging()
 
     # This callback body *is* the program — without this guard, `breakfast
@@ -1464,20 +1601,7 @@ def breakfast(
         message = "GH_TOKEN or GITHUB_TOKEN not set in environment - exiting..."
         click.echo(click.style(message, fg="red", bold=True), err=True, color=colour)
         sys.exit(1)
-    current_user_login = None
-    if mine_only or needs_my_review:
-        if not offline:
-            try:
-                current_user_login = get_authenticated_user_login()
-                write_cached_user_login(current_user_login)
-            except GitHubAuthenticationError as exc:
-                _handle_auth_error(exc, colour=colour, json_output=json_output)
-            except GitHubRateLimitError as exc:
-                _handle_rate_limit(exc, json_output)
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-                pass
-        else:
-            current_user_login = read_cached_user_login()
+
     t_acquire = time.monotonic()
 
     # Cache key encodes each org with its effective scoped filter for determinism
@@ -1496,10 +1620,16 @@ def breakfast(
     cached_approval_details = None
     needs_cache_write = False
     offline_mode = False
+    data_source = "live GitHub API"
+    cache_age_seconds = None
+    cache_result = None
 
     if offline:
-        cache_result = read_pr_cache(
-            org_cache_key, repo_cache_key, cache_ttl_seconds, ignore_ttl=True
+        cache_result = _read_degraded_cache(
+            org_cache_key,
+            repo_cache_key,
+            cache_ttl_seconds,
+            cache_enabled=True,
         )
         if cache_result is not None:
             pr_details = cache_result["prs"]
@@ -1508,10 +1638,8 @@ def breakfast(
             cached_approval_details = cache_result.get("approval_details")
             offline_mode = True
             no_update_check = True
-            fetched_at = datetime.fromisoformat(cache_result["fetched_at"])
-            cache_age_seconds = (
-                datetime.now(timezone.utc) - fetched_at
-            ).total_seconds()
+            data_source = "local cache"
+            cache_age_seconds = _cache_age_seconds(cache_result)
             formatted_age = format_cache_age(cache_age_seconds)
             click.echo(
                 click.style(
@@ -1541,6 +1669,67 @@ def breakfast(
             cached_check_statuses = cache_result["check_statuses"]
             cached_approval_statuses = cache_result["approval_statuses"]
             cached_approval_details = cache_result.get("approval_details")
+            data_source = "local cache"
+            cache_age_seconds = _cache_age_seconds(cache_result)
+
+    current_user_login = None
+    if mine_only or needs_my_review:
+        if cache_enabled:
+            current_user_login = read_cached_user_login(SECRET_GITHUB_TOKEN)
+        if current_user_login is None and not offline:
+            try:
+                current_user_login = get_authenticated_user_login()
+                # Written whatever --cache says: #334's point is that a later
+                # offline run can read it, and that run is the one that turns
+                # the cache on. Gating this on cache_enabled would mean the
+                # login was never there to read.
+                write_cached_user_login(SECRET_GITHUB_TOKEN, current_user_login)
+            except GitHubAuthenticationError as exc:
+                _handle_auth_error(exc, colour=colour, json_output=json_output)
+            except GitHubRateLimitError as exc:
+                fallback_result = cache_result or _read_degraded_cache(
+                    org_cache_key,
+                    repo_cache_key,
+                    cache_ttl_seconds,
+                    cache_enabled=cache_enabled,
+                )
+                if fallback_result is None:
+                    _handle_rate_limit(exc, json_output, cache_unavailable=True)
+                cache_result = fallback_result
+                pr_details = fallback_result["prs"]
+                cached_check_statuses = fallback_result["check_statuses"]
+                cached_approval_statuses = fallback_result["approval_statuses"]
+                cached_approval_details = fallback_result.get("approval_details")
+                offline_mode = True
+                no_update_check = True
+                needs_cache_write = False
+                data_source = "local cache"
+                cache_age_seconds = _cache_age_seconds(fallback_result)
+                _emit_rate_limit_cache_banner(
+                    exc,
+                    cache_age_seconds,
+                    refresh_requested=refresh or refresh_prs,
+                    colour=colour,
+                )
+            except (
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+            ):
+                if cache_result is not None:
+                    offline_mode = True
+                    no_update_check = True
+                    data_source = "local cache"
+                    cache_age_seconds = _cache_age_seconds(cache_result)
+                    click.echo(
+                        click.style(
+                            "🔌 Offline Mode: Displaying cached data from "
+                            f"{format_cache_age(cache_age_seconds)}.",
+                            fg="yellow",
+                            bold=True,
+                        ),
+                        err=True,
+                        color=colour,
+                    )
 
     # Resolve implied flags before fetch so bundle knows what to fetch per PR.
     if filter_check:
@@ -1673,7 +1862,11 @@ def breakfast(
 
             if urls_to_fetch:
                 max_workers = min(workers, len(urls_to_fetch))
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                stop_event = threading.Event()
+                set_api_request_stop_event(stop_event)
+                executor = ThreadPoolExecutor(max_workers=max_workers)
+                rate_limit_error = None
+                try:
                     future_to_url = {
                         executor.submit(_fetch_pr_bundle, url, checks): url
                         for url in urls_to_fetch
@@ -1711,13 +1904,24 @@ def breakfast(
                                 exc, colour=colour, json_output=json_output
                             )
                         except GitHubRateLimitError as exc:
-                            click.echo("", err=True)
-                            _handle_rate_limit(exc, json_output)
+                            rate_limit_error = exc
+                            stop_event.set()
+                            for pending in future_to_url:
+                                pending.cancel()
+                            break
+                        except CancelledError:
+                            continue
                         except requests.exceptions.RequestException as exc:
                             logger.warning(
                                 "pr_detail_fetch_failed url=%s error=%r", url, str(exc)
                             )
                             failed_urls.append(url)
+                finally:
+                    executor.shutdown(wait=True, cancel_futures=stop_event.is_set())
+                    clear_api_request_stop_event(stop_event)
+                if rate_limit_error is not None:
+                    click.echo("", err=True)
+                    raise rate_limit_error
 
             # Approvals for everything fetched above, in a few batched requests.
             if approvals and pr_details:
@@ -1771,9 +1975,9 @@ def breakfast(
         except GitHubAuthenticationError as exc:
             click.echo("", err=True)
             _handle_auth_error(exc, colour=colour, json_output=json_output)
-        except GitHubRateLimitError as exc:
-            click.echo("", err=True)
-            _handle_rate_limit(exc, json_output)
+        # GitHubRateLimitError is deliberately not caught here: it propagates
+        # to the cache-fallback handler below (#392). Catching it would exit
+        # before the cached snapshot could be served.
         except GitHubForbiddenError as exc:
             click.echo("", err=True)
             click.echo(
@@ -1805,28 +2009,60 @@ def breakfast(
             msg = f"🥞 GitHub couldn't complete the GraphQL request: {exc.summary}"
             click.echo(click.style(msg, fg="red", bold=True), err=True, color=colour)
             sys.exit(1)
+        except GitHubRateLimitError as exc:
+            cache_result = _read_degraded_cache(
+                org_cache_key,
+                repo_cache_key,
+                cache_ttl_seconds,
+                cache_enabled=cache_enabled,
+            )
+            if cache_result is None:
+                _handle_rate_limit(exc, json_output, cache_unavailable=True)
+            pr_details = cache_result["prs"]
+            cached_check_statuses = cache_result["check_statuses"]
+            cached_approval_statuses = cache_result["approval_statuses"]
+            cached_approval_details = cache_result.get("approval_details")
+            check_statuses = {}
+            approval_statuses = {}
+            approval_details = {}
+            statuses_from_bundle = False
+            needs_cache_write = False
+            offline_mode = True
+            no_update_check = True
+            data_source = "local cache"
+            cache_age_seconds = _cache_age_seconds(cache_result)
+            click.echo("", err=True)
+            _emit_rate_limit_cache_banner(
+                exc,
+                cache_age_seconds,
+                refresh_requested=refresh or refresh_prs,
+                colour=colour,
+            )
         except (
             requests.exceptions.ConnectionError,
             requests.exceptions.Timeout,
         ) as exc:
             # Fall back to expired cache
-            cache_result = read_pr_cache(
+            cache_result = _read_degraded_cache(
                 org_cache_key,
                 repo_cache_key,
                 cache_ttl_seconds,
-                ignore_ttl=True,
+                cache_enabled=True,
             )
             if cache_result is not None:
                 pr_details = cache_result["prs"]
                 cached_check_statuses = cache_result["check_statuses"]
                 cached_approval_statuses = cache_result["approval_statuses"]
                 cached_approval_details = cache_result.get("approval_details")
+                check_statuses = {}
+                approval_statuses = {}
+                approval_details = {}
+                statuses_from_bundle = False
                 offline_mode = True
                 no_update_check = True
-                fetched_at = datetime.fromisoformat(cache_result["fetched_at"])
-                cache_age_seconds = (
-                    datetime.now(timezone.utc) - fetched_at
-                ).total_seconds()
+                needs_cache_write = False
+                data_source = "local cache"
+                cache_age_seconds = _cache_age_seconds(cache_result)
                 formatted_age = format_cache_age(cache_age_seconds)
                 # Ensure we end the progress line if we started it
                 click.echo("", err=True)
@@ -1860,86 +2096,137 @@ def breakfast(
             repo_display = ", ".join(repo_filters) if repo_filters else "all repos"
             click.echo(f"Processing {repo_display} PRs...⚡...Done", err=True)
 
-    # Fetch check statuses for cache-hit paths where statuses are absent.
-    # In the live-fetch path statuses are already populated by _fetch_pr_bundle.
-    if checks and pr_details and not statuses_from_bundle:
-        if cached_check_statuses is not None:
-            check_statuses = cached_check_statuses
-            # Ensure all PRs are in check_statuses
-            for pr_detail in pr_details:
-                if pr_detail["id"] not in check_statuses:
-                    check_statuses[pr_detail["id"]] = "none"
-        elif offline_mode:
-            # Skip fetching if offline
-            for pr_detail in pr_details:
-                check_statuses[pr_detail["id"]] = "none"
-        else:
-            max_workers = min(workers, len(pr_details))
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                check_futures = []
-                for pr_detail in pr_details:
-                    owner = pr_detail["base"]["repo"]["owner"]["login"]
-                    repo_name = pr_detail["base"]["repo"]["name"]
-                    sha = pr_detail["head"]["sha"]
-                    future = executor.submit(get_check_status, owner, repo_name, sha)
-                    check_futures.append((pr_detail["id"], future))
-            for pr_id, future in check_futures:
+    try:
+        # Fetch check statuses for cache-hit paths where statuses are absent.
+        if checks and pr_details and not statuses_from_bundle:
+            if cached_check_statuses is not None or offline_mode:
+                check_statuses, _, _ = _cached_status_maps(
+                    pr_details,
+                    cached_check_statuses,
+                    None,
+                    None,
+                    checks=True,
+                    approvals=False,
+                )
+            else:
+                max_workers = min(workers, len(pr_details))
+                stop_event = threading.Event()
+                set_api_request_stop_event(stop_event)
+                executor = ThreadPoolExecutor(max_workers=max_workers)
+                rate_limit_error = None
                 try:
-                    check_statuses[pr_id] = future.result()
-                except (
-                    KeyError,
-                    ValueError,
-                    AttributeError,
-                    requests.exceptions.RequestException,
-                ) as exc:
-                    logger.warning(
-                        "check_status_fetch_failed pr_id=%s error=%r",
-                        pr_id,
-                        str(exc),
-                    )
-                    check_statuses[pr_id] = "none"
-            needs_cache_write = True
+                    future_to_pr_id = {}
+                    for pr_detail in pr_details:
+                        owner = pr_detail["base"]["repo"]["owner"]["login"]
+                        repo_name = pr_detail["base"]["repo"]["name"]
+                        sha = pr_detail["head"]["sha"]
+                        future = executor.submit(
+                            get_check_status, owner, repo_name, sha
+                        )
+                        future_to_pr_id[future] = pr_detail["id"]
 
-    # Fetch approval statuses for cache-hit paths where statuses are absent.
-    # In the live-fetch path they were batched right after the fetch.
-    if approvals and pr_details and not statuses_from_bundle:
-        if cached_approval_statuses is not None and cached_approval_details is not None:
-            approval_statuses = cached_approval_statuses
-            approval_details = cached_approval_details
-            # Ensure all PRs are in approval_statuses and approval_details
-            for pr_detail in pr_details:
-                if pr_detail["id"] not in approval_statuses:
-                    approval_statuses[pr_detail["id"]] = "pending"
-                if pr_detail["id"] not in approval_details:
-                    approval_details[pr_detail["id"]] = {
-                        "status": "pending",
-                        "current": 0,
-                        "required": None,
-                    }
-        elif offline_mode:
-            # Skip fetching if offline
-            for pr_detail in pr_details:
-                approval_statuses[pr_detail["id"]] = "pending"
-                approval_details[pr_detail["id"]] = {
-                    "status": "pending",
-                    "current": 0,
-                    "required": None,
+                    for future in as_completed(future_to_pr_id):
+                        pr_id = future_to_pr_id[future]
+                        try:
+                            check_statuses[pr_id] = future.result()
+                        except GitHubRateLimitError as exc:
+                            rate_limit_error = exc
+                            stop_event.set()
+                            for pending in future_to_pr_id:
+                                pending.cancel()
+                            break
+                        except CancelledError:
+                            continue
+                        except (
+                            KeyError,
+                            ValueError,
+                            AttributeError,
+                            requests.exceptions.RequestException,
+                        ) as exc:
+                            logger.warning(
+                                "check_status_fetch_failed pr_id=%s error=%r",
+                                pr_id,
+                                str(exc),
+                            )
+                            check_statuses[pr_id] = "none"
+                finally:
+                    executor.shutdown(wait=True, cancel_futures=stop_event.is_set())
+                    clear_api_request_stop_event(stop_event)
+                if rate_limit_error is not None:
+                    raise rate_limit_error
+                needs_cache_write = True
+
+        # Fetch approval statuses for cache-hit paths where statuses are absent.
+        if approvals and pr_details and not statuses_from_bundle:
+            if (
+                cached_approval_statuses is not None
+                and cached_approval_details is not None
+            ) or offline_mode:
+                _, approval_statuses, approval_details = _cached_status_maps(
+                    pr_details,
+                    None,
+                    cached_approval_statuses,
+                    cached_approval_details,
+                    checks=False,
+                    approvals=True,
+                )
+            else:
+                # Batched GraphQL, the same path the live fetch above uses.
+                click.echo("Fetching approvals...", nl=False, err=True)
+                stop_event = threading.Event()
+                set_api_request_stop_event(stop_event)
+                try:
+                    approval_details = _approval_details_for(pr_details, workers)
+                    click.echo("...Done", err=True)
+                except GitHubAuthenticationError as exc:
+                    click.echo("", err=True)
+                    _handle_auth_error(exc, colour=colour, json_output=json_output)
+                except GitHubRateLimitError:
+                    # Deliberately not handled here: it propagates to the
+                    # cache-fallback handler below, which is the whole point
+                    # of #392. Handling it here would exit first.
+                    click.echo("", err=True)
+                    raise
+                finally:
+                    clear_api_request_stop_event(stop_event)
+                approval_statuses = {
+                    pr_id: detail["status"]
+                    for pr_id, detail in approval_details.items()
                 }
-        else:
-            click.echo("Fetching approvals...", nl=False, err=True)
-            try:
-                approval_details = _approval_details_for(pr_details, workers)
-                click.echo("...Done", err=True)
-            except GitHubAuthenticationError as exc:
-                click.echo("", err=True)
-                _handle_auth_error(exc, colour=colour, json_output=json_output)
-            except GitHubRateLimitError as exc:
-                click.echo("", err=True)
-                _handle_rate_limit(exc, json_output)
-            approval_statuses = {
-                pr_id: detail["status"] for pr_id, detail in approval_details.items()
-            }
-            needs_cache_write = True
+                needs_cache_write = True
+    except GitHubRateLimitError as exc:
+        cache_result = _read_degraded_cache(
+            org_cache_key,
+            repo_cache_key,
+            cache_ttl_seconds,
+            cache_enabled=cache_enabled,
+        )
+        if cache_result is None:
+            _handle_rate_limit(exc, json_output, cache_unavailable=True)
+        pr_details = cache_result["prs"]
+        cached_check_statuses = cache_result["check_statuses"]
+        cached_approval_statuses = cache_result["approval_statuses"]
+        cached_approval_details = cache_result.get("approval_details")
+        check_statuses, approval_statuses, approval_details = _cached_status_maps(
+            pr_details,
+            cached_check_statuses,
+            cached_approval_statuses,
+            cached_approval_details,
+            checks=checks,
+            approvals=approvals,
+        )
+        statuses_from_bundle = False
+        needs_cache_write = False
+        offline_mode = True
+        no_update_check = True
+        data_source = "local cache"
+        cache_age_seconds = _cache_age_seconds(cache_result)
+        _emit_rate_limit_cache_banner(
+            exc,
+            cache_age_seconds,
+            refresh_requested=refresh or refresh_prs,
+            colour=colour,
+        )
 
     logger.info(
         "data_acquired pr_count=%d elapsed_ms=%d",
@@ -1960,11 +2247,18 @@ def breakfast(
             click.echo("🔄 Cache refreshed.", err=True)
 
     if (mine_only or needs_my_review) and offline_mode and current_user_login is None:
+        identity_filters = " and ".join(
+            flag
+            for enabled, flag in (
+                (mine_only, "--mine-only"),
+                (needs_my_review, "--needs-my-review"),
+            )
+            if enabled
+        )
         click.echo(
             click.style(
-                "⚠️  Offline mode: no cached login found — "
-                "--mine-only / --needs-my-review skipped. "
-                "Run online once to cache your login.",
+                f"⚠️  {identity_filters} could not be applied because the current "
+                "user login is not cached; displaying all locally cached PRs.",
                 fg="yellow",
             ),
             err=True,
@@ -2053,6 +2347,8 @@ def breakfast(
             show_update_summary=show_update_summary,
             api_stats=api_stats,
             colour=colour,
+            data_source=data_source,
+            cache_age_seconds=cache_age_seconds,
             pizza=pizza,
             cake=cake,
         )
@@ -2134,6 +2430,8 @@ def breakfast(
         show_update_summary=show_update_summary,
         api_stats=api_stats,
         colour=colour,
+        data_source=data_source,
+        cache_age_seconds=cache_age_seconds,
         pizza=pizza,
         cake=cake,
     )

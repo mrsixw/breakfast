@@ -2239,3 +2239,81 @@ def test_every_review_batch_shows_progress(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert captured.err.count("*") == 3
     assert captured.out == ""
+
+
+# ── Retries are visible to the user (#493) ─────────────────────────────────
+
+
+def test_a_retried_rest_request_marks_the_wait_for_the_user(monkeypatch, capsys):
+    # A 502 and its backoff used to pass in total silence, so a request that
+    # took 18s looked identical to a hung process.
+    attempts = []
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+
+    class BadGateway:
+        status_code = 502
+
+        def raise_for_status(self):
+            raise requests.exceptions.HTTPError("502")
+
+        def json(self):
+            return {}
+
+    class GoodResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"ok": True}
+
+    def fake_get(url, headers):
+        attempts.append(1)
+        return BadGateway() if len(attempts) < 3 else GoodResponse()
+
+    monkeypatch.setattr(api.requests, "get", fake_get)
+
+    assert api.make_github_api_request("/repos/org/repo") == {"ok": True}
+
+    captured = capsys.readouterr()
+    assert captured.err.count(api.RETRY_EMOJI) == 2
+    assert captured.out == ""
+
+
+def test_a_retried_graphql_request_marks_the_wait_for_the_user(monkeypatch, capsys):
+    attempts = []
+    monkeypatch.setattr(api, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(api.time, "sleep", lambda _: None)
+
+    class BadGateway:
+        status_code = 502
+
+        def raise_for_status(self):
+            raise requests.exceptions.HTTPError("502")
+
+        def json(self):
+            return {}
+
+    class GoodResponse:
+        status_code = 200
+        headers = {}
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"data": {"ok": True}}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        attempts.append(1)
+        return BadGateway() if len(attempts) < 2 else GoodResponse()
+
+    monkeypatch.setattr(api.requests, "post", fake_post)
+
+    api.make_github_graphql_request("query {}")
+
+    captured = capsys.readouterr()
+    assert captured.err.count(api.RETRY_EMOJI) == 1
+    assert captured.out == ""

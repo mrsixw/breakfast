@@ -152,6 +152,31 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 
 Keep the summary short and imperative (e.g., `feat: add label filtering`).
 
+### Breaking changes bump the major version
+
+Two things, and only these two, cause a **major** release:
+
+- a `!` after the type — `feat!: drop the old flag`
+- `BREAKING CHANGE` anywhere in the commit body
+
+`git mkver` reads them straight out of the commit messages since the last tag,
+so the release that follows your merge is decided by how you word the commit.
+This is how 0.107.1 became 1.0.0: #417 removed a deprecated flag and was
+committed as `feat!:`, which was accurate and also a major-version instruction.
+
+Neither marker is a way to say "this change matters". Use one when you intend
+to change the first number, and call it out in the pull request when you do.
+
+The `version` CI job prints the version your merge would release on every pull
+request. Check it before merging.
+
+**Careful writing about these markers.** mkver looks for them as a substring on
+any line of any commit message since the last tag, so a commit body that
+explains "this was committed as `feat!:`" is indistinguishable, to mkver, from
+one declaring a breaking change — and releases a major version. Break the string
+when you need to refer to it: `feat!` without the trailing colon, or the footer
+written with a hyphen. The commit that added this very section tripped over it.
+
 ## Pull Requests
 
 - Include the issue number in the PR title (e.g., `#7: Split test deps and migrate to uv`).
@@ -181,6 +206,15 @@ All four files convey the same project rules. **When updating project convention
 
 - Do **not** run `git mkver patch` on feature branches — it mutates the version file.
 - Version bumps happen when preparing a release, not during regular development.
+- **`git mkver patch` does not mean "bump the patch number".** It applies the
+  file patches named in `mkver.conf` (here, writing `VERSION`), and what it
+  writes is the version mkver computed from the commit messages — which may be
+  a major, minor or patch increase. The release job calls it through
+  `utils/bump_version_if_tag_exists.sh` when the tag for the current version
+  already exists.
+- `utils/report_next_version.sh` prints the current version alongside the one
+  the next release would carry, and says so loudly if the major component
+  changes. The `version` CI job runs it on every pull request.
 
 ## Releases
 

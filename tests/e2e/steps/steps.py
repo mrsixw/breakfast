@@ -5,12 +5,18 @@ Nothing here knows what a pull request is. Steps that do belong in
 """
 
 import json
+import re
 import shlex
 from pathlib import Path
 
 from pytest_bdd import given, parsers, then, when
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# "Fetching mrsixw PRs...", "Processing breakfast PRs...", "Fetching
+# approvals...". Matching the shape rather than each known label means a new
+# phase is covered the day it is added.
+_PHASE_LABEL = re.compile(r"^(?:Fetching|Processing) .*?\.\.\.")
 
 
 @given("no GitHub token is set")
@@ -67,6 +73,24 @@ def _stdout_lacks(result, text):
 @then(parsers.parse('stderr contains "{text}"'))
 def _stderr_contains(result, text):
     assert text in result.stderr, f"stderr was:\n{result.stderr}"
+
+
+@then("every progress phase on stderr is closed")
+def _progress_phases_closed(result):
+    """Each phase writes its label with no newline and closes it with "...Done".
+
+    A label left without its terminator is a phase that, to the user, never
+    finished — issue #496, where the approvals label stole the PR detail
+    line's "...Done". The glyphs between the two are random breakfast emoji,
+    so only the shape of the line can be asserted, and only the real binary
+    writes these to a stderr that is genuinely separate from stdout.
+    """
+    unclosed = [
+        line
+        for line in result.stderr.splitlines()
+        if _PHASE_LABEL.match(line) and not line.endswith("...Done")
+    ]
+    assert not unclosed, f"progress phases left open: {unclosed!r}"
 
 
 @then("stdout is valid JSON", target_fixture="payload")

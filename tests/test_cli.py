@@ -6912,3 +6912,84 @@ def test_the_check_phase_is_timed_in_the_log(monkeypatch, tmp_path, caplog):
     timings = [r.message for r in caplog.records if "checks_acquired" in r.message]
     assert len(timings) == 1
     assert re.search(r"checks_acquired pr_count=3 elapsed_ms=\d+", timings[0])
+
+
+# ── Every opened progress line gets closed (#496) ──────────────────────────
+
+
+# A phase writes its label with nl=False and closes it with "...Done", so a
+# label left without its terminator is a phase that, to the user, never
+# finished. Matching the shape rather than each known label means a new phase
+# is covered by these tests the day it is added.
+_PHASE_LABEL = re.compile(r"^(?:Fetching|Processing) .*?\.\.\.")
+
+
+def _unclosed_progress_phases(stderr):
+    """Progress lines that opened a phase label but never closed it."""
+    return [
+        line
+        for line in stderr.splitlines()
+        if _PHASE_LABEL.match(line) and not line.endswith("...Done")
+    ]
+
+
+def test_every_live_phase_closes_its_progress_line(monkeypatch):
+    # #494 gave the approvals phase a label by prefixing it with "\n", which
+    # ended the "Processing ... PRs..." line without a "...Done" and handed
+    # that line's terminator to approvals. One terminator, two lines needing
+    # one.
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--approvals", "--no-cache"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _unclosed_progress_phases(result.stderr) == []
+
+
+def test_the_live_processing_line_closes_when_approvals_are_off(monkeypatch):
+    # The approvals-off path was never broken. It is here so a fix that moves
+    # the terminator around cannot quietly trade one path for the other.
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--no-cache"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _unclosed_progress_phases(result.stderr) == []
+    assert re.search(r"Processing repo PRs\.\.\.[^.\n]*\.\.\.Done\n", result.stderr)
+
+
+def test_the_live_processing_and_approvals_lines_are_both_closed(monkeypatch):
+    # The specific pairing, spelled out: two labels, two terminators, in order.
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--approvals", "--no-cache"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert re.search(
+        r"Processing repo PRs\.\.\.[^.\n]*\.\.\.Done\n"
+        r"Fetching approvals\.\.\.[^.\n]*\.\.\.Done\n",
+        result.stderr,
+    )
+
+
+def test_every_cache_hit_phase_closes_its_progress_line(monkeypatch, tmp_path):
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+    monkeypatch.setattr(cli, "get_check_status", lambda *_args: "pass")
+    cache.write_pr_cache("org", "repo", [_approval_pr(n) for n in (1, 2, 3)])
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--approvals", "--checks", "--cache"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _unclosed_progress_phases(result.stderr) == []

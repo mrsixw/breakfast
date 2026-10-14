@@ -32,6 +32,9 @@ Feature: Listing pull requests from live GitHub
     And stderr contains "Fetching approvals"
     And stdout contains "Open PR with no labels"
     And stdout does not contain "Fetching approvals"
+    # Issue #496: that label used to open with a "\n", ending the PR detail
+    # line without its "...Done" and leaving the phase looking unfinished.
+    And every progress phase on stderr is closed
 
   Scenario: Every JSON entry carries the documented fields
     When I run `breakfast -o mrsixw:breakfast-fixtures --include-archived --format json --no-colour`

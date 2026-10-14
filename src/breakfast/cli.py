@@ -1743,9 +1743,16 @@ def breakfast(
             if approvals and pr_details:
                 # Every emoji up to here meant a PR detail. Approvals are a
                 # different kind of work and used to run with no label at all,
-                # while the cache-hit path below announced itself. The
-                # "...Done" after the cache writes closes this line.
-                click.echo("\nFetching approvals...", nl=False, err=True)
+                # while the cache-hit path below announced itself.
+                #
+                # Close the detail line before opening this one. #494 started
+                # it with a "\n", which ended the detail line with a bare
+                # newline and left the "...Done" after the cache writes to
+                # close *this* line instead — one terminator for two lines
+                # that each need one, so the detail phase looked unfinished.
+                # See issue #496.
+                click.echo("...Done", err=True)
+                click.echo("Fetching approvals...", nl=False, err=True)
                 t_approvals = time.monotonic()
                 with progress_heartbeat(_show_progress, PROGRESS_HEARTBEAT_SECONDS):
                     fetched_approvals = _approval_details_for(pr_details, workers)
@@ -1788,6 +1795,8 @@ def breakfast(
                 cached_approval_statuses = repo_hit_approvals or None
                 cached_approval_details = repo_hit_approval_details or None
 
+            # Closes whichever line is still open: the approvals line when
+            # that phase ran, the PR detail line when it did not.
             click.echo("...Done", err=True)
             if failed_urls:
                 examples = ", ".join(failed_urls[:3])

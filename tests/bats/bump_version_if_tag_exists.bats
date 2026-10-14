@@ -10,10 +10,14 @@ setup() {
   load 'helpers/common'
   common_setup
 
-  # A git stub with knobs: whether the tag exists, what branch HEAD is on, and
-  # whether the push succeeds.
+  # A git stub with knobs: whether the tag exists, what branch HEAD is on,
+  # whether the push succeeds, and whether main can be fetched afterwards to
+  # see why it did not.
   stub git <<'STUB'
 case "$1" in
+  fetch)
+    [[ -n "${GIT_FETCH_FAILS:-}" ]] && exit 1
+    exit 0 ;;
   rev-parse)
     [[ -n "${GIT_TAG_EXISTS:-}" ]] && exit 0
     exit 1 ;;
@@ -70,6 +74,18 @@ STUB
   assert_called uv "lock"
 }
 
+@test "marks the bump commit so it does not start a pipeline of its own" {
+  # The run pushing this commit has already tested this tree, and goes on to
+  # build, release and install-check it. A second run would re-verify an
+  # identical tree, live end-to-end suite included. Issue #495.
+  export GIT_TAG_EXISTS=1 GIT_BRANCH=main BUMPED_VERSION=1.2.4
+
+  run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
+
+  [ "$status" -eq 0 ]
+  assert_called_arg git "chore: bump version to 1.2.4 [skip ci]"
+}
+
 @test "prints the bumped version, not the one it was given" {
   # Everything downstream tags and names the release from this stdout.
   export GIT_TAG_EXISTS=1 GIT_BRANCH=main BUMPED_VERSION=1.2.4
@@ -120,6 +136,17 @@ STUB
   # A silent failure here leaves the tag and the VERSION file disagreeing on
   # the remote, which is precisely the state this script exists to prevent.
   export GIT_TAG_EXISTS=1 GIT_BRANCH=main GIT_PUSH_FAILS=1
+
+  run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
+
+  [ "$status" -eq 1 ]
+  assert_output_contains "git push failed"
+}
+
+@test "fails loudly when it cannot fetch main to see why the push failed" {
+  # Standing down needs proof that main moved past this commit. No proof, no
+  # standing down.
+  export GIT_TAG_EXISTS=1 GIT_BRANCH=main GIT_PUSH_FAILS=1 GIT_FETCH_FAILS=1
 
   run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
 

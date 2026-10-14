@@ -262,6 +262,10 @@ jobs:
     needs: [build, e2e, man, completions]
     permissions:
       contents: write
+    outputs:
+      # Whether this run cut a release. verify-release has nothing to check
+      # when a newer run took over: "latest" would still be the old release.
+      released: ${{ steps.bump.outputs.superseded == 'false' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -291,28 +295,44 @@ jobs:
         id: version
         run: echo "version=$(python utils/read_version.py)" >> "$GITHUB_OUTPUT"
 
+      # Exit 3 means main moved past this commit while the run was busy: a
+      # second merge landed, and its own run will release both. Nothing is
+      # wrong, so the job stands down green instead of failing main.
+      # Issue #495; the script explains how it tells this from a real failure.
       - name: Bump version if tag exists
         id: bump
         run: |
-          version="$(utils/bump_version_if_tag_exists.sh "${{ steps.version.outputs.version }}")"
+          status=0
+          version="$(utils/bump_version_if_tag_exists.sh "${{ steps.version.outputs.version }}")" || status=$?
+          if [ "${status}" -eq 3 ]; then
+            echo "::notice title=Release superseded::main moved past ${GITHUB_SHA} during this run. The newer run releases this commit along with its own."
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [ "${status}" -eq 0 ] || exit "${status}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "superseded=false" >> "$GITHUB_OUTPUT"
 
       - name: Build binary
+        if: steps.bump.outputs.superseded == 'false'
         run: make release
 
       - name: Generate man page
+        if: steps.bump.outputs.superseded == 'false'
         run: make man
 
       - name: Generate completion scripts
+        if: steps.bump.outputs.superseded == 'false'
         run: make completions
 
       - name: Create release
+        if: steps.bump.outputs.superseded == 'false'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: utils/create_release.sh "${{ steps.bump.outputs.version }}"
 
   verify-release:
-    if: "github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore: bump version')"
+    if: "github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore: bump version') && needs.release.outputs.released == 'true'"
     runs-on: ubuntu-latest
     needs: release
     steps:

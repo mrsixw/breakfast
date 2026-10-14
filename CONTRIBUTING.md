@@ -218,7 +218,20 @@ All four files convey the same project rules. **When updating project convention
 
 ## Releases
 
-Releases are created automatically by CI on every push to `main` (excluding version-bump commits). The workflow runs:
+Releases are created automatically by CI on every push to `main`. When the
+current version is already tagged, the release job first pushes a
+`chore: bump version to X.Y.Z [skip ci]` commit. `[skip ci]` stops that commit
+from starting a pipeline of its own: the run that pushed it has already tested
+the tree, and goes on to build, release and install-check it.
+
+**Releases follow the tip of `main`.** Merge two pull requests a few minutes
+apart and the first run can reach its bump push after the second merge has
+moved `main` on. That run then stands down: the release job succeeds with a
+"Release superseded" notice, skips the release, and `verify-release` does not
+run. The second run releases both merges. A push rejected for any other reason,
+including a `main` that was rewritten rather than advanced, still fails the job.
+
+The workflow runs:
 
 ```bash
 gh release create vX.Y.Z --generate-notes

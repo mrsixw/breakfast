@@ -989,6 +989,48 @@ def test_get_approval_status_makes_only_one_graphql_call_on_fallback(monkeypatch
     assert len(graphql_calls) == 1
 
 
+def test_pr_author_passes_a_real_author_through():
+    payload = {"user": {"login": "alice", "html_url": "https://github.com/alice"}}
+
+    assert api.pr_author(payload)["login"] == "alice"
+
+
+def test_pr_author_substitutes_ghost_for_a_deleted_account():
+    """#385: GitHub sends the key with a null value once an account is gone."""
+    assert api.pr_author({"user": None}) == {
+        "login": "ghost",
+        "html_url": "https://github.com/ghost",
+    }
+
+
+def test_pr_author_also_covers_a_missing_key():
+    assert api.pr_author({})["login"] == "ghost"
+
+
+def test_pr_author_hands_back_a_copy():
+    """A caller mutating the result must not poison every later ghost."""
+    first = api.pr_author({"user": None})
+    first["login"] = "mutated"
+
+    assert api.pr_author({"user": None})["login"] == "ghost"
+
+
+def test_a_deleted_reviewer_does_not_break_the_review_summary(monkeypatch):
+    """A reviewer's account can be deleted too, with the same null payload."""
+    monkeypatch.setattr(
+        api,
+        "make_paginated_github_api_request",
+        lambda path: [
+            {"user": None, "state": "APPROVED"},
+            {"user": {"login": "alice"}, "state": "APPROVED"},
+        ],
+    )
+
+    summary = api._review_status_from_latest_reviews("org", "repo", 1)
+
+    assert summary == {"status": "approved", "current": 2}
+
+
 def test_get_required_approving_review_count(monkeypatch):
     monkeypatch.setattr(
         api,

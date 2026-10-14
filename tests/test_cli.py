@@ -2,6 +2,7 @@ import csv
 import io
 import json
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
@@ -6782,3 +6783,132 @@ def test_prs_missing_from_the_batch_use_their_own_lookups(monkeypatch):
         (1, ["review_decision", "reviews"]),
         (2, []),
     ]
+
+
+# ── Progress feedback during approvals and checks (#493) ───────────────────
+
+
+def test_the_live_approvals_phase_announces_itself(monkeypatch):
+    # The cache-hit path has always labelled this phase; the live path ran it
+    # in silence, which is where the perceived hang came from.
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--approvals", "--no-cache"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert re.search(r"Fetching approvals\.\.\.[^.\n]+\.\.\.Done\n", result.stderr)
+
+
+def test_approval_lookups_drip_progress_for_every_pr(monkeypatch, capsys):
+    # One glyph per 50-PR batch meant 267 PRs produced six. An enriched PR is
+    # the unit of work the user cares about, so it is the unit we report.
+    numbers = range(1, 8)
+    _stub_batched_approvals(monkeypatch, {n: ("REVIEW_REQUIRED", []) for n in numbers})
+    prs = [_approval_pr(n) for n in numbers]
+
+    cli._approval_details_for(prs, workers=4)
+
+    # The batch itself reports through api's own progress, which keeps the real
+    # emoji; only cli's per-PR reporting is stubbed to "*".
+    assert capsys.readouterr().err.count("*") == len(prs)
+
+
+def test_the_check_lookups_announce_themselves_and_drip_progress(monkeypatch, tmp_path):
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+    monkeypatch.setattr(cli, "get_check_status", lambda *_args: "pass")
+    cache.write_pr_cache("org", "repo", [_approval_pr(n) for n in (1, 2, 3)])
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--checks", "--cache"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert re.search(r"Fetching checks\.\.\.\*\*\*\.\.\.Done\n", result.stderr)
+
+
+def test_a_slow_approvals_phase_keeps_the_progress_line_moving(monkeypatch):
+    # Per-PR reporting cannot help here: the batch is one request covering 50
+    # PRs, so only a clock can prove the process is still alive.
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+    monkeypatch.setattr(cli, "PROGRESS_HEARTBEAT_SECONDS", 0.02)
+    real_batch = cli.get_review_data_batch
+
+    def slow_batch(keys):
+        time.sleep(0.3)
+        return real_batch(keys)
+
+    monkeypatch.setattr(cli, "get_review_data_batch", slow_batch)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--approvals", "--no-cache"]
+    )
+
+    assert result.exit_code == 0, result.output
+    _, _, after_label = result.stderr.partition("Fetching approvals...")
+    # Three PRs drip three glyphs; the heartbeat must add more on top.
+    assert after_label.count("*") > 3
+
+
+def test_a_slow_pr_detail_fetch_keeps_the_progress_line_moving(monkeypatch):
+    # One emoji per PR is good granularity until a single detail request
+    # stalls — near the end of a run only a handful are still in flight, so
+    # the bound on silence has to hold here too.
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+    monkeypatch.setattr(cli, "PROGRESS_HEARTBEAT_SECONDS", 0.02)
+    real_bundle = cli._fetch_pr_bundle
+
+    def slow_bundle(url, fetch_checks):
+        time.sleep(0.2)
+        return real_bundle(url, fetch_checks)
+
+    monkeypatch.setattr(cli, "_fetch_pr_bundle", slow_bundle)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--no-cache"]
+    )
+
+    assert result.exit_code == 0, result.output
+    progress, _, _ = result.stderr.partition("...Done")
+    # Three PRs drip three glyphs; the heartbeat must add more while they stall.
+    assert progress.count("*") > 3
+
+
+def test_the_approvals_phase_is_timed_in_the_log(monkeypatch, caplog):
+    # Working out where a slow run spent its time used to mean reading raw
+    # api_call lines by hand, because nothing bracketed the phases between
+    # data_acquired and render_complete.
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+
+    with caplog.at_level("INFO", logger="breakfast"):
+        result = CliRunner().invoke(
+            cli.breakfast, ["-o", "org", "-r", "repo", "--approvals", "--no-cache"]
+        )
+
+    assert result.exit_code == 0, result.output
+    timings = [r.message for r in caplog.records if "approvals_acquired" in r.message]
+    assert len(timings) == 1
+    assert re.search(r"approvals_acquired pr_count=3 elapsed_ms=\d+", timings[0])
+
+
+def test_the_check_phase_is_timed_in_the_log(monkeypatch, tmp_path, caplog):
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+    monkeypatch.setattr(cli, "get_check_status", lambda *_args: "pass")
+    cache.write_pr_cache("org", "repo", [_approval_pr(n) for n in (1, 2, 3)])
+
+    with caplog.at_level("INFO", logger="breakfast"):
+        result = CliRunner().invoke(
+            cli.breakfast, ["-o", "org", "-r", "repo", "--checks", "--cache"]
+        )
+
+    assert result.exit_code == 0, result.output
+    timings = [r.message for r in caplog.records if "checks_acquired" in r.message]
+    assert len(timings) == 1
+    assert re.search(r"checks_acquired pr_count=3 elapsed_ms=\d+", timings[0])

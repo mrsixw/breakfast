@@ -4,7 +4,9 @@ import math
 import os
 import random
 import sys
+import threading
 import unicodedata
+from contextlib import contextmanager
 from datetime import date as _real_date
 from datetime import timedelta as _real_timedelta
 from pathlib import Path
@@ -23,6 +25,7 @@ from .constants import (
     PASSOVER_START,
     PIZZA_RECIPES,
     PRIDE_RAINBOW,
+    PROGRESS_HEARTBEAT_SECONDS,
     ROSH_HASHANAH,
     SEASONAL_PALETTES,
     SUKKOT_START,
@@ -34,6 +37,7 @@ __all__ = [
     "CALENDARS",
     "apply_seasonal_colour",
     "click_colour_grade_number",
+    "emit_progress",
     "error_exit",
     "format_approval_status",
     "format_check_status",
@@ -46,11 +50,74 @@ __all__ = [
     "is_christmas",
     "is_steves_birthday",
     "mark_holiday_gift_shown",
+    "progress_heartbeat",
     "render_cake_recipe",
     "render_colour_diagnostics",
     "render_pizza_recipe",
     "render_pr_summary",
 ]
+
+
+# ── Progress feedback ──────────────────────────────────────────────────────
+
+# Progress is written from worker threads and from the heartbeat as well as
+# from whichever thread is coordinating a phase. Each write is short enough
+# that CPython would almost certainly not tear it, but "almost certainly" is
+# not worth a line of garbled output, so they take turns.
+_progress_lock = threading.Lock()
+
+
+def emit_progress(glyph):
+    """Write one progress glyph to stderr, without a newline.
+
+    Callers choose the glyph: picking it stays with the module that owns the
+    phase, so tests can pin a module's progress to a plain character and count
+    it without matching emoji.
+    """
+    with _progress_lock:
+        click.echo(glyph, nl=False, err=True)
+
+
+@contextmanager
+def progress_heartbeat(emit, interval=PROGRESS_HEARTBEAT_SECONDS):
+    """Call *emit* every *interval* seconds until the block finishes.
+
+    For phases whose unit of work is too coarse to report usefully — one
+    GraphQL request can cover fifty PRs and outlast a retry — this is what
+    tells the user the process is alive. It guarantees an upper bound on
+    silence; it does not report what is actually happening.
+
+    Args:
+        emit: Zero-argument callable that writes one piece of progress.
+        interval: Seconds between beats.
+
+    Yields:
+        None. The beat stops when the block exits, including on an exception.
+    """
+    finished = threading.Event()
+
+    def beat():
+        # wait() returns True once the phase is done, so a phase that ends
+        # mid-interval does not get a parting glyph it did not earn.
+        while not finished.wait(interval):
+            try:
+                emit()
+            except (OSError, ValueError):
+                # A closed or torn-down stderr. Reassurance is not worth a
+                # thread traceback printed over the real failure, and a
+                # heartbeat that cannot write has nothing useful left to do.
+                logger.debug("progress_heartbeat_write_failed", exc_info=True)
+                return
+
+    # A daemon thread cannot keep a cancelled run alive if the finally below
+    # is somehow skipped.
+    thread = threading.Thread(target=beat, name="breakfast-progress", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        finished.set()
+        thread.join(timeout=interval)
 
 
 def error_exit(message, colour=True, exit_code=1):

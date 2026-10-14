@@ -1,4 +1,6 @@
 import datetime
+import threading
+import time
 
 import click
 import pytest
@@ -815,3 +817,70 @@ def test_christmas_gift_state_tracking(tmp_path):
     assert ui.has_shown_holiday_gift("christmas", d2, state_dir=tmp_path) is False
     ui.mark_holiday_gift_shown("christmas", d2, state_dir=tmp_path)
     assert ui.has_shown_holiday_gift("christmas", d2, state_dir=tmp_path) is True
+
+
+# ── Progress feedback (#493) ────────────────────────────────────────────────
+
+
+def _star():
+    ui.emit_progress("*")
+
+
+def test_emit_progress_writes_one_glyph_to_stderr(capsys):
+    ui.emit_progress("*")
+
+    captured = capsys.readouterr()
+    assert captured.err == "*"
+    assert captured.out == ""
+
+
+def test_the_heartbeat_keeps_going_while_a_phase_drags_on(capsys):
+    # A single slow request must not leave the progress line frozen.
+    with ui.progress_heartbeat(_star, interval=0.02):
+        time.sleep(0.25)
+
+    assert capsys.readouterr().err.count("*") >= 3
+
+
+def test_the_heartbeat_stays_quiet_for_a_fast_phase(capsys):
+    with ui.progress_heartbeat(_star, interval=5):
+        pass
+
+    assert capsys.readouterr().err == ""
+
+
+def test_the_heartbeat_stops_when_the_phase_ends(capsys):
+    with ui.progress_heartbeat(_star, interval=0.02):
+        time.sleep(0.1)
+
+    assert capsys.readouterr().err.count("*") >= 1
+    time.sleep(0.15)
+    assert capsys.readouterr().err == ""
+
+
+def test_the_heartbeat_stops_even_when_the_phase_raises(capsys):
+    with pytest.raises(ValueError):
+        with ui.progress_heartbeat(_star, interval=0.02):
+            raise ValueError("boom")
+
+    capsys.readouterr()
+    time.sleep(0.15)
+    assert capsys.readouterr().err == ""
+
+
+def test_a_failing_heartbeat_never_spams_a_traceback(monkeypatch):
+    # The heartbeat writes to stderr from a background thread. If that write
+    # fails — a closed pipe, a torn-down stream at interpreter shutdown — the
+    # user must not get a thread traceback on top of whatever went wrong.
+    # Asserting on captured stderr is not enough: the test runner intercepts
+    # unhandled thread exceptions, so the hook itself is what to watch.
+    unhandled = []
+    monkeypatch.setattr(threading, "excepthook", lambda args: unhandled.append(args))
+
+    def explode():
+        raise OSError("stderr went away")
+
+    with ui.progress_heartbeat(explode, interval=0.02):
+        time.sleep(0.1)
+
+    assert unhandled == []

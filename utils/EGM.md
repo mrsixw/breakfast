@@ -13,6 +13,11 @@ Build, release and maintenance helpers for breakfast:
 None of these scripts is part of the `breakfast` Python package. However,
 `preamble.py` is built into the release zipapp (`shiv --preamble`).
 
+Citation convention: most of these are top-level shell scripts with no named
+symbols, so the script path itself is the citation unit. Where a script does
+define named functions, they are cited as `script:function` (for example
+`setup_fixture_org.sh:survey_inventory`).
+
 ## Interface
 
 | Script | Purpose | Invoked by |

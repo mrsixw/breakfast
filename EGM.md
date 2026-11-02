@@ -68,7 +68,7 @@ Not covered by contracts: `tests/` (pytest, bats and the e2e suites),
   Progress, warnings and errors go to stderr (`ui.py:emit_progress`,
   `ui.py:error_exit`, `click.echo(err=True)`). Known exception: the
   `--init-config` and `--update-config` messages, including errors, go to
-  stdout (`config.py`).
+  stdout (`config.py:generate_default_config`, `config.py:update_config`).
 - **Guards before network:** subcommands return before any config or token
   handling (`cli.py:breakfast`). The PR listing exits 1 if the owner or the
   token is missing, before any GitHub request.

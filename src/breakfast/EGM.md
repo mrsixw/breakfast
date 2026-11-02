@@ -290,7 +290,7 @@ forbids cross-module private imports.
   diagnostics. Progress, warnings and errors go to stderr: `ui.py:emit_progress`
   (writes under `_progress_lock`), `ui.py:error_exit` and `click.echo(err=True)`.
   The exception is the `--init-config` and `--update-config` messages, which go
-  to stdout (`config.py`).
+  to stdout (`config.py:generate_default_config`, `config.py:update_config`).
 - The automatic birthday and Christmas gifts appear only when colour is on,
   print to stderr, and are shown once per year
   (`has_shown_holiday_gift` / `mark_holiday_gift_shown`, which writes through
@@ -320,19 +320,36 @@ forbids cross-module private imports.
 
 ## Side Effects
 
-- **Network:** `api.github.com` REST (`/repos/{o}/{r}/pulls/{n}`, `/reviews`,
-  `/commits/{sha}/check-runs`, `/commits/{sha}/status`,
-  `/branches/{b}/protection/required_pull_request_reviews`, `/user`) and
-  GraphQL (`search`, `repositoryOwner.repositories`, `reviewDecision`, batched
-  reviews, `rateLimit`) [`api.py`]. Release lookup at
+- **Network, REST** (`api.github.com`, all through
+  `api.py:make_github_api_request`):
+  - `/repos/{o}/{r}/pulls/{n}` [`api.py:fetch_pr_detail`];
+  - `/repos/{o}/{r}/pulls/{n}/reviews` [`api.py:_review_status_from_latest_reviews`];
+  - `/commits/{sha}/check-runs` and `/commits/{sha}/status`
+    [`api.py:get_check_status`];
+  - `/branches/{b}/protection/required_pull_request_reviews`
+    [`api.py:get_required_approving_review_count`];
+  - `/user` [`api.py:get_authenticated_user_login`].
+- **Network, GraphQL** (all through `api.py:make_github_graphql_request`):
+  - `search` [`api.py:_SEARCH_QUERY`];
+  - `repositoryOwner.repositories` [`api.py:_REPOSITORY_NAMES_QUERY`];
+  - `reviewDecision` [`api.py:_REVIEW_DECISION_QUERY`];
+  - batched reviews [`api.py:_review_batch_query`];
+  - `rateLimit` [`api.py:get_graphql_rate_limit`].
+- **Network, releases:** release lookup at
   `api.github.com/repos/mrsixw/breakfast/releases/latest`
   [`updater.py:get_latest_version`]; binary download from
   `github.com/mrsixw/breakfast/releases/latest/download/breakfast`
   [`updater.py:perform_update`].
 - **Cache directory** (`$XDG_CACHE_HOME/breakfast` or `~/.cache/breakfast`):
-  `prs_<key>.json`, `graphql_<key>.json`, `pr_repo_<key>.json`,
-  `repos_<key>.json`, `user.json` [`cache.py`]; `latest_version.json`
-  [`updater.py`]. Both modules resolve the directory once, at import time.
+  - `prs_<key>.json` [`cache.py:cache_path`];
+  - `graphql_<key>.json` [`cache.py:graphql_cache_path`];
+  - `pr_repo_<key>.json` [`cache.py:repo_pr_cache_path`];
+  - `repos_<key>.json` [`cache.py:RepositoryNamesCache.path`];
+  - `user.json` [`cache.py:write_cached_user_login`];
+  - `latest_version.json` [`updater.py:_write_version_cache`].
+
+  Both modules resolve the directory once, at import time
+  [`cache.py:_CACHE_DIR`, `updater.py:_CACHE_DIR`].
 - **State directory** (`$XDG_STATE_HOME/breakfast` or
   `~/.local/state/breakfast`): `breakfast.log`, truncated on every run
   [`logger.py:configure`]; `<event>_gift.json` [`ui.py:mark_holiday_gift_shown`].
@@ -340,12 +357,19 @@ forbids cross-module private imports.
   The first existing search-path config is rewritten, and a new backup is
   created beside it [`config.py:update_config`].
 - **Executable:** replaced in place [`cli.py:update` → `updater.py:perform_update`].
-- **Environment reads:** `GH_TOKEN`, `GITHUB_TOKEN`, `NO_COLOR`,
-  `BREAKFAST_NO_UPDATE_CHECK`, `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`,
-  `XDG_STATE_HOME`.
-- **Threads:** `ThreadPoolExecutor` for PR detail, check and approval fetches
-  [`cli.py`], and for search slices and review batches [`api.py`]. The
-  heartbeat daemon thread [`ui.py:progress_heartbeat`].
+- **Environment reads:**
+  - `GH_TOKEN`, `GITHUB_TOKEN` [`api.py:_resolve_github_token_info`];
+  - `NO_COLOR` [`cli.py:env_flag_is_set`, `config.py:_colour_is_suppressed`];
+  - `BREAKFAST_NO_UPDATE_CHECK` [`cli.py:env_flag_is_set`, called from
+    `cli.py:breakfast`];
+  - `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME`
+    [`xdg.py:_xdg_override`].
+- **Threads:**
+  - `ThreadPoolExecutor` for PR detail and check fetches [`cli.py:breakfast`];
+  - approvals [`cli.py:_approval_details_for`];
+  - search slices [`api.py:_search_in_created_slices`];
+  - review batches [`api.py:get_review_data_batch`];
+  - the heartbeat daemon thread [`ui.py:progress_heartbeat`].
 - **Process-wide state:** API call counters [`api.py:_api_stats`], the shared
   GraphQL pause [`api.py:_throttle_until`], and `lru_cache` on branch
   protection [`api.py:get_required_approving_review_count`].

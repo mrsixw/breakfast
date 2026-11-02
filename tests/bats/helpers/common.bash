@@ -15,6 +15,12 @@
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 export REPO_ROOT
 
+# The scripts' exit codes, by name, so assertions read `-eq "${EXIT_SUPERSEDED}"`
+# instead of a bare 3 that silently goes stale when a script renumbers. The
+# same file is sourced by the scripts themselves and by ci.yml.
+# shellcheck source=SCRIPTDIR/../../../utils/exit_codes.sh
+source "${REPO_ROOT}/utils/exit_codes.sh"
+
 common_setup() {
   STUB_BIN="${BATS_TEST_TMPDIR}/bin"
   STUB_LOG="${BATS_TEST_TMPDIR}/calls"

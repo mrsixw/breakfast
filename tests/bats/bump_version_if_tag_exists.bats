@@ -10,10 +10,14 @@ setup() {
   load 'helpers/common'
   common_setup
 
-  # A git stub with knobs: whether the tag exists, what branch HEAD is on, and
-  # whether the push succeeds.
+  # A git stub with knobs: whether the tag exists, what branch HEAD is on,
+  # whether the push succeeds, and whether main can be fetched afterwards to
+  # see why it did not.
   stub git <<'STUB'
 case "$1" in
+  fetch)
+    [[ -n "${GIT_FETCH_FAILS:-}" ]] && exit 1
+    exit 0 ;;
   rev-parse)
     [[ -n "${GIT_TAG_EXISTS:-}" ]] && exit 0
     exit 1 ;;
@@ -35,7 +39,7 @@ STUB
 @test "prints the version untouched when the tag does not yet exist" {
   run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
 
-  [ "$status" -eq 0 ]
+  [ "$status" -eq "${EXIT_OK}" ]
   [ "$output" = "1.2.3" ]
 }
 
@@ -44,7 +48,7 @@ STUB
   # commit or a pushed branch.
   run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
 
-  [ "$status" -eq 0 ]
+  [ "$status" -eq "${EXIT_OK}" ]
   refute_called git "commit"
   refute_called git "push"
   refute_called git "mkver"
@@ -62,12 +66,24 @@ STUB
 
   run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
 
-  [ "$status" -eq 0 ]
+  [ "$status" -eq "${EXIT_OK}" ]
   assert_called git "mkver patch"
   assert_called git "add VERSION uv.lock"
   assert_called git "commit -m chore: bump version to 1.2.4"
   assert_called git "push origin HEAD:main"
   assert_called uv "lock"
+}
+
+@test "marks the bump commit so it does not start a pipeline of its own" {
+  # The run pushing this commit has already tested this tree, and goes on to
+  # build, release and install-check it. A second run would re-verify an
+  # identical tree, live end-to-end suite included. Issue #495.
+  export GIT_TAG_EXISTS=1 GIT_BRANCH=main BUMPED_VERSION=1.2.4
+
+  run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
+
+  [ "$status" -eq "${EXIT_OK}" ]
+  assert_called_arg git "chore: bump version to 1.2.4 [skip ci]"
 }
 
 @test "prints the bumped version, not the one it was given" {
@@ -93,7 +109,7 @@ STUB
 
   run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
 
-  [ "$status" -eq 0 ]
+  [ "$status" -eq "${EXIT_OK}" ]
   assert_called git "push origin HEAD:feature-branch"
 }
 
@@ -102,7 +118,7 @@ STUB
 
   run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
 
-  [ "$status" -eq 0 ]
+  [ "$status" -eq "${EXIT_OK}" ]
   assert_called git "push origin HEAD:main"
 }
 
@@ -111,7 +127,7 @@ STUB
 
   run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
 
-  [ "$status" -eq 1 ]
+  [ "$status" -eq "${EXIT_FAILURE}" ]
   assert_output_contains "Unable to determine branch name"
   refute_called git "commit"
 }
@@ -123,6 +139,25 @@ STUB
 
   run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
 
-  [ "$status" -eq 1 ]
+  [ "$status" -eq "${EXIT_FAILURE}" ]
   assert_output_contains "git push failed"
+}
+
+@test "fails loudly when it cannot fetch main to see why the push failed" {
+  # Standing down needs proof that main moved past this commit. No proof, no
+  # standing down.
+  export GIT_TAG_EXISTS=1 GIT_BRANCH=main GIT_PUSH_FAILS=1 GIT_FETCH_FAILS=1
+
+  run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
+
+  [ "$status" -eq "${EXIT_FAILURE}" ]
+  assert_output_contains "git push failed"
+}
+
+@test "exits only through the named codes in utils/exit_codes.sh" {
+  # A bare `exit 3` here and a bare `-eq 3` in ci.yml drift apart silently.
+  # Every exit names its code, so the workflow and the script share one value.
+  run grep -nE '\bexit[[:space:]]+"?[0-9]+' "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh"
+  [ "$status" -ne "${EXIT_OK}" ]
+  [ -z "$output" ]
 }

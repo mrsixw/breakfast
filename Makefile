@@ -80,7 +80,7 @@ docs-lint:
 # Static analysis for every shell script we ship, plus the test helpers, which
 # are shell too and just as capable of being wrong.
 shellcheck:
-	uvx --from shellcheck-py==$(SHELLCHECK_VERSION) shellcheck $(SHELL_SOURCES)
+	uvx --from shellcheck-py==$(SHELLCHECK_VERSION) shellcheck -x $(SHELL_SOURCES)
 
 # The shell test suite. bats arrives via npx, exactly as markdownlint-cli2 does
 # above — nothing to install by hand. shellcheck is pinned instead, because

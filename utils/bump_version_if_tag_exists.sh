@@ -3,9 +3,11 @@ set -euo pipefail
 
 version="$1"
 
-# Exit status when main has already moved past the commit this run was asked to
-# release. Not a failure: see superseded below.
-readonly SUPERSEDED=3
+# Named exit codes, shared with ci.yml. EXIT_SUPERSEDED means main has already
+# moved past the commit this run was asked to release: not a failure, see
+# superseded below.
+# shellcheck source=SCRIPTDIR/exit_codes.sh
+source "$(dirname "${BASH_SOURCE[0]}")/exit_codes.sh"
 
 # superseded <sha> <branch> — whether <branch> on origin has moved past <sha>
 # while still containing it.
@@ -37,7 +39,7 @@ if git rev-parse -q --verify "refs/tags/v${version}" >/dev/null; then
 
   if [[ -z "${branch_name}" ]]; then
     echo "Unable to determine branch name for release version bump" >&2
-    exit 1
+    exit "${EXIT_FAILURE}"
   fi
 
   run_sha="$(git rev-parse HEAD)"
@@ -55,10 +57,10 @@ if git rev-parse -q --verify "refs/tags/v${version}" >/dev/null; then
   if ! git push origin "HEAD:${branch_name}"; then
     if superseded "${run_sha}" "${branch_name}"; then
       echo "${branch_name} has moved past ${run_sha}; leaving the release to the newer run" >&2
-      exit "${SUPERSEDED}"
+      exit "${EXIT_SUPERSEDED}"
     fi
     echo "git push failed; version bump commit not pushed" >&2
-    exit 1
+    exit "${EXIT_FAILURE}"
   fi
 fi
 

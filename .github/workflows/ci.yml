@@ -295,21 +295,24 @@ jobs:
         id: version
         run: echo "version=$(python utils/read_version.py)" >> "$GITHUB_OUTPUT"
 
-      # Exit 3 means main moved past this commit while the run was busy: a
-      # second merge landed, and its own run will release both. Nothing is
-      # wrong, so the job stands down green instead of failing main.
+      # EXIT_SUPERSEDED (utils/exit_codes.sh) means main moved past this commit
+      # while the run was busy: a second merge landed, and its own run will
+      # release both. Nothing is wrong, so the job stands down green instead
+      # of failing main.
       # Issue #495; the script explains how it tells this from a real failure.
       - name: Bump version if tag exists
         id: bump
         run: |
-          status=0
+          # Same named codes the script exits with, so the two cannot drift.
+          source utils/exit_codes.sh
+          status="${EXIT_OK}"
           version="$(utils/bump_version_if_tag_exists.sh "${{ steps.version.outputs.version }}")" || status=$?
-          if [ "${status}" -eq 3 ]; then
+          if [ "${status}" -eq "${EXIT_SUPERSEDED}" ]; then
             echo "::notice title=Release superseded::main moved past ${GITHUB_SHA} during this run. The newer run releases this commit along with its own."
             echo "superseded=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            exit "${EXIT_OK}"
           fi
-          [ "${status}" -eq 0 ] || exit "${status}"
+          [ "${status}" -eq "${EXIT_OK}" ] || exit "${status}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "superseded=false" >> "$GITHUB_OUTPUT"
 

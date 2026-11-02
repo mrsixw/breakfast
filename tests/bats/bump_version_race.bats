@@ -79,7 +79,7 @@ bump() {
 @test "pushes the bump when main is still where the run started" {
   bump
 
-  [ "$status" -eq 0 ]
+  [ "$status" -eq "${EXIT_OK}" ]
   [ "$output" = "1.2.4" ]
   [ "$(origin_subject)" = "chore: bump version to 1.2.4 [skip ci]" ]
 }
@@ -93,7 +93,7 @@ bump() {
 
   # Not 1: the newer run releases this commit along with its own, so nothing
   # is wrong and main must not go red.
-  [ "$status" -eq 3 ]
+  [ "$status" -eq "${EXIT_SUPERSEDED}" ]
   [[ "$stderr" == *"main has moved past ${RUN_SHA}"* ]]
   # And it really did stand down: main is exactly where the other merge left it.
   [ "$(origin_main)" = "${newer}" ]
@@ -104,7 +104,7 @@ bump() {
 
   bump
 
-  [ "$status" -eq 3 ]
+  [ "$status" -eq "${EXIT_SUPERSEDED}" ]
   [ -z "$output" ]
 }
 
@@ -116,7 +116,7 @@ bump() {
 
   bump
 
-  [ "$status" -eq 3 ]
+  [ "$status" -eq "${EXIT_SUPERSEDED}" ]
 }
 
 @test "fails loudly when main was rewritten rather than advanced" {
@@ -128,6 +128,6 @@ bump() {
 
   bump
 
-  [ "$status" -eq 1 ]
+  [ "$status" -eq "${EXIT_FAILURE}" ]
   [[ "$stderr" == *"git push failed"* ]]
 }

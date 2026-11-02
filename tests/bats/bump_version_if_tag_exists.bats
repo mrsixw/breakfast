@@ -39,7 +39,7 @@ STUB
 @test "prints the version untouched when the tag does not yet exist" {
   run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
 
-  [ "$status" -eq 0 ]
+  [ "$status" -eq "${EXIT_OK}" ]
   [ "$output" = "1.2.3" ]
 }
 
@@ -48,7 +48,7 @@ STUB
   # commit or a pushed branch.
   run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
 
-  [ "$status" -eq 0 ]
+  [ "$status" -eq "${EXIT_OK}" ]
   refute_called git "commit"
   refute_called git "push"
   refute_called git "mkver"
@@ -66,7 +66,7 @@ STUB
 
   run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
 
-  [ "$status" -eq 0 ]
+  [ "$status" -eq "${EXIT_OK}" ]
   assert_called git "mkver patch"
   assert_called git "add VERSION uv.lock"
   assert_called git "commit -m chore: bump version to 1.2.4"
@@ -82,7 +82,7 @@ STUB
 
   run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
 
-  [ "$status" -eq 0 ]
+  [ "$status" -eq "${EXIT_OK}" ]
   assert_called_arg git "chore: bump version to 1.2.4 [skip ci]"
 }
 
@@ -109,7 +109,7 @@ STUB
 
   run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
 
-  [ "$status" -eq 0 ]
+  [ "$status" -eq "${EXIT_OK}" ]
   assert_called git "push origin HEAD:feature-branch"
 }
 
@@ -118,7 +118,7 @@ STUB
 
   run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
 
-  [ "$status" -eq 0 ]
+  [ "$status" -eq "${EXIT_OK}" ]
   assert_called git "push origin HEAD:main"
 }
 
@@ -127,7 +127,7 @@ STUB
 
   run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
 
-  [ "$status" -eq 1 ]
+  [ "$status" -eq "${EXIT_FAILURE}" ]
   assert_output_contains "Unable to determine branch name"
   refute_called git "commit"
 }
@@ -139,7 +139,7 @@ STUB
 
   run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
 
-  [ "$status" -eq 1 ]
+  [ "$status" -eq "${EXIT_FAILURE}" ]
   assert_output_contains "git push failed"
 }
 
@@ -150,6 +150,14 @@ STUB
 
   run "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh" 1.2.3
 
-  [ "$status" -eq 1 ]
+  [ "$status" -eq "${EXIT_FAILURE}" ]
   assert_output_contains "git push failed"
+}
+
+@test "exits only through the named codes in utils/exit_codes.sh" {
+  # A bare `exit 3` here and a bare `-eq 3` in ci.yml drift apart silently.
+  # Every exit names its code, so the workflow and the script share one value.
+  run grep -nE '\bexit [0-9]+' "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh"
+  [ "$status" -ne "${EXIT_OK}" ]
+  [ -z "$output" ]
 }

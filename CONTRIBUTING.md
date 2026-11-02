@@ -152,6 +152,21 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 
 Keep the summary short and imperative (e.g., `feat: add label filtering`).
 
+### Which commit types bump which number
+
+`git mkver` reads every commit message since the last tag, and the largest
+increment it finds wins:
+
+| Commits since the last tag | Release |
+| --- | --- |
+| any major marker (see below) | **major** |
+| any `feat:` | **minor** |
+| `fix:`, or only types mkver does not recognise (`docs:`, `chore:`, `ci:`, `test:`, `refactor:`) | **patch** |
+
+The last row comes from `whenNoValidCommitMessages: IncrementPatch` in
+`mkver.conf`. A branch that touches only documentation or tooling releases a
+patch, while one that mixes `docs:` with `feat:` still releases a minor.
+
 ### Breaking changes bump the major version
 
 Two things, and only these two, cause a **major** release:

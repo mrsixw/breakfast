@@ -18,6 +18,21 @@ def test_filter_pr_details_ignores_authors():
     assert filtered == [{"user": {"login": "alice"}}]
 
 
+def test_filter_pr_details_survives_a_ghost_author():
+    """#385's repro: the key exists with a null value, so .get("user", {}) fails."""
+    pr_details = [{"user": None}, {"user": {"login": "alice"}}]
+
+    assert config.filter_pr_details(pr_details, []) == pr_details
+
+
+def test_filter_pr_details_can_ignore_the_ghost_author():
+    pr_details = [{"user": None}, {"user": {"login": "alice"}}]
+
+    filtered = config.filter_pr_details(pr_details, ignore_authors=["ghost"])
+
+    assert filtered == [{"user": {"login": "alice"}}]
+
+
 def test_filter_pr_details_filter_authors():
     pr_details = [
         {"user": {"login": "alice"}},

@@ -194,7 +194,7 @@ written with a hyphen. The commit that added this very section tripped over it.
 
 ## Pull Requests
 
-- Include the issue number in the PR title (e.g., `#7: Split test deps and migrate to uv`).
+- Start the PR title with the issue number spelled out (e.g., `Issue 7: Split test deps and migrate to uv`). Avoid `#7:`, because GitHub already shows the PR's own `#` number beside the title, and two `#` numbers side by side are easy to confuse.
 - Ensure CI is green before requesting review.
 - Keep PRs focused — one issue per PR where possible.
 
@@ -266,7 +266,7 @@ GitHub auto-generates release notes from merged PR titles, formatted as:
 
 ```markdown
 ## What's Changed
-* #N: PR title by @author in https://github.com/.../pull/N
+* Issue N: PR title by @author in https://github.com/.../pull/M
 
 **Full Changelog**: https://github.com/.../compare/vX...vY
 ```

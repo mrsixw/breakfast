@@ -157,7 +157,7 @@ STUB
 @test "exits only through the named codes in utils/exit_codes.sh" {
   # A bare `exit 3` here and a bare `-eq 3` in ci.yml drift apart silently.
   # Every exit names its code, so the workflow and the script share one value.
-  run grep -nE '\bexit [0-9]+' "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh"
+  run grep -nE '\bexit[[:space:]]+"?[0-9]+' "${REPO_ROOT}/utils/bump_version_if_tag_exists.sh"
   [ "$status" -ne "${EXIT_OK}" ]
   [ -z "$output" ]
 }

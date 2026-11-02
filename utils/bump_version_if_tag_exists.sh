@@ -25,11 +25,35 @@ source "$(dirname "${BASH_SOURCE[0]}")/exit_codes.sh"
 # lands on main is either a merge, which starts a run, or a bump this script
 # pushed, whose run goes straight on to release. A hand-pushed [skip ci] commit
 # would break that, and is not something this project does.
+#
+# <sha> is the commit this run was started for (run_sha, read before the bump
+# commit was made), not the bump commit that just failed to push.
+#
+# Every "no" sends the caller down the EXIT_FAILURE path, so when in doubt this
+# answers no: a wrong "no" is a red run someone reruns, but a wrong "yes" is a
+# green run that silently released nothing.
+#
+# The `|| return 1` guards are load-bearing. The caller runs this as an `if`
+# condition, so bash ignores `set -e` for every command in this function's
+# body. Without them a failed fetch would carry on and read a stale FETCH_HEAD.
 superseded() {
   local sha="$1" branch="$2" remote
+
+  # 1. Ask origin where <branch> is now. The checkout this run started from is
+  #    exactly what is out of date, so it cannot answer. Can't reach origin:
+  #    no.
   git fetch --quiet origin "${branch}" || return 1
   remote="$(git rev-parse FETCH_HEAD)" || return 1
+
+  # 2. Has it moved? If the tip is still <sha>, nobody else pushed, so the push
+  #    failed for some other reason (auth, network, branch protection): no.
   [[ -n "${remote}" && "${remote}" != "${sha}" ]] || return 1
+
+  # 3. Has it moved *forward*? <sha> must be an ancestor of the new tip, so our
+  #    commit is still in its history. That is all git can prove; that a newer
+  #    run will release it is the assumption stated above. Exits 0 if so, 1 if
+  #    not (main was rewritten and our commit dropped), and 128 on a git error;
+  #    both non-zero cases are a no.
   git merge-base --is-ancestor "${sha}" "${remote}"
 }
 

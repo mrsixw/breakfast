@@ -2,6 +2,7 @@ import csv
 import io
 import json
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
@@ -11,7 +12,7 @@ import requests
 from click.testing import CliRunner
 from freezegun import freeze_time
 
-from breakfast import api, cache, cli, renderers, ui
+from breakfast import api, cache, cli, config, renderers, ui
 
 
 @pytest.fixture(autouse=True)
@@ -628,6 +629,37 @@ def test_cli_filter_author_config_key_applies(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert "Alice PR" in result.stdout
     assert "Bob PR" not in result.stdout
+
+
+def test_cli_config_missing_file_is_an_error(tmp_path):
+    """#388: an explicit --config that is not there must not be shrugged off.
+
+    Silently falling back to defaults drops every setting in the intended
+    file, and the user sees an unrelated complaint — "Owner must be
+    provided" — instead of the typo they actually made.
+    """
+    missing = tmp_path / "does-not-exist.toml"
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["--config", str(missing), "-o", "org", "-r", "repo"]
+    )
+
+    assert result.exit_code == 1
+    assert "config file not found" in result.stderr.lower()
+    assert str(missing) in result.stderr
+    # The error belongs on stderr, leaving stdout clean for piping.
+    assert result.stdout == ""
+
+
+def test_cli_config_default_paths_tolerate_absent_files(monkeypatch, tmp_path):
+    """The leniency that --config gives up is still right for the search paths."""
+    _stub_two_author_prs(monkeypatch)
+    monkeypatch.setattr(config, "get_config_paths", lambda: [tmp_path / "nope.toml"])
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 0
+    assert "config file not found" not in result.stderr.lower()
 
 
 def test_cli_filter_author_cli_replaces_config(monkeypatch, tmp_path):
@@ -5465,18 +5497,26 @@ def test_shell_enum_members_are_their_lowercase_names():
     assert cli.Shell.BASH == "bash"
 
 
-def test_deprecated_completion_flag_keeps_stdout_evaluable():
-    """The notice must not land on stdout — the shell eval's it verbatim."""
+def test_the_removed_completion_flag_is_rejected():
+    """#417: the deprecation window closed, so this is an unknown option now."""
     runner = CliRunner()
     result = runner.invoke(cli.breakfast, ["--completion", "bash"])
-    assert result.exit_code == 0
-    assert "_BREAKFAST_COMPLETE" in result.stdout
-    assert "deprecated" not in result.stdout
-    assert "deprecated" in result.stderr
-    assert "breakfast completions bash" in result.stderr
+    assert result.exit_code == 2
+    assert "no such option" in result.output.lower()
+    # Not a deprecation notice any more, and nothing eval-able on stdout.
+    assert "deprecated" not in result.output.lower()
+    assert "_BREAKFAST_COMPLETE" not in result.stdout
 
 
-def test_deprecated_completion_flag_is_hidden_from_help():
+def test_the_completions_subcommand_is_untouched():
+    runner = CliRunner()
+    for shell in ("bash", "zsh", "fish"):
+        result = runner.invoke(cli.breakfast, ["completions", shell])
+        assert result.exit_code == 0, shell
+        assert "_BREAKFAST_COMPLETE" in result.stdout, shell
+
+
+def test_completion_flag_is_absent_from_help():
     runner = CliRunner()
     result = runner.invoke(cli.breakfast, ["--help"])
     assert "--completion" not in result.stdout
@@ -6830,3 +6870,213 @@ def test_custom_calendar_seasonal_colours_false_wins(monkeypatch, tmp_path):
         result = _run_with_calendar_config(monkeypatch, tmp_path, body)
     assert result.exit_code == 0
     assert "\033[38;2;255;105;180m" not in result.stdout
+
+
+# ── Progress feedback during approvals and checks (#493) ───────────────────
+
+
+def test_the_live_approvals_phase_announces_itself(monkeypatch):
+    # The cache-hit path has always labelled this phase; the live path ran it
+    # in silence, which is where the perceived hang came from.
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--approvals", "--no-cache"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert re.search(r"Fetching approvals\.\.\.[^.\n]+\.\.\.Done\n", result.stderr)
+
+
+def test_approval_lookups_drip_progress_for_every_pr(monkeypatch, capsys):
+    # One glyph per 50-PR batch meant 267 PRs produced six. An enriched PR is
+    # the unit of work the user cares about, so it is the unit we report.
+    numbers = range(1, 8)
+    _stub_batched_approvals(monkeypatch, {n: ("REVIEW_REQUIRED", []) for n in numbers})
+    prs = [_approval_pr(n) for n in numbers]
+
+    cli._approval_details_for(prs, workers=4)
+
+    # The batch itself reports through api's own progress, which keeps the real
+    # emoji; only cli's per-PR reporting is stubbed to "*".
+    assert capsys.readouterr().err.count("*") == len(prs)
+
+
+def test_the_check_lookups_announce_themselves_and_drip_progress(monkeypatch, tmp_path):
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+    monkeypatch.setattr(cli, "get_check_status", lambda *_args: "pass")
+    cache.write_pr_cache("org", "repo", [_approval_pr(n) for n in (1, 2, 3)])
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--checks", "--cache"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert re.search(r"Fetching checks\.\.\.\*\*\*\.\.\.Done\n", result.stderr)
+
+
+def test_a_slow_approvals_phase_keeps_the_progress_line_moving(monkeypatch):
+    # Per-PR reporting cannot help here: the batch is one request covering 50
+    # PRs, so only a clock can prove the process is still alive.
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+    monkeypatch.setattr(cli, "PROGRESS_HEARTBEAT_SECONDS", 0.02)
+    real_batch = cli.get_review_data_batch
+
+    def slow_batch(keys):
+        time.sleep(0.3)
+        return real_batch(keys)
+
+    monkeypatch.setattr(cli, "get_review_data_batch", slow_batch)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--approvals", "--no-cache"]
+    )
+
+    assert result.exit_code == 0, result.output
+    _, _, after_label = result.stderr.partition("Fetching approvals...")
+    # Three PRs drip three glyphs; the heartbeat must add more on top.
+    assert after_label.count("*") > 3
+
+
+def test_a_slow_pr_detail_fetch_keeps_the_progress_line_moving(monkeypatch):
+    # One emoji per PR is good granularity until a single detail request
+    # stalls — near the end of a run only a handful are still in flight, so
+    # the bound on silence has to hold here too.
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+    monkeypatch.setattr(cli, "PROGRESS_HEARTBEAT_SECONDS", 0.02)
+    real_bundle = cli._fetch_pr_bundle
+
+    def slow_bundle(url, fetch_checks):
+        time.sleep(0.2)
+        return real_bundle(url, fetch_checks)
+
+    monkeypatch.setattr(cli, "_fetch_pr_bundle", slow_bundle)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--no-cache"]
+    )
+
+    assert result.exit_code == 0, result.output
+    progress, _, _ = result.stderr.partition("...Done")
+    # Three PRs drip three glyphs; the heartbeat must add more while they stall.
+    assert progress.count("*") > 3
+
+
+def test_the_approvals_phase_is_timed_in_the_log(monkeypatch, caplog):
+    # Working out where a slow run spent its time used to mean reading raw
+    # api_call lines by hand, because nothing bracketed the phases between
+    # data_acquired and render_complete.
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+
+    with caplog.at_level("INFO", logger="breakfast"):
+        result = CliRunner().invoke(
+            cli.breakfast, ["-o", "org", "-r", "repo", "--approvals", "--no-cache"]
+        )
+
+    assert result.exit_code == 0, result.output
+    timings = [r.message for r in caplog.records if "approvals_acquired" in r.message]
+    assert len(timings) == 1
+    assert re.search(r"approvals_acquired pr_count=3 elapsed_ms=\d+", timings[0])
+
+
+def test_the_check_phase_is_timed_in_the_log(monkeypatch, tmp_path, caplog):
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+    monkeypatch.setattr(cli, "get_check_status", lambda *_args: "pass")
+    cache.write_pr_cache("org", "repo", [_approval_pr(n) for n in (1, 2, 3)])
+
+    with caplog.at_level("INFO", logger="breakfast"):
+        result = CliRunner().invoke(
+            cli.breakfast, ["-o", "org", "-r", "repo", "--checks", "--cache"]
+        )
+
+    assert result.exit_code == 0, result.output
+    timings = [r.message for r in caplog.records if "checks_acquired" in r.message]
+    assert len(timings) == 1
+    assert re.search(r"checks_acquired pr_count=3 elapsed_ms=\d+", timings[0])
+
+
+# ── Every opened progress line gets closed (#496) ──────────────────────────
+
+
+# A phase writes its label with nl=False and closes it with "...Done", so a
+# label left without its terminator is a phase that, to the user, never
+# finished. Matching the shape rather than each known label means a new phase
+# is covered by these tests the day it is added.
+_PHASE_LABEL = re.compile(r"^(?:Fetching|Processing) .*?\.\.\.")
+
+
+def _unclosed_progress_phases(stderr):
+    """Progress lines that opened a phase label but never closed it."""
+    return [
+        line
+        for line in stderr.splitlines()
+        if _PHASE_LABEL.match(line) and not line.endswith("...Done")
+    ]
+
+
+def test_every_live_phase_closes_its_progress_line(monkeypatch):
+    # #494 gave the approvals phase a label by prefixing it with "\n", which
+    # ended the "Processing ... PRs..." line without a "...Done" and handed
+    # that line's terminator to approvals. One terminator, two lines needing
+    # one.
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--approvals", "--no-cache"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _unclosed_progress_phases(result.stderr) == []
+
+
+def test_the_live_processing_line_closes_when_approvals_are_off(monkeypatch):
+    # The approvals-off path was never broken. It is here so a fix that moves
+    # the terminator around cannot quietly trade one path for the other.
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--no-cache"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _unclosed_progress_phases(result.stderr) == []
+    assert re.search(r"Processing repo PRs\.\.\.[^.\n]*\.\.\.Done\n", result.stderr)
+
+
+def test_the_live_processing_and_approvals_lines_are_both_closed(monkeypatch):
+    # The specific pairing, spelled out: two labels, two terminators, in order.
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--approvals", "--no-cache"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert re.search(
+        r"Processing repo PRs\.\.\.[^.\n]*\.\.\.Done\n"
+        r"Fetching approvals\.\.\.[^.\n]*\.\.\.Done\n",
+        result.stderr,
+    )
+
+
+def test_every_cache_hit_phase_closes_its_progress_line(monkeypatch, tmp_path):
+    _stub_batched_approvals(monkeypatch, _THREE_REVIEW_STATES)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
+    monkeypatch.setattr(cli, "get_check_status", lambda *_args: "pass")
+    cache.write_pr_cache("org", "repo", [_approval_pr(n) for n in (1, 2, 3)])
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--approvals", "--checks", "--cache"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _unclosed_progress_phases(result.stderr) == []

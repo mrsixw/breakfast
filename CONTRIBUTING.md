@@ -35,6 +35,7 @@ Thanks for your interest in contributing to **breakfast**! This guide covers set
   - `ui.py` — Terminal formatting and progress emojis
   - `updater.py` — Version checking and caching
 - `tests/` — module-specific pytest suite
+  - `tests/bats/` — [bats](https://github.com/bats-core/bats-core) suite covering the repository's shell scripts
   - `tests/e2e/` — end-to-end suite driving the built binary against real GitHub
 - `pyproject.toml` — project metadata, dependencies, tool config
 - `VERSION` — static file containing the current version string
@@ -56,13 +57,17 @@ Thanks for your interest in contributing to **breakfast**! This guide covers set
 
 ```bash
 make test        # unit + CLI tests. Offline and fast.
+make bats        # shell script tests. Offline and fast.
 make e2e         # end-to-end: builds the zipapp, then drives it against real GitHub
 ```
 
-There are three layers, described in full in [docs/design/testing.md](docs/design/testing.md):
+There are four layers, described in full in [docs/design/testing.md](docs/design/testing.md):
 
 - **Unit and CLI tests** (`tests/*.py`) use `pytest` with `monkeypatch` for mocking and `click.testing.CliRunner` for CLI tests. These are what `make test` runs.
+- **Shell tests** (`tests/bats/`) run each shell script as a subprocess with `gh`, `git` and `curl` stubbed and `HOME` redirected into a temporary directory. Offline, and safe to run anywhere. These are what `make bats` runs.
 - **End-to-end tests** (`tests/e2e/`) are [pytest-bdd](https://pytest-bdd.readthedocs.io/) `.feature` files that run the built `./breakfast` zipapp as a subprocess against the real GitHub API. They are excluded from `make test` by default.
+
+`bats` is fetched on demand with `npx`, the same way `make docs-lint` fetches `markdownlint-cli2`, so there is nothing to install by hand; you do need `node` on your PATH. `shellcheck` and `typos` come through `uvx` instead, pinned in the `Makefile` so the same versions run locally and in CI. The three sibling repos that share this harness — gh-snitch, five-clis and jeeves — fetch their tools the same way.
 
 The rule for deciding where a new test goes: **if it monkeypatches `breakfast.*`, it is a unit test** and belongs in `tests/`.
 
@@ -75,11 +80,14 @@ make build && uv run pytest -v -m "e2e and not live" tests/e2e
 ### Linting and Formatting
 
 ```bash
-make lint        # ruff check + black --check
+make lint        # ruff check + black --check + markdownlint + shellcheck + typos
 make format      # ruff check --fix + black
+make shellcheck  # just the shell static analysis
+make spell       # just the spell check, the same one CI runs
 ```
 
-Run both `make test` and `make lint` before committing.
+Run both `make test` and `make lint` before committing. If you touched a shell
+script, run `make bats` too.
 
 ### Building
 
@@ -144,6 +152,31 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 
 Keep the summary short and imperative (e.g., `feat: add label filtering`).
 
+### Breaking changes bump the major version
+
+Two things, and only these two, cause a **major** release:
+
+- a `!` after the type — `feat!: drop the old flag`
+- `BREAKING CHANGE` anywhere in the commit body
+
+`git mkver` reads them straight out of the commit messages since the last tag,
+so the release that follows your merge is decided by how you word the commit.
+This is how 0.107.1 became 1.0.0: #417 removed a deprecated flag and was
+committed as `feat!:`, which was accurate and also a major-version instruction.
+
+Neither marker is a way to say "this change matters". Use one when you intend
+to change the first number, and call it out in the pull request when you do.
+
+The `version` CI job prints the version your merge would release on every pull
+request. Check it before merging.
+
+**Careful writing about these markers.** mkver looks for them as a substring on
+any line of any commit message since the last tag, so a commit body that
+explains "this was committed as `feat!:`" is indistinguishable, to mkver, from
+one declaring a breaking change — and releases a major version. Break the string
+when you need to refer to it: `feat!` without the trailing colon, or the footer
+written with a hyphen. The commit that added this very section tripped over it.
+
 ## Pull Requests
 
 - Include the issue number in the PR title (e.g., `#7: Split test deps and migrate to uv`).
@@ -169,10 +202,29 @@ All four files convey the same project rules. **When updating project convention
 - **Formatter:** [black](https://black.readthedocs.io/) (line length 88, target Python 3.11)
 - Run checks locally before pushing. CI will also verify these.
 
+## When CI runs
+
+CI runs on every pull request, and on pushes to `main`. A branch push is
+deliberately **not** a trigger on its own: the pull request covers it, and
+running both fired the whole workflow twice for one commit, which doubled the
+end-to-end job's real GitHub API calls and listed every check twice.
+
+So a branch with no pull request open gets no automatic run. Open the pull
+request, or trigger one by hand from the Actions tab (`workflow_dispatch`).
+
 ## mkver / Versioning
 
 - Do **not** run `git mkver patch` on feature branches — it mutates the version file.
 - Version bumps happen when preparing a release, not during regular development.
+- **`git mkver patch` does not mean "bump the patch number".** It applies the
+  file patches named in `mkver.conf` (here, writing `VERSION`), and what it
+  writes is the version mkver computed from the commit messages — which may be
+  a major, minor or patch increase. The release job calls it through
+  `utils/bump_version_if_tag_exists.sh` when the tag for the current version
+  already exists.
+- `utils/report_next_version.sh` prints the current version alongside the one
+  the next release would carry, and says so loudly if the major component
+  changes. The `version` CI job runs it on every pull request.
 
 ## Releases
 

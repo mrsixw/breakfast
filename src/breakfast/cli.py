@@ -51,7 +51,11 @@ from .config import (
     parse_columns_config,
     update_config,
 )
-from .constants import BREAKFAST_ITEMS, HEADER_STYLE_CHOICES
+from .constants import (
+    BREAKFAST_ITEMS,
+    HEADER_STYLE_CHOICES,
+    PROGRESS_HEARTBEAT_SECONDS,
+)
 from .logger import configure as configure_logging
 from .logger import logger
 from .renderers import (
@@ -63,12 +67,14 @@ from .renderers import (
     render_template,
 )
 from .ui import (
+    emit_progress,
     get_random_cake_recipe,
     get_random_pizza_recipe,
     has_shown_holiday_gift,
     is_christmas,
     is_steves_birthday,
     mark_holiday_gift_shown,
+    progress_heartbeat,
     render_cake_recipe,
     render_colour_diagnostics,
     render_pizza_recipe,
@@ -454,6 +460,11 @@ def _fetch_pr_bundle(url, fetch_checks):
     return pr_detail, check_status
 
 
+def _show_progress():
+    """Print one breakfast emoji to stderr: a unit of work finished."""
+    emit_progress(random.choices(BREAKFAST_ITEMS)[0])
+
+
 def _pending_approval():
     return {"status": "pending", "current": 0, "required": None}
 
@@ -493,32 +504,27 @@ def _approval_details_for(pr_details, workers):
     details = {pr_detail["id"]: _pending_approval() for pr_detail in pr_details}
     if not keys:
         return details
+    # Collected inside the pool, via as_completed: reading results after the
+    # `with` block means the executor has already waited for every request, so
+    # there is nothing left to report one PR at a time. See issue #493.
     with ThreadPoolExecutor(max_workers=min(workers, len(keys))) as executor:
         futures = {
             executor.submit(summarize, key): pr_id for pr_id, key in keys.items()
         }
-    for future, pr_id in futures.items():
-        try:
-            details[pr_id] = future.result()
-        except (ValueError, requests.exceptions.RequestException) as exc:
-            logger.warning(
-                "approval_status_fetch_failed pr_id=%s error=%r", pr_id, str(exc)
-            )
+        for future in as_completed(futures):
+            pr_id = futures[future]
+            try:
+                details[pr_id] = future.result()
+            except (ValueError, requests.exceptions.RequestException) as exc:
+                logger.warning(
+                    "approval_status_fetch_failed pr_id=%s error=%r", pr_id, str(exc)
+                )
+            _show_progress()
     return details
 
 
 @click.group(invoke_without_command=True, epilog="Made with ❤️ in the UK")
 @click.pass_context
-@click.option(
-    "--completion",
-    "completion_shell",
-    type=click.Choice(_SHELL_CHOICES),
-    default=None,
-    is_eager=True,
-    expose_value=True,
-    hidden=True,
-    help="Deprecated: use 'breakfast completions SHELL' instead.",
-)
 @click.option("--config", help="Path to config file.")
 @click.option("--show-config", is_flag=True, help="Print the resolved config and exit.")
 @click.option(
@@ -1000,7 +1006,6 @@ def _approval_details_for(pr_details, workers):
 @click.version_option(package_name="breakfast")
 def breakfast(
     ctx,
-    completion_shell,
     config,
     show_config,
     init_config,
@@ -1080,20 +1085,6 @@ def breakfast(
     # fallback further down.
     no_colour = no_colour or env_flag_is_set("NO_COLOR")
     no_update_check = no_update_check or env_flag_is_set("BREAKFAST_NO_UPDATE_CHECK")
-
-    if completion_shell:
-        click.echo(
-            click.style(
-                "⚠️  --completion is deprecated; use 'breakfast completions "
-                f"{completion_shell}' instead.",
-                fg="yellow",
-            ),
-            # stderr, always: this command's stdout gets eval'd by the user's
-            # shell, so a notice on stdout becomes a shell startup syntax error.
-            err=True,
-        )
-        _emit_completion_script(completion_shell)
-        sys.exit(0)
 
     if colour_diagnostics:
         click.echo(render_colour_diagnostics(), color=True)
@@ -1704,7 +1695,15 @@ def breakfast(
 
             if urls_to_fetch:
                 max_workers = min(workers, len(urls_to_fetch))
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # One emoji per PR is good granularity until a single request
+                # stalls: by the end of a run only a few are still in flight.
+                # An error raised below is printed while the beat is still
+                # running, so it gets its own line first — a stray emoji
+                # beside a message is better than an unbounded silence.
+                with (
+                    progress_heartbeat(_show_progress, PROGRESS_HEARTBEAT_SECONDS),
+                    ThreadPoolExecutor(max_workers=max_workers) as executor,
+                ):
                     future_to_url = {
                         executor.submit(_fetch_pr_bundle, url, checks): url
                         for url in urls_to_fetch
@@ -1730,11 +1729,7 @@ def breakfast(
                             if check_status is not None:
                                 check_statuses[pr_detail["id"]] = check_status
                                 rd["checks"][pr_detail["id"]] = check_status
-                            click.echo(
-                                random.choices(BREAKFAST_ITEMS)[0],
-                                nl=False,
-                                err=True,
-                            )
+                            _show_progress()
                         except GitHubAuthenticationError as exc:
                             executor.shutdown(wait=False, cancel_futures=True)
                             click.echo("", err=True)
@@ -1752,7 +1747,26 @@ def breakfast(
 
             # Approvals for everything fetched above, in a few batched requests.
             if approvals and pr_details:
-                fetched_approvals = _approval_details_for(pr_details, workers)
+                # Every emoji up to here meant a PR detail. Approvals are a
+                # different kind of work and used to run with no label at all,
+                # while the cache-hit path below announced itself.
+                #
+                # Close the detail line before opening this one. #494 started
+                # it with a "\n", which ended the detail line with a bare
+                # newline and left the "...Done" after the cache writes to
+                # close *this* line instead — one terminator for two lines
+                # that each need one, so the detail phase looked unfinished.
+                # See issue #496.
+                click.echo("...Done", err=True)
+                click.echo("Fetching approvals...", nl=False, err=True)
+                t_approvals = time.monotonic()
+                with progress_heartbeat(_show_progress, PROGRESS_HEARTBEAT_SECONDS):
+                    fetched_approvals = _approval_details_for(pr_details, workers)
+                logger.info(
+                    "approvals_acquired pr_count=%d elapsed_ms=%d",
+                    len(pr_details),
+                    int((time.monotonic() - t_approvals) * 1000),
+                )
                 approval_details.update(fetched_approvals)
                 for pr_id, detail in fetched_approvals.items():
                     approval_statuses[pr_id] = detail["status"]
@@ -1787,6 +1801,8 @@ def breakfast(
                 cached_approval_statuses = repo_hit_approvals or None
                 cached_approval_details = repo_hit_approval_details or None
 
+            # Closes whichever line is still open: the approvals line when
+            # that phase ran, the PR detail line when it did not.
             click.echo("...Done", err=True)
             if failed_urls:
                 examples = ", ".join(failed_urls[:3])
@@ -1905,30 +1921,46 @@ def breakfast(
             for pr_detail in pr_details:
                 check_statuses[pr_detail["id"]] = "none"
         else:
+            click.echo("Fetching checks...", nl=False, err=True)
+            t_checks = time.monotonic()
             max_workers = min(workers, len(pr_details))
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                check_futures = []
-                for pr_detail in pr_details:
-                    owner = pr_detail["base"]["repo"]["owner"]["login"]
-                    repo_name = pr_detail["base"]["repo"]["name"]
-                    sha = pr_detail["head"]["sha"]
-                    future = executor.submit(get_check_status, owner, repo_name, sha)
-                    check_futures.append((pr_detail["id"], future))
-            for pr_id, future in check_futures:
-                try:
-                    check_statuses[pr_id] = future.result()
-                except (
-                    KeyError,
-                    ValueError,
-                    AttributeError,
-                    requests.exceptions.RequestException,
-                ) as exc:
-                    logger.warning(
-                        "check_status_fetch_failed pr_id=%s error=%r",
-                        pr_id,
-                        str(exc),
-                    )
-                    check_statuses[pr_id] = "none"
+            # As with approvals, results are collected inside the pool so each
+            # PR can be reported as it lands rather than after every request
+            # has already finished. See issue #493.
+            with progress_heartbeat(_show_progress, PROGRESS_HEARTBEAT_SECONDS):
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    check_futures = {}
+                    for pr_detail in pr_details:
+                        owner = pr_detail["base"]["repo"]["owner"]["login"]
+                        repo_name = pr_detail["base"]["repo"]["name"]
+                        sha = pr_detail["head"]["sha"]
+                        future = executor.submit(
+                            get_check_status, owner, repo_name, sha
+                        )
+                        check_futures[future] = pr_detail["id"]
+                    for future in as_completed(check_futures):
+                        pr_id = check_futures[future]
+                        try:
+                            check_statuses[pr_id] = future.result()
+                        except (
+                            KeyError,
+                            ValueError,
+                            AttributeError,
+                            requests.exceptions.RequestException,
+                        ) as exc:
+                            logger.warning(
+                                "check_status_fetch_failed pr_id=%s error=%r",
+                                pr_id,
+                                str(exc),
+                            )
+                            check_statuses[pr_id] = "none"
+                        _show_progress()
+            click.echo("...Done", err=True)
+            logger.info(
+                "checks_acquired pr_count=%d elapsed_ms=%d",
+                len(pr_details),
+                int((time.monotonic() - t_checks) * 1000),
+            )
             needs_cache_write = True
 
     # Fetch approval statuses for cache-hit paths where statuses are absent.
@@ -1958,9 +1990,16 @@ def breakfast(
                 }
         else:
             click.echo("Fetching approvals...", nl=False, err=True)
+            t_approvals = time.monotonic()
             try:
-                approval_details = _approval_details_for(pr_details, workers)
+                with progress_heartbeat(_show_progress, PROGRESS_HEARTBEAT_SECONDS):
+                    approval_details = _approval_details_for(pr_details, workers)
                 click.echo("...Done", err=True)
+                logger.info(
+                    "approvals_acquired pr_count=%d elapsed_ms=%d",
+                    len(pr_details),
+                    int((time.monotonic() - t_approvals) * 1000),
+                )
             except GitHubAuthenticationError as exc:
                 click.echo("", err=True)
                 _handle_auth_error(exc, colour=colour, json_output=json_output)

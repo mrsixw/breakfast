@@ -29,8 +29,10 @@ __all__ = [
     "PASSOVER_START",
     "PIZZA_RECIPES",
     "PRIDE_RAINBOW",
+    "PROGRESS_HEARTBEAT_SECONDS",
     "REPOSITORY_NAMES_CACHE_TTL",
     "REQUEST_TIMEOUT",
+    "RETRY_EMOJI",
     "RETRY_STATUSES",
     "REVIEW_BATCH_PAGE_SIZE",
     "REVIEW_BATCH_SIZE",
@@ -59,6 +61,16 @@ MAX_STORED_GRAPHQL_ERRORS = 10
 MAX_RETRIES = 3
 RETRY_STATUSES = {502, 503, 504}
 REQUEST_TIMEOUT = (5, 30)
+# A retried request is shown on the progress line rather than announced in a
+# sentence: a transient 502 can happen several times a run, and the point is
+# that the wait is deliberate, not that the user must read about it. Not the
+# hourglass, which already labels a pending approval in the table.
+RETRY_EMOJI = "🔁"
+# Progress is normally one emoji per finished unit of work, but a unit can be a
+# GraphQL batch covering REVIEW_BATCH_SIZE PRs, and a 502 plus its backoff can
+# hold one of those open for the better part of a minute. The heartbeat is the
+# floor underneath that: however slow a single request is, the line keeps moving.
+PROGRESS_HEARTBEAT_SECONDS = 2.0
 # PR discovery uses GraphQL search. Pages within one search must be fetched in
 # order, so a result set over SEARCH_SLICE_TARGET is split into `created:`
 # ranges, starting from SEARCH_EARLIEST_CREATED (before GitHub launched), that

@@ -114,6 +114,23 @@ breakfast -o my-org:api -o my-org:web
 The error is written to stderr, so redirected JSON, CSV, Markdown, and template
 output on stdout is not contaminated by diagnostics.
 
+## The progress line looks stuck
+
+If the emoji slow down or a 🔁 appears, the run is still working:
+
+- 🔁 marks a request that hit a transient error (502, 503, 504) and is being
+  retried after a backoff. A single retry can take tens of seconds.
+- 🐢 means GitHub asked breakfast to slow down and it is waiting out a rate
+  limit.
+- Approvals and checks are fetched in batches, so one request can cover fifty
+  PRs. During those phases an emoji appears at least every couple of seconds
+  even when no individual PR has finished, so a line that is still moving means
+  a run that is still alive.
+
+If the line stops moving entirely for more than a few seconds, see
+[Debugging with the trace log](#debugging-with-the-trace-log) — the log records
+every request with its elapsed time.
+
 ## Slow performance
 
 PR details are fetched in parallel (up to 8 concurrent requests), and results are cached to disk for 5 minutes by default. If output is slow on the first run:
@@ -193,6 +210,23 @@ Example output:
 2026-03-23 08:00:05 INFO    filter_result before=42 after=38
 2026-03-23 08:00:05 INFO    render format=table row_count=38
 ```
+
+## "Error: config file not found: ..."
+
+`--config` names a file that is not there. breakfast treats this as a typo
+rather than a reason to fall back to defaults, because falling back silently
+drops every setting in the file you meant and then complains about something
+unrelated, usually a missing owner.
+
+Check the path, remembering that `~` is expanded and relative paths resolve
+against the current directory:
+
+```bash
+ls -l "$(eval echo ~/your-config.toml)"
+```
+
+To run with no config file at all, simply omit `--config`: the default search
+paths are optional and an absent one is skipped quietly.
 
 ## "Owner not found" errors
 

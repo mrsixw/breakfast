@@ -21,6 +21,7 @@ from .constants import (
     MAX_RETRIES,
     MAX_STORED_GRAPHQL_ERRORS,
     REQUEST_TIMEOUT,
+    RETRY_EMOJI,
     RETRY_STATUSES,
     REVIEW_BATCH_PAGE_SIZE,
     REVIEW_BATCH_SIZE,
@@ -34,6 +35,7 @@ from .constants import (
     SECONDARY_RATE_LIMIT_DEFAULT_WAIT,
 )
 from .logger import logger
+from .ui import emit_progress
 
 __all__ = [
     "GitHubAuthenticationError",
@@ -270,6 +272,7 @@ def make_github_api_request(query_string):
                     elapsed_ms,
                     attempt + 1,
                 )
+                _show_retry()
                 continue
             if req.status_code == 401:
                 _, token_var = _resolve_github_token_info()
@@ -471,6 +474,7 @@ def make_github_graphql_request(query, variables=None):
                     elapsed_ms,
                     attempt + 1,
                 )
+                _show_retry()
                 continue
             if response.status_code == 401:
                 _, token_var = _resolve_github_token_info()
@@ -645,7 +649,12 @@ _SEARCH_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 def _show_progress():
     """Print one breakfast emoji to stderr: a request finished."""
-    click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
+    emit_progress(random.choices(BREAKFAST_ITEMS)[0])
+
+
+def _show_retry():
+    """Mark a request that failed and is being retried after a backoff."""
+    emit_progress(RETRY_EMOJI)
 
 
 def _build_search_string(scope, fetch_state, include_archived, created=None):

@@ -139,7 +139,7 @@ This repository provides standardized automated workflows for managing issues. A
   commit that added this very warning.
 
 ## Pull Requests
-- Include the issue number in PR titles (e.g., `#7: Split test deps and migrate to uv`).
+- Start PR titles with the issue number spelled out as `Issue N:` (e.g., `Issue 7: Split test deps and migrate to uv`). Do not use `#N:`: GitHub shows the PR's own number beside the title, and a second `#` number there is easily mistaken for it.
 - Always include `Closes #N` in the PR body so the issue is automatically closed when the PR is merged.
 - **Before merging a PR, tick off all acceptance criteria checkboxes in the linked GitHub issue** that were satisfied by the PR's changes. Use `gh issue edit <N> --body "..."` to update the body. If a criterion was not met, leave it unchecked and add a comment explaining why.
 - **After pushing to a branch with an open PR, wait for all CI checks to complete.** Use `gh pr checks` to monitor status. If any check fails, investigate and fix the root cause before proceeding — do not ignore failures or re-push without understanding them.

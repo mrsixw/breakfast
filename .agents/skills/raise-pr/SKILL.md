@@ -51,13 +51,14 @@ Standardized procedure to generate, submit, and dynamically update a highly deta
 
 3. **Verify the PR Title format:**
    Ensure the Pull Request title matches the mandatory convention:
-   `#<issue-number>: <description>`
-   - *Example*: `#313: Color PR number column with calendar color`
+   `Issue <issue-number>: <description>`
+   - *Example*: `Issue 313: Color PR number column with calendar color`
+   - Do not use `#<issue-number>:`. GitHub shows the PR's own `#` number beside the title, so a second `#` number reads like the PR number.
 
 4. **Create the PR using the GitHub CLI (`gh`):**
    Execute the `gh pr create` command using the derived title and generated body:
    ```bash
-   gh pr create --title "#<issue-number>: <short-description>" --body "<generated-body-content>"
+   gh pr create --title "Issue <issue-number>: <short-description>" --body "<generated-body-content>"
    ```
    *(If the GitHub CLI is not authenticated or available, output the formatted title and body so the user can easily copy and paste them into the GitHub web interface).*
 

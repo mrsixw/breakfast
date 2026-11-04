@@ -72,9 +72,11 @@ as they did because `tests/` is a pytest suite and has no way to harness a shell
 script — see [#466](https://github.com/mrsixw/breakfast/issues/466).
 
 [bats](https://github.com/bats-core/bats-core) fills that gap, and
-[shellcheck](https://www.shellcheck.net) covers the static half. Both arrive
+[shellcheck](https://www.shellcheck.net) covers the static half. bats arrives
 through `npx`, exactly as `markdownlint-cli2` does, so there is nothing to
-install by hand:
+install by hand. shellcheck comes through `uvx` from `shellcheck-py`, which
+packages the real binary as a wheel: that way the version is pinned in the
+`Makefile`, as `typos` already was, and CI and a laptop run the same one.
 
 ```bash
 make bats        # the shell test suite

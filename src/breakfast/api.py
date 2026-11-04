@@ -19,6 +19,7 @@ import requests
 
 from .constants import (
     BREAKFAST_ITEMS,
+    GHOST_AUTHOR,
     GITHUB_API_URL,
     GITHUB_GRAPHQL_URL,
     MAX_GRAPHQL_ERROR_MESSAGE_LENGTH,
@@ -26,6 +27,7 @@ from .constants import (
     MAX_RETRIES,
     MAX_STORED_GRAPHQL_ERRORS,
     REQUEST_TIMEOUT,
+    RETRY_EMOJI,
     RETRY_STATUSES,
     REVIEW_BATCH_PAGE_SIZE,
     REVIEW_BATCH_SIZE,
@@ -39,6 +41,7 @@ from .constants import (
     SECONDARY_RATE_LIMIT_DEFAULT_WAIT,
 )
 from .logger import logger
+from .ui import emit_progress
 
 __all__ = [
     "GitHubAuthenticationError",
@@ -65,6 +68,7 @@ __all__ = [
     "make_github_graphql_request",
     "make_paginated_github_api_request",
     "match_exclude_repos",
+    "pr_author",
     "reset_api_stats",
     "set_api_request_stop_event",
 ]
@@ -456,6 +460,7 @@ def make_github_api_request(query_string):
                     elapsed_ms,
                     attempt + 1,
                 )
+                _show_retry()
                 continue
             if req.status_code == 401:
                 _, token_var = _resolve_github_token_info()
@@ -652,6 +657,7 @@ def make_github_graphql_request(query, variables=None):
                     elapsed_ms,
                     attempt + 1,
                 )
+                _show_retry()
                 continue
             if response.status_code == 401:
                 _, token_var = _resolve_github_token_info()
@@ -847,7 +853,12 @@ _SEARCH_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 def _show_progress():
     """Print one breakfast emoji to stderr: a request finished."""
-    click.echo(random.choices(BREAKFAST_ITEMS)[0], nl=False, err=True)
+    emit_progress(random.choices(BREAKFAST_ITEMS)[0])
+
+
+def _show_retry():
+    """Mark a request that failed and is being retried after a backoff."""
+    emit_progress(RETRY_EMOJI)
 
 
 def _build_search_string(scope, fetch_state, include_archived, created=None):
@@ -1179,6 +1190,26 @@ def get_authenticated_user_login():
     return login
 
 
+def pr_author(payload):
+    """Return the author of a PR or review payload, substituting the ghost.
+
+    GitHub sends ``"user": null`` once an account is deleted, so the key is
+    present with a null value. That makes ``payload.get("user", {})`` a false
+    safety net — it defends against a missing key, which GitHub does not send,
+    and not against the null it does. One such PR anywhere in a result set
+    used to end the whole run, because filtering and rendering happen after
+    every fetch.
+
+    Args:
+        payload: A PR detail or review dict carrying a ``user`` field.
+
+    Returns:
+        dict: The author, or a copy of :data:`GHOST_AUTHOR`. A copy, so a
+        caller that mutates what it gets back cannot poison later ghosts.
+    """
+    return payload.get("user") or dict(GHOST_AUTHOR)
+
+
 def _summarize_reviews(reviews):
     """Aggregate approval state from reviews in the order they were submitted.
 
@@ -1225,7 +1256,7 @@ def _review_status_from_latest_reviews(owner, repo, pr_number):
         f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
     )
     return _summarize_reviews(
-        (review.get("user", {}).get("login"), review.get("state")) for review in reviews
+        (pr_author(review)["login"], review.get("state")) for review in reviews
     )
 
 

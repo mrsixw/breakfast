@@ -115,10 +115,11 @@ breakfast completions fish > ~/.config/fish/completions/breakfast.fish
 
 `breakfast completions SHELL` prints the eval-able completion script for the named shell to stdout and exits. This means no token or `--owner` is needed — it works before any GitHub configuration.
 
-> The older `--completion SHELL` flag still works but is deprecated and hidden
-> from `--help`. It prints a notice to stderr and will be removed in a future
-> release. `eval "$(breakfast --completion bash)"` stays safe in the meantime:
-> the notice goes to stderr, so only the script itself reaches your shell.
+> The older `--completion SHELL` flag has been removed, having been deprecated
+> since v0.95.0. A shell profile still carrying
+> `eval "$(breakfast --completion bash)"` will now print `No such option` and
+> set up no completions; change it to `eval "$(breakfast completions bash)"`.
+> Nothing is written to stdout in the failing case, so the eval is harmless.
 
 For advanced users, the underlying Click completion mechanism is also available directly via the `_BREAKFAST_COMPLETE` environment variable:
 

@@ -52,7 +52,7 @@ path unless `core.symlinks=true` and Developer Mode are both enabled.
 ## Common Commands
 - `make test` — run tests (`uv run pytest -v`)
 - `make bats` — run the shell script tests (`npx --yes bats tests/bats`)
-- `make shellcheck` — static analysis for every shell script (part of `make lint`)
+- `make shellcheck` — static analysis for every shell script, the same pinned `shellcheck` version CI runs (part of `make lint`)
 - `make spell` — spell check, the same `typos` version CI runs (part of `make lint`)
 - `make lint` — check linting and formatting (`ruff check` + `black --check`)
 - `make format` — auto-fix lint and formatting (`ruff check --fix` + `black`)
@@ -122,9 +122,24 @@ This repository provides standardized automated workflows for managing issues. A
 ## Commit Messages
 - Use Conventional Commits (e.g., `feat: ...`, `fix: ...`, `chore: ...`, `docs: ...`, `refactor: ...`, `test: ...`, `ci: ...`).
 - Keep the summary short and imperative.
+- **A `!` after the type, or `BREAKING CHANGE` anywhere in the body, releases a
+  new MAJOR version.** `feat!: drop the old flag` is what took this project from
+  0.107.1 to 1.0.0. These are the *only* things that cause a major bump, so
+  neither is a decoration for "this is important" — use one when you mean to
+  change the first number, and say so in the PR description when you do.
+- The version a merge will release is computed from these messages by
+  `git mkver`, not chosen by hand. The `version` CI job prints it on every pull
+  request, so check it before merging rather than discovering it afterwards.
+- **Mentioning either marker in a commit body counts as using it.** mkver scans
+  every line of every commit message since the last tag for the marker as a
+  substring, so a body explaining that "#417 was committed as `feat!:`" reads
+  to mkver exactly like a declaration, and releases a major version. When you
+  need to write about them, break the string: `feat!` without the colon, or
+  spell the footer with a hyphen. This is not hypothetical — it happened to the
+  commit that added this very warning.
 
 ## Pull Requests
-- Include the issue number in PR titles (e.g., `#7: Split test deps and migrate to uv`).
+- Start PR titles with the issue number spelled out as `Issue N:` (e.g., `Issue 7: Split test deps and migrate to uv`). Do not use `#N:`: GitHub shows the PR's own number beside the title, and a second `#` number there is easily mistaken for it.
 - Always include `Closes #N` in the PR body so the issue is automatically closed when the PR is merged.
 - **Before merging a PR, tick off all acceptance criteria checkboxes in the linked GitHub issue** that were satisfied by the PR's changes. Use `gh issue edit <N> --body "..."` to update the body. If a criterion was not met, leave it unchecked and add a comment explaining why.
 - **After pushing to a branch with an open PR, wait for all CI checks to complete.** Use `gh pr checks` to monitor status. If any check fails, investigate and fix the root cause before proceeding — do not ignore failures or re-push without understanding them.

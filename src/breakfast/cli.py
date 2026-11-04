@@ -32,6 +32,7 @@ from .api import (
     get_pr_age_days,
     get_review_data_batch,
     match_exclude_repos,
+    pr_author,
     reset_api_stats,
     set_api_request_stop_event,
 )
@@ -54,7 +55,11 @@ from .config import (
     parse_columns_config,
     update_config,
 )
-from .constants import BREAKFAST_ITEMS, HEADER_STYLE_CHOICES
+from .constants import (
+    BREAKFAST_ITEMS,
+    HEADER_STYLE_CHOICES,
+    PROGRESS_HEARTBEAT_SECONDS,
+)
 from .logger import configure as configure_logging
 from .logger import logger
 from .renderers import (
@@ -66,12 +71,14 @@ from .renderers import (
     render_template,
 )
 from .ui import (
+    emit_progress,
     get_random_cake_recipe,
     get_random_pizza_recipe,
     has_shown_holiday_gift,
     is_christmas,
     is_steves_birthday,
     mark_holiday_gift_shown,
+    progress_heartbeat,
     render_cake_recipe,
     render_colour_diagnostics,
     render_pizza_recipe,
@@ -504,7 +511,7 @@ def _group_prs_by(pr_details, group_by):
     groups = {}
     for pr in pr_details:
         if group_by == "user":
-            author = pr["user"]
+            author = pr_author(pr)
             key = author["login"]
             url = author.get("html_url") or f"https://github.com/{key}"
         else:
@@ -579,6 +586,11 @@ def _fetch_pr_bundle(url, fetch_checks):
     return pr_detail, check_status
 
 
+def _show_progress():
+    """Print one breakfast emoji to stderr: a unit of work finished."""
+    emit_progress(random.choices(BREAKFAST_ITEMS)[0])
+
+
 def _pending_approval():
     return {"status": "pending", "current": 0, "required": None}
 
@@ -618,25 +630,32 @@ def _approval_details_for(pr_details, workers):
     details = {pr_detail["id"]: _pending_approval() for pr_detail in pr_details}
     if not keys:
         return details
+    # Collected inside the pool, via as_completed: reading results after the
+    # `with` block means the executor has already waited for every request, so
+    # there is nothing left to report one PR at a time. See issue #493.
     with ThreadPoolExecutor(max_workers=min(workers, len(keys))) as executor:
         futures = {
             executor.submit(summarize, key): pr_id for pr_id, key in keys.items()
         }
-    rate_limit_error = None
-    for future, pr_id in futures.items():
-        try:
-            details[pr_id] = future.result()
-        except GitHubRateLimitError as exc:
-            # Remembered rather than raised here: the workers still in flight
-            # raise CancelledError once the limit is signalled, and reporting
-            # one of those instead of the limit itself would hide the cause.
-            rate_limit_error = rate_limit_error or exc
-        except CancelledError:
-            continue
-        except (ValueError, requests.exceptions.RequestException) as exc:
-            logger.warning(
-                "approval_status_fetch_failed pr_id=%s error=%r", pr_id, str(exc)
-            )
+        rate_limit_error = None
+        for future in as_completed(futures):
+            pr_id = futures[future]
+            try:
+                details[pr_id] = future.result()
+            except GitHubRateLimitError as exc:
+                # Remembered rather than raised here: the workers still in
+                # flight raise CancelledError once the limit is signalled, and
+                # reporting one of those instead of the limit itself would hide
+                # the cause.
+                rate_limit_error = rate_limit_error or exc
+                continue
+            except CancelledError:
+                continue
+            except (ValueError, requests.exceptions.RequestException) as exc:
+                logger.warning(
+                    "approval_status_fetch_failed pr_id=%s error=%r", pr_id, str(exc)
+                )
+            _show_progress()
     if rate_limit_error is not None:
         raise rate_limit_error
     return details
@@ -644,16 +663,6 @@ def _approval_details_for(pr_details, workers):
 
 @click.group(invoke_without_command=True, epilog="Made with ❤️ in the UK")
 @click.pass_context
-@click.option(
-    "--completion",
-    "completion_shell",
-    type=click.Choice(_SHELL_CHOICES),
-    default=None,
-    is_eager=True,
-    expose_value=True,
-    hidden=True,
-    help="Deprecated: use 'breakfast completions SHELL' instead.",
-)
 @click.option("--config", help="Path to config file.")
 @click.option("--show-config", is_flag=True, help="Print the resolved config and exit.")
 @click.option(
@@ -1135,7 +1144,6 @@ def _approval_details_for(pr_details, workers):
 @click.version_option(package_name="breakfast")
 def breakfast(
     ctx,
-    completion_shell,
     config,
     show_config,
     init_config,
@@ -1216,20 +1224,6 @@ def breakfast(
     # fallback further down.
     no_colour = no_colour or env_flag_is_set("NO_COLOR")
     no_update_check = no_update_check or env_flag_is_set("BREAKFAST_NO_UPDATE_CHECK")
-
-    if completion_shell:
-        click.echo(
-            click.style(
-                "⚠️  --completion is deprecated; use 'breakfast completions "
-                f"{completion_shell}' instead.",
-                fg="yellow",
-            ),
-            # stderr, always: this command's stdout gets eval'd by the user's
-            # shell, so a notice on stdout becomes a shell startup syntax error.
-            err=True,
-        )
-        _emit_completion_script(completion_shell)
-        sys.exit(0)
 
     if colour_diagnostics:
         click.echo(render_colour_diagnostics(), color=True)
@@ -1891,66 +1885,89 @@ def breakfast(
                 set_api_request_stop_event(stop_event)
                 executor = ThreadPoolExecutor(max_workers=max_workers)
                 rate_limit_error = None
-                try:
-                    future_to_url = {
-                        executor.submit(_fetch_pr_bundle, url, checks): url
-                        for url in urls_to_fetch
-                    }
-                    for future in as_completed(future_to_url):
-                        url = future_to_url[future]
-                        try:
-                            pr_detail, check_status = future.result()
-                            pr_details.append(pr_detail)
-                            rname = pr_detail["base"]["repo"]["name"]
-                            url_parts = urlparse(url).path.strip("/").split("/")
-                            org_name = url_parts[0] if len(url_parts) >= 2 else ""
-                            rd = newly_fetched_by_repo.setdefault(
-                                (org_name, rname),
-                                {
-                                    "prs": [],
-                                    "checks": {},
-                                    "approvals": {},
-                                    "approval_details": {},
-                                },
-                            )
-                            rd["prs"].append(pr_detail)
-                            if check_status is not None:
-                                check_statuses[pr_detail["id"]] = check_status
-                                rd["checks"][pr_detail["id"]] = check_status
-                            click.echo(
-                                random.choices(BREAKFAST_ITEMS)[0],
-                                nl=False,
-                                err=True,
-                            )
-                        except GitHubAuthenticationError as exc:
-                            executor.shutdown(wait=False, cancel_futures=True)
-                            click.echo("", err=True)
-                            _handle_auth_error(
-                                exc, colour=colour, json_output=json_output
-                            )
-                        except GitHubRateLimitError as exc:
-                            rate_limit_error = exc
-                            stop_event.set()
-                            for pending in future_to_url:
-                                pending.cancel()
-                            break
-                        except CancelledError:
-                            continue
-                        except requests.exceptions.RequestException as exc:
-                            logger.warning(
-                                "pr_detail_fetch_failed url=%s error=%r", url, str(exc)
-                            )
-                            failed_urls.append(url)
-                finally:
-                    executor.shutdown(wait=True, cancel_futures=stop_event.is_set())
-                    clear_api_request_stop_event(stop_event)
+                # One emoji per PR is good granularity until a single request
+                # stalls: by the end of a run only a few are still in flight.
+                # An error raised below is printed while the beat is still
+                # running, so it gets its own line first — a stray emoji
+                # beside a message is better than an unbounded silence.
+                with progress_heartbeat(_show_progress, PROGRESS_HEARTBEAT_SECONDS):
+                    try:
+                        future_to_url = {
+                            executor.submit(_fetch_pr_bundle, url, checks): url
+                            for url in urls_to_fetch
+                        }
+                        for future in as_completed(future_to_url):
+                            url = future_to_url[future]
+                            try:
+                                pr_detail, check_status = future.result()
+                                pr_details.append(pr_detail)
+                                rname = pr_detail["base"]["repo"]["name"]
+                                url_parts = urlparse(url).path.strip("/").split("/")
+                                org_name = url_parts[0] if len(url_parts) >= 2 else ""
+                                rd = newly_fetched_by_repo.setdefault(
+                                    (org_name, rname),
+                                    {
+                                        "prs": [],
+                                        "checks": {},
+                                        "approvals": {},
+                                        "approval_details": {},
+                                    },
+                                )
+                                rd["prs"].append(pr_detail)
+                                if check_status is not None:
+                                    check_statuses[pr_detail["id"]] = check_status
+                                    rd["checks"][pr_detail["id"]] = check_status
+                                _show_progress()
+                            except GitHubAuthenticationError as exc:
+                                executor.shutdown(wait=False, cancel_futures=True)
+                                click.echo("", err=True)
+                                _handle_auth_error(
+                                    exc, colour=colour, json_output=json_output
+                                )
+                            except GitHubRateLimitError as exc:
+                                rate_limit_error = exc
+                                stop_event.set()
+                                for pending in future_to_url:
+                                    pending.cancel()
+                                break
+                            except CancelledError:
+                                continue
+                            except requests.exceptions.RequestException as exc:
+                                logger.warning(
+                                    "pr_detail_fetch_failed url=%s error=%r",
+                                    url,
+                                    str(exc),
+                                )
+                                failed_urls.append(url)
+                    finally:
+                        executor.shutdown(wait=True, cancel_futures=stop_event.is_set())
+                        clear_api_request_stop_event(stop_event)
                 if rate_limit_error is not None:
                     click.echo("", err=True)
                     raise rate_limit_error
 
             # Approvals for everything fetched above, in a few batched requests.
             if approvals and pr_details:
-                fetched_approvals = _approval_details_for(pr_details, workers)
+                # Every emoji up to here meant a PR detail. Approvals are a
+                # different kind of work and used to run with no label at all,
+                # while the cache-hit path below announced itself.
+                #
+                # Close the detail line before opening this one. #494 started
+                # it with a "\n", which ended the detail line with a bare
+                # newline and left the "...Done" after the cache writes to
+                # close *this* line instead — one terminator for two lines
+                # that each need one, so the detail phase looked unfinished.
+                # See issue #496.
+                click.echo("...Done", err=True)
+                click.echo("Fetching approvals...", nl=False, err=True)
+                t_approvals = time.monotonic()
+                with progress_heartbeat(_show_progress, PROGRESS_HEARTBEAT_SECONDS):
+                    fetched_approvals = _approval_details_for(pr_details, workers)
+                logger.info(
+                    "approvals_acquired pr_count=%d elapsed_ms=%d",
+                    len(pr_details),
+                    int((time.monotonic() - t_approvals) * 1000),
+                )
                 approval_details.update(fetched_approvals)
                 for pr_id, detail in fetched_approvals.items():
                     approval_statuses[pr_id] = detail["status"]
@@ -1985,6 +2002,8 @@ def breakfast(
                 cached_approval_statuses = repo_hit_approvals or None
                 cached_approval_details = repo_hit_approval_details or None
 
+            # Closes whichever line is still open: the approvals line when
+            # that phase ran, the PR detail line when it did not.
             click.echo("...Done", err=True)
             if failed_urls:
                 examples = ", ".join(failed_urls[:3])
@@ -2123,6 +2142,7 @@ def breakfast(
 
     try:
         # Fetch check statuses for cache-hit paths where statuses are absent.
+        # In the live-fetch path they are already populated by _fetch_pr_bundle.
         if checks and pr_details and not statuses_from_bundle:
             if cached_check_statuses is not None or offline_mode:
                 check_statuses, _, _ = _cached_status_maps(
@@ -2134,51 +2154,67 @@ def breakfast(
                     approvals=False,
                 )
             else:
+                click.echo("Fetching checks...", nl=False, err=True)
+                t_checks = time.monotonic()
                 max_workers = min(workers, len(pr_details))
                 stop_event = threading.Event()
                 set_api_request_stop_event(stop_event)
                 executor = ThreadPoolExecutor(max_workers=max_workers)
                 rate_limit_error = None
-                try:
-                    future_to_pr_id = {}
-                    for pr_detail in pr_details:
-                        owner = pr_detail["base"]["repo"]["owner"]["login"]
-                        repo_name = pr_detail["base"]["repo"]["name"]
-                        sha = pr_detail["head"]["sha"]
-                        future = executor.submit(
-                            get_check_status, owner, repo_name, sha
-                        )
-                        future_to_pr_id[future] = pr_detail["id"]
-
-                    for future in as_completed(future_to_pr_id):
-                        pr_id = future_to_pr_id[future]
-                        try:
-                            check_statuses[pr_id] = future.result()
-                        except GitHubRateLimitError as exc:
-                            rate_limit_error = exc
-                            stop_event.set()
-                            for pending in future_to_pr_id:
-                                pending.cancel()
-                            break
-                        except CancelledError:
-                            continue
-                        except (
-                            KeyError,
-                            ValueError,
-                            AttributeError,
-                            requests.exceptions.RequestException,
-                        ) as exc:
-                            logger.warning(
-                                "check_status_fetch_failed pr_id=%s error=%r",
-                                pr_id,
-                                str(exc),
+                # As with approvals, results are collected inside the pool so
+                # each PR can be reported as it lands rather than after every
+                # request has already finished. See issue #493.
+                with progress_heartbeat(_show_progress, PROGRESS_HEARTBEAT_SECONDS):
+                    try:
+                        future_to_pr_id = {}
+                        for pr_detail in pr_details:
+                            owner = pr_detail["base"]["repo"]["owner"]["login"]
+                            repo_name = pr_detail["base"]["repo"]["name"]
+                            sha = pr_detail["head"]["sha"]
+                            future = executor.submit(
+                                get_check_status, owner, repo_name, sha
                             )
-                            check_statuses[pr_id] = "none"
-                finally:
-                    executor.shutdown(wait=True, cancel_futures=stop_event.is_set())
-                    clear_api_request_stop_event(stop_event)
+                            future_to_pr_id[future] = pr_detail["id"]
+
+                        for future in as_completed(future_to_pr_id):
+                            pr_id = future_to_pr_id[future]
+                            try:
+                                check_statuses[pr_id] = future.result()
+                            except GitHubRateLimitError as exc:
+                                rate_limit_error = exc
+                                stop_event.set()
+                                for pending in future_to_pr_id:
+                                    pending.cancel()
+                                break
+                            except CancelledError:
+                                continue
+                            except (
+                                KeyError,
+                                ValueError,
+                                AttributeError,
+                                requests.exceptions.RequestException,
+                            ) as exc:
+                                logger.warning(
+                                    "check_status_fetch_failed pr_id=%s error=%r",
+                                    pr_id,
+                                    str(exc),
+                                )
+                                check_statuses[pr_id] = "none"
+                            _show_progress()
+                    finally:
+                        executor.shutdown(wait=True, cancel_futures=stop_event.is_set())
+                        clear_api_request_stop_event(stop_event)
                 if rate_limit_error is not None:
+                    # Close the open "Fetching checks..." line before the
+                    # fallback banner or the rate-limit error prints.
+                    click.echo("", err=True)
                     raise rate_limit_error
+                click.echo("...Done", err=True)
+                logger.info(
+                    "checks_acquired pr_count=%d elapsed_ms=%d",
+                    len(pr_details),
+                    int((time.monotonic() - t_checks) * 1000),
+                )
                 needs_cache_write = True
 
         # Fetch approval statuses for cache-hit paths where statuses are absent.
@@ -2198,11 +2234,18 @@ def breakfast(
             else:
                 # Batched GraphQL, the same path the live fetch above uses.
                 click.echo("Fetching approvals...", nl=False, err=True)
+                t_approvals = time.monotonic()
                 stop_event = threading.Event()
                 set_api_request_stop_event(stop_event)
                 try:
-                    approval_details = _approval_details_for(pr_details, workers)
+                    with progress_heartbeat(_show_progress, PROGRESS_HEARTBEAT_SECONDS):
+                        approval_details = _approval_details_for(pr_details, workers)
                     click.echo("...Done", err=True)
+                    logger.info(
+                        "approvals_acquired pr_count=%d elapsed_ms=%d",
+                        len(pr_details),
+                        int((time.monotonic() - t_approvals) * 1000),
+                    )
                 except GitHubAuthenticationError as exc:
                     click.echo("", err=True)
                     _handle_auth_error(exc, colour=colour, json_output=json_output)
@@ -2336,7 +2379,7 @@ def breakfast(
         "repo": lambda pr: pr["base"]["repo"]["name"],
         "age": lambda pr: get_pr_age_days(pr),
         "updated": lambda pr: pr.get("updated_at", ""),
-        "author": lambda pr: pr.get("user", {}).get("login", "").lower(),
+        "author": lambda pr: pr_author(pr)["login"].lower(),
         "comments": lambda pr: pr.get("comments", 0) + pr.get("review_comments", 0),
         "reviews": lambda pr: pr.get("review_comments", 0),
         "size": lambda pr: pr.get("additions", 0) + pr.get("deletions", 0),

@@ -12,7 +12,7 @@ import click
 import wcwidth
 from tabulate import tabulate
 
-from .api import get_pr_age_days
+from .api import get_pr_age_days, pr_author
 from .constants import (
     COLUMN_DISPLAY_NAMES,
     DROPPABLE_COLUMNS,
@@ -621,7 +621,7 @@ def render_json(
             "repo": pr_detail["base"]["repo"]["name"],
             "pr_number": pr_detail["number"],
             "title": pr_detail["title"],
-            "author": pr_detail["user"]["login"],
+            "author": pr_author(pr_detail)["login"],
             "url": pr_detail["html_url"],
             "state": pr_detail["state"],
             "draft": pr_detail.get("draft", False),
@@ -677,7 +677,7 @@ def render_markdown(
     for pr_detail in pr_details:
         repo = pr_detail["base"]["repo"]
         repo_url = repo.get("html_url") or pr_detail["html_url"].split("/pull/")[0]
-        author = pr_detail["user"]
+        author = pr_author(pr_detail)
         author_url = author.get("html_url") or f"https://github.com/{author['login']}"
         state_str = pr_detail["state"]
         if pr_detail.get("draft"):
@@ -813,7 +813,7 @@ def render_csv(
             "repo": pr_detail["base"]["repo"]["name"],
             "pr_number": pr_detail["number"],
             "title": pr_detail["title"],
-            "author": pr_detail["user"]["login"],
+            "author": pr_author(pr_detail)["login"],
             "url": pr_detail["html_url"],
             "state": pr_detail["state"],
             "draft": pr_detail.get("draft", False),
@@ -852,7 +852,7 @@ def _template_fields(pr_detail):
     return {
         "repo": pr_detail["base"]["repo"]["name"],
         "title": pr_detail.get("title", ""),
-        "author": pr_detail.get("user", {}).get("login", ""),
+        "author": pr_author(pr_detail)["login"],
         "url": pr_detail.get("html_url", ""),
         "state": pr_detail.get("state", ""),
         # 0, not "": a str default would pass the int-typed probe and then
@@ -1086,7 +1086,7 @@ def render_table(
 
         repo = pr_detail["base"]["repo"]
         repo_url = repo.get("html_url") or pr_detail["html_url"].split("/pull/")[0]
-        author = pr_detail["user"]
+        author = pr_author(pr_detail)
         author_url = author.get("html_url") or f"https://github.com/{author['login']}"
         pr_num = pr_detail["number"]
         _pr_url_parts = pr_detail["html_url"].split("/")

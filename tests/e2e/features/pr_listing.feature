@@ -23,6 +23,19 @@ Feature: Listing pull requests from live GitHub
     And stdout contains "Open PR with no labels"
     And stdout contains "Draft PR awaiting work"
 
+  # Issue #493: the approvals phase used to run unannounced on the live path,
+  # so a slow run was indistinguishable from a hung one. Only the real binary
+  # can prove the label lands on stderr and never pollutes the piped table.
+  Scenario: The approvals phase announces itself on stderr, not stdout
+    When I run `breakfast -o mrsixw:breakfast-fixtures --include-archived --approvals --no-cache --no-colour`
+    Then the exit code is 0
+    And stderr contains "Fetching approvals"
+    And stdout contains "Open PR with no labels"
+    And stdout does not contain "Fetching approvals"
+    # Issue #496: that label used to open with a "\n", ending the PR detail
+    # line without its "...Done" and leaving the phase looking unfinished.
+    And every progress phase on stderr is closed
+
   Scenario: Every JSON entry carries the documented fields
     When I run `breakfast -o mrsixw:breakfast-fixtures --include-archived --format json --no-colour`
     Then the exit code is 0

@@ -67,7 +67,7 @@ There are four layers, described in full in [docs/design/testing.md](docs/design
 - **Shell tests** (`tests/bats/`) run each shell script as a subprocess with `gh`, `git` and `curl` stubbed and `HOME` redirected into a temporary directory. Offline, and safe to run anywhere. These are what `make bats` runs.
 - **End-to-end tests** (`tests/e2e/`) are [pytest-bdd](https://pytest-bdd.readthedocs.io/) `.feature` files that run the built `./breakfast` zipapp as a subprocess against the real GitHub API. They are excluded from `make test` by default.
 
-`bats` and `shellcheck` are fetched on demand with `npx`, the same way `make docs-lint` fetches `markdownlint-cli2`. Nothing to install by hand; you do need `node` on your PATH.
+`bats` is fetched on demand with `npx`, the same way `make docs-lint` fetches `markdownlint-cli2`, so there is nothing to install by hand; you do need `node` on your PATH. `shellcheck` and `typos` come through `uvx` instead, pinned in the `Makefile` so the same versions run locally and in CI. The three sibling repos that share this harness — gh-snitch, five-clis and jeeves — fetch their tools the same way.
 
 The rule for deciding where a new test goes: **if it monkeypatches `breakfast.*`, it is a unit test** and belongs in `tests/`.
 
@@ -152,9 +152,49 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 
 Keep the summary short and imperative (e.g., `feat: add label filtering`).
 
+### Which commit types bump which number
+
+`git mkver` reads every commit message since the last tag, and the largest
+increment it finds wins:
+
+| Commits since the last tag | Release |
+| --- | --- |
+| any major marker (see below) | **major** |
+| any `feat:` | **minor** |
+| `fix:`, or only types mkver does not recognise (`docs:`, `chore:`, `ci:`, `test:`, `refactor:`) | **patch** |
+
+The last row comes from `whenNoValidCommitMessages: IncrementPatch` in
+`mkver.conf`. A branch that touches only documentation or tooling releases a
+patch, while one that mixes `docs:` with `feat:` still releases a minor.
+
+### Breaking changes bump the major version
+
+Two things, and only these two, cause a **major** release:
+
+- a `!` after the type — `feat!: drop the old flag`
+- `BREAKING CHANGE` anywhere in the commit body
+
+`git mkver` reads them straight out of the commit messages since the last tag,
+so the release that follows your merge is decided by how you word the commit.
+This is how 0.107.1 became 1.0.0: #417 removed a deprecated flag and was
+committed as `feat!:`, which was accurate and also a major-version instruction.
+
+Neither marker is a way to say "this change matters". Use one when you intend
+to change the first number, and call it out in the pull request when you do.
+
+The `version` CI job prints the version your merge would release on every pull
+request. Check it before merging.
+
+**Careful writing about these markers.** mkver looks for them as a substring on
+any line of any commit message since the last tag, so a commit body that
+explains "this was committed as `feat!:`" is indistinguishable, to mkver, from
+one declaring a breaking change — and releases a major version. Break the string
+when you need to refer to it: `feat!` without the trailing colon, or the footer
+written with a hyphen. The commit that added this very section tripped over it.
+
 ## Pull Requests
 
-- Include the issue number in the PR title (e.g., `#7: Split test deps and migrate to uv`).
+- Start the PR title with the issue number spelled out (e.g., `Issue 7: Split test deps and migrate to uv`). Avoid `#7:`, because GitHub already shows the PR's own `#` number beside the title, and two `#` numbers side by side are easy to confuse.
 - Ensure CI is green before requesting review.
 - Keep PRs focused — one issue per PR where possible.
 
@@ -177,14 +217,46 @@ All four files convey the same project rules. **When updating project convention
 - **Formatter:** [black](https://black.readthedocs.io/) (line length 88, target Python 3.11)
 - Run checks locally before pushing. CI will also verify these.
 
+## When CI runs
+
+CI runs on every pull request, and on pushes to `main`. A branch push is
+deliberately **not** a trigger on its own: the pull request covers it, and
+running both fired the whole workflow twice for one commit, which doubled the
+end-to-end job's real GitHub API calls and listed every check twice.
+
+So a branch with no pull request open gets no automatic run. Open the pull
+request, or trigger one by hand from the Actions tab (`workflow_dispatch`).
+
 ## mkver / Versioning
 
 - Do **not** run `git mkver patch` on feature branches — it mutates the version file.
 - Version bumps happen when preparing a release, not during regular development.
+- **`git mkver patch` does not mean "bump the patch number".** It applies the
+  file patches named in `mkver.conf` (here, writing `VERSION`), and what it
+  writes is the version mkver computed from the commit messages — which may be
+  a major, minor or patch increase. The release job calls it through
+  `utils/bump_version_if_tag_exists.sh` when the tag for the current version
+  already exists.
+- `utils/report_next_version.sh` prints the current version alongside the one
+  the next release would carry, and says so loudly if the major component
+  changes. The `version` CI job runs it on every pull request.
 
 ## Releases
 
-Releases are created automatically by CI on every push to `main` (excluding version-bump commits). The workflow runs:
+Releases are created automatically by CI on every push to `main`. When the
+current version is already tagged, the release job first pushes a
+`chore: bump version to X.Y.Z [skip ci]` commit. `[skip ci]` stops that commit
+from starting a pipeline of its own: the run that pushed it has already tested
+the tree, and goes on to build, release and install-check it.
+
+**Releases follow the tip of `main`.** Merge two pull requests a few minutes
+apart and the first run can reach its bump push after the second merge has
+moved `main` on. That run then stands down: the release job succeeds with a
+"Release superseded" notice, skips the release, and `verify-release` does not
+run. The second run releases both merges. A push rejected for any other reason,
+including a `main` that was rewritten rather than advanced, still fails the job.
+
+The workflow runs:
 
 ```bash
 gh release create vX.Y.Z --generate-notes
@@ -194,7 +266,7 @@ GitHub auto-generates release notes from merged PR titles, formatted as:
 
 ```markdown
 ## What's Changed
-* #N: PR title by @author in https://github.com/.../pull/N
+* Issue N: PR title by @author in https://github.com/.../pull/M
 
 **Full Changelog**: https://github.com/.../compare/vX...vY
 ```

@@ -2,7 +2,14 @@ name: CI
 
 on:
   pull_request:
+  # Branches are covered by pull_request. Without this filter a push to a
+  # branch with an open PR ran the whole workflow twice for one commit,
+  # doubling the e2e job's real GitHub API calls and listing every check
+  # twice. main still runs on push, which release and verify-release gate on.
   push:
+    branches: [main]
+  # So a branch with no pull request can still be run deliberately.
+  workflow_dispatch:
 
 permissions: read-all
 
@@ -153,6 +160,36 @@ jobs:
       - name: Lint markdown docs
         run: make docs-lint
 
+  # What version would merging this actually release? The release job only runs
+  # on pushes to main, so until this existed the answer arrived after the tag
+  # had been cut. #417 was committed as `feat!:`, which is correct Conventional
+  # Commits and also an instruction to bump the major version: 0.107.1 became
+  # 1.0.0 and nobody saw it coming. This also means a malformed mkver.conf
+  # fails here rather than on main.
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # mkver reads the whole history and every tag to find the last
+          # release and the commits since it. The default shallow clone has
+          # neither.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install git-mkver
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: utils/install_git_mkver.sh
+
+      - name: Report the version this would release
+        run: utils/report_next_version.sh
+
   man:
     runs-on: ubuntu-latest
     needs: [test, lint, spell, docs-lint]
@@ -216,13 +253,15 @@ jobs:
           uv run python -m breakfast.cli completions zsh | grep -q "_BREAKFAST_COMPLETE"
           uv run python -m breakfast.cli completions fish | grep -q "_BREAKFAST_COMPLETE"
 
-      - name: Verify the deprecated --completion flag keeps stdout evaluable
+      - name: Verify the removed --completion flag writes nothing to stdout
         run: |
-          # The deprecation notice must stay on stderr: stdout is eval'd by the
-          # user's shell, so a stray notice there is a startup syntax error.
-          uv run python -m breakfast.cli --completion bash 2>/dev/null | grep -q "_BREAKFAST_COMPLETE"
-          ! uv run python -m breakfast.cli --completion bash 2>/dev/null | grep -q "deprecated"
-          uv run python -m breakfast.cli --completion bash 2>&1 >/dev/null | grep -q "deprecated"
+          # #417 removed the flag. A shell profile still carrying
+          # eval "$(breakfast --completion bash)" must get an empty stdout,
+          # not a half-written script its shell tries to evaluate.
+          ! uv run python -m breakfast.cli --completion bash 2>/dev/null
+          [ -z "$(uv run python -m breakfast.cli --completion bash 2>/dev/null)" ]
+          uv run python -m breakfast.cli --completion bash 2>&1 >/dev/null \
+            | grep -q "No such option"
 
   release:
     if: "github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore: bump version')"
@@ -230,6 +269,10 @@ jobs:
     needs: [build, e2e, man, completions]
     permissions:
       contents: write
+    outputs:
+      # Whether this run cut a release. verify-release has nothing to check
+      # when a newer run took over: "latest" would still be the old release.
+      released: ${{ steps.bump.outputs.superseded == 'false' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -259,28 +302,47 @@ jobs:
         id: version
         run: echo "version=$(python utils/read_version.py)" >> "$GITHUB_OUTPUT"
 
+      # EXIT_SUPERSEDED (utils/exit_codes.sh) means main moved past this commit
+      # while the run was busy: a second merge landed, and its own run will
+      # release both. Nothing is wrong, so the job stands down green instead
+      # of failing main.
+      # Issue #495; the script explains how it tells this from a real failure.
       - name: Bump version if tag exists
         id: bump
         run: |
-          version="$(utils/bump_version_if_tag_exists.sh "${{ steps.version.outputs.version }}")"
+          # Same named codes the script exits with, so the two cannot drift.
+          source utils/exit_codes.sh
+          status="${EXIT_OK}"
+          version="$(utils/bump_version_if_tag_exists.sh "${{ steps.version.outputs.version }}")" || status=$?
+          if [ "${status}" -eq "${EXIT_SUPERSEDED}" ]; then
+            echo "::notice title=Release superseded::main moved past ${GITHUB_SHA} during this run. The newer run releases this commit along with its own."
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+            exit "${EXIT_OK}"
+          fi
+          [ "${status}" -eq "${EXIT_OK}" ] || exit "${status}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "superseded=false" >> "$GITHUB_OUTPUT"
 
       - name: Build binary
+        if: steps.bump.outputs.superseded == 'false'
         run: make release
 
       - name: Generate man page
+        if: steps.bump.outputs.superseded == 'false'
         run: make man
 
       - name: Generate completion scripts
+        if: steps.bump.outputs.superseded == 'false'
         run: make completions
 
       - name: Create release
+        if: steps.bump.outputs.superseded == 'false'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: utils/create_release.sh "${{ steps.bump.outputs.version }}"
 
   verify-release:
-    if: "github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore: bump version')"
+    if: "github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore: bump version') && needs.release.outputs.released == 'true'"
     runs-on: ubuntu-latest
     needs: release
     steps:

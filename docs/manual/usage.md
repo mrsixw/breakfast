@@ -25,6 +25,34 @@ Processing platform PRs...🥞🧇🍩...Done
 +---------+----------------------------------+-----------------+--------+---------+-----------+-----------+------------+-----------------------+--------+
 ```
 
+### Reading the progress line
+
+Each phase gets its own line, and each breakfast emoji means one more piece of
+work has landed:
+
+```text
+$ breakfast -o my-org -r platform --checks --approvals
+Fetching my-org PRs...🥐🍳...Done
+Processing platform PRs...🥞🧇🍩...Done
+Fetching approvals...🍳🥐🧇...Done
+```
+
+- `Fetching <owner> PRs` — finding the PRs, one emoji per search page.
+- `Processing <filter> PRs` — fetching each PR's details, and its checks when
+  `--checks` is on. One emoji per PR.
+- `Fetching approvals` / `Fetching checks` — one emoji per PR, plus one for each
+  batched request that answers a group of them.
+
+Two other glyphs can appear mid-line:
+
+- 🔁 a request failed with a transient error and is being retried after a short
+  wait. A few of these on a large run are normal.
+- 🐢 GitHub asked breakfast to slow down, and it is waiting out a rate limit.
+
+Approvals are fetched in batches, so a single request can cover fifty PRs and
+take several seconds. The emoji keep ticking anyway: if the line is moving, the
+run is alive.
+
 ## Common workflows
 
 ### View PRs for a specific repo filter

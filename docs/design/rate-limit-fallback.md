@@ -104,7 +104,8 @@ before re-raising, so the banner starts on its own line.
 ## Stopping the workers
 
 PR details, checks and approvals are fetched by up to `--workers` threads at
-once (64 by default). When one of them hits the limit, the rest are no use: the
+once (64 by default), and large discoveries search several date slices in
+parallel. When one of them hits the limit, the rest are no use: the
 run is about to fall back to the cache, so anything they fetch is thrown away,
 and every request they send makes the limit worse.
 
@@ -115,36 +116,50 @@ sequenceDiagram
     participant A as Worker A
     participant B as Worker B
     participant Q as Queued work
-    participant Stop as _rate_limit_hit<br/>(threading.Event)
+    participant Stop as _rate_limit_stop
     participant GH as GitHub
 
     A->>GH: GET /pulls/11
     GH-->>A: 403, X-RateLimit-Remaining: 0
-    A->>Stop: set()
+    A->>Stop: store the GitHubRateLimitError
     A-->>Main: raise GitHubRateLimitError
-    B->>Stop: is_set()? before sending
-    Stop-->>B: yes
-    B-->>Main: raise CancelledError (no request sent)
+    B->>Stop: set? before sending
+    Stop-->>B: yes, this limit
+    B-->>Main: raise a copy of that limit (no request sent)
     Main->>Q: executor.shutdown(cancel_futures=True)
-    Note over Main: ignores CancelledError,<br/>re-raises the rate limit
+    Note over Main: whichever arrives first,<br/>it is the rate limit
     Main->>Main: one fallback handler
 ```
 
 `api.py` owns the signal:
 
-- `_rate_limit_hit` is one module-level `threading.Event`.
+- `_rate_limit_stop` is one module-level reference: `None`, or the first rate
+  limit this run hit.
 - `_stop_for_rate_limit()` is the only place a rate limit becomes an exception.
-  It records the stats, sets the event, logs, and returns the error to raise.
+  It records the stats, stores the error, logs, and returns the error to raise.
 - `_raise_if_rate_limited()` runs immediately before every HTTP request, REST
-  and GraphQL, including retries. Once the event is set, it raises
-  `CancelledError` instead of sending.
+  and GraphQL, including retries. Once the stop is set, it raises a copy of
+  that rate limit instead of sending: a fresh exception per worker, so no two
+  threads rewrite one exception's traceback.
 - `reset_api_stats()`, called at the start of each run, clears it.
+
+Re-raising the limit itself matters. A stopped worker can finish before the
+one that hit the limit, so its exception may be the first a thread pool sees.
+An earlier version raised `CancelledError` there, which every pool had to
+skip, and the two discovery pools in `api.py` did not, so a sliced discovery
+could crash instead of falling back. Now every worker reports the same
+`GitHubRateLimitError` of the same type, so no pool needs to know the stop
+exists.
+
+A terminal secondary limit stops the run *before* starting a shared pause.
+Otherwise the other workers would sleep through a pause of up to a minute
+while the main thread waits for them to finish.
 
 A request already on the wire when the limit hits is allowed to finish; Python
 cannot cancel it. At most `--workers` requests are wasted that way, and none of
 them is followed by another.
 
-### Why an Event, and not more locks
+### Why one reference, and not more locks
 
 The first version of this change registered a fresh event per thread pool in a
 global slot, guarded the slot with its own lock, and checked on removal that it
@@ -155,8 +170,9 @@ was not clearing a newer pool's event. None of that was needed:
 - **A rate limit ends the run's use of GitHub.** The CLI always either falls
   back or exits, so stopping *every* later request in the process is exactly
   right, not just the ones in the current pool.
-- **An Event is already thread-safe.** `set()` and `is_set()` need no lock
-  around them.
+- **One reference needs no lock.** It only ever goes from `None` to a rate
+  limit. Two workers writing it together each write a true limit, and
+  either is right to report.
 
 Two locks remain in `api.py`. Both predate this change, and both protect a
 read-modify-write that several threads really do perform:
@@ -215,8 +231,9 @@ flowchart TD
     ask -->|rate limit| fb[["The one fallback handler:<br/>read this token's entry"]]
     ask -->|network error| net{"Full cache already read?"}
     net -->|yes| read2["Offline banner;<br/>read this token's entry"]
-    net -->|no| carryOn(["Carry on; the live fetch<br/>decides what happens"])
-    read1 & fb & read2 --> found{"Login found?"}
+    net -->|no| carryOn["Carry on with the live fetch"]
+    carryOn -->|it fails too| read3["Expired cache;<br/>read this token's entry"]
+    read1 & fb & read2 & read3 --> found{"Login found?"}
     found -->|yes| use
     found -->|no| warn(["Warn; show all cached PRs<br/>unfiltered"])
 ```
@@ -265,7 +282,8 @@ which matter differently when diagnosing a slow or failed run:
 - **Calls count attempts**, including retries and the rate-limited response
   itself, because those spend budget too.
 - **`exhausted`** is set by any response that leaves the budget at zero, or by
-  the stop path.
+  the stop path. A secondary limit stops the run with budget left, so it shows
+  as `throttled (<N> requests remaining)` rather than `exhausted`.
 - **`Data source`** is `local cache (<age>)` whenever any cache was served, and
   `live GitHub API` otherwise. It is derived from the age of the cache that was
   served, so there is no separate flag to keep in step.

@@ -7,7 +7,6 @@ import threading
 import time
 from concurrent.futures import (
     FIRST_COMPLETED,
-    CancelledError,
     ThreadPoolExecutor,
     wait,
 )
@@ -167,6 +166,14 @@ class GitHubRateLimitError(Exception):
         else:
             super().__init__("GitHub API rate limit exceeded.")
 
+    def copy(self):
+        """Return a new error for the same limit, to raise in another thread.
+
+        Raising one exception object from several threads at once would have
+        them all rewrite its ``__traceback__`` and ``__context__``.
+        """
+        return GitHubRateLimitError(self.reset_time, resource=self.resource)
+
 
 class GitHubSecondaryRateLimitError(GitHubRateLimitError):
     """Raised when GitHub's secondary rate limit outlasts every retry."""
@@ -181,6 +188,9 @@ class GitHubSecondaryRateLimitError(GitHubRateLimitError):
         )
         self.reset_time = None
         self.resource = "graphql"
+
+    def copy(self):
+        return GitHubSecondaryRateLimitError()
 
 
 class GitHubForbiddenError(requests.exceptions.HTTPError):
@@ -244,13 +254,18 @@ _API_STATS_DEFAULTS = {
 }
 _api_stats = dict(_API_STATS_DEFAULTS)
 
-# Set by the first request to hit a rate limit; every request checks it before
-# sending. A rate limit always ends the run's use of GitHub (the CLI falls back
-# to the cache or exits), so once it is set nothing else should go out: the
-# requests would fail, and their results would be discarded anyway. A
-# threading.Event is already safe to share between workers, so it needs no lock
-# of its own. reset_api_stats() clears it for the next run.
-_rate_limit_hit = threading.Event()
+# The first rate limit this run hit, or None. Set by the first request to hit
+# one; every request checks it before sending and re-raises it instead. A rate
+# limit always ends the run's use of GitHub (the CLI falls back to the cache or
+# exits), so once it is set nothing else should go out: the requests would
+# fail, and their results would be discarded anyway. Raising a copy of the
+# limit itself, not a cancellation, means every worker reports a rate limit,
+# so no thread pool needs to tell "stopped" apart from "rate-limited". It is a
+# single reference that only ever goes from None to a rate limit, so it needs
+# no lock: two workers hitting a limit together may both write it, and either
+# limit is a true one to report.
+# reset_api_stats() clears it for the next run.
+_rate_limit_stop = None
 
 
 def get_api_stats():
@@ -261,16 +276,17 @@ def get_api_stats():
 
 def reset_api_stats():
     """Start a new run: zero the counters and clear the rate-limit stop."""
+    global _rate_limit_stop
     with _api_stats_lock:
         _api_stats.clear()
         _api_stats.update(_API_STATS_DEFAULTS)
-    _rate_limit_hit.clear()
+    _rate_limit_stop = None
 
 
 def _raise_if_rate_limited():
     """Refuse to send a request once any request in this run hit a limit."""
-    if _rate_limit_hit.is_set():
-        raise CancelledError("API request cancelled after rate-limit exhaustion")
+    if _rate_limit_stop is not None:
+        raise _rate_limit_stop.copy()
 
 
 def _record_api_attempt(resource):
@@ -377,10 +393,12 @@ def _stop_for_rate_limit(resource, headers, error=None):
     the stop signal and the log line can never disagree. The caller raises the
     return value.
     """
+    global _rate_limit_stop
     if error is None:
         error = GitHubRateLimitError(_rate_limit_reset_time(headers), resource=resource)
     _record_rate_limit_headers(resource, headers, exhausted=True)
-    _rate_limit_hit.set()
+    if _rate_limit_stop is None:
+        _rate_limit_stop = error
     logger.warning(
         "api_call type=%s rate_limit_exceeded reset=%s", resource, error.reset_time
     )
@@ -612,7 +630,10 @@ def make_github_graphql_request(query, variables=None):
                     token_var,
                 )
                 raise GitHubAuthenticationError(token_var=token_var, response=response)
-            if response.status_code in (403, 429):
+            if response.status_code in (
+                HTTPStatus.FORBIDDEN,
+                HTTPStatus.TOO_MANY_REQUESTS,
+            ):
                 # The primary budget is spent: no retry can help before reset.
                 if _parse_int_header(response_headers, "X-RateLimit-Remaining") == 0:
                     raise _stop_for_rate_limit("graphql", response_headers)
@@ -634,15 +655,15 @@ def make_github_graphql_request(query, variables=None):
                     wait,
                     attempt + 1,
                 )
-                started_pause = _slow_down_for(wait)
                 if attempt == MAX_RETRIES:
                     # Out of retries is exhaustion too, so stop the other
-                    # workers exactly as the primary path does. Without this
-                    # they wake from the pause above and keep spending
-                    # requests while the caller falls back to the cache.
+                    # workers exactly as the primary path does. It comes
+                    # before the pause: a pause started now would only keep
+                    # other workers asleep while the caller falls back.
                     raise _stop_for_rate_limit(
                         "graphql", response_headers, GitHubSecondaryRateLimitError()
                     )
+                started_pause = _slow_down_for(wait)
                 if started_pause:
                     click.echo(
                         f"\n🐢 GitHub asked breakfast to slow down; waiting {wait}s...",

@@ -5708,6 +5708,49 @@ def test_cli_network_failure_falls_back_to_cache(monkeypatch, tmp_path):
     assert "🔌 Offline Mode: Displaying cached data from 2 hours ago." in result.stderr
 
 
+def test_lost_connection_with_expired_cache_uses_the_cached_login(
+    monkeypatch, tmp_path
+):
+    """The connection-error fallback applies --mine-only like the others do."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "alice-token")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    _alice_and_bob_cached(age=timedelta(hours=2))
+    cache.write_cached_user_login("alice-token", "alice")
+
+    def unreachable(*_args, **_kwargs):
+        raise requests.exceptions.ConnectionError("Could not resolve host")
+
+    monkeypatch.setattr(cli, "get_authenticated_user_login", unreachable)
+    monkeypatch.setattr(cli, "get_github_prs", unreachable)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--cache", "--mine-only"]
+    )
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    assert "Bob PR" not in result.stdout
+    assert "could not be applied" not in result.stderr
+
+
+def test_debug_summary_does_not_call_a_secondary_limit_exhausted(capsys):
+    """A secondary limit with budget left says so, not "exhausted (N remaining)"."""
+    remaining = 4913
+    stats = {
+        **api._API_STATS_DEFAULTS,
+        "rest_rate_limit_remaining": remaining,
+        "rest_rate_limit_exhausted": True,
+    }
+
+    cli._print_debug_summary(time.monotonic(), 0, stats)
+
+    err = capsys.readouterr().err
+    assert "exhausted" not in err
+    assert f"REST rate limit:   throttled ({remaining} requests remaining)" in err
+
+
 def test_cli_offline_mode_does_not_write_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])

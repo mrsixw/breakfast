@@ -54,7 +54,7 @@ Rate-limit fallback prints a `stderr` message such as:
 
 The run exits successfully when cached output is available. If no matching full cache exists, it exits non-zero with empty `stdout` and states that no local cached data is available. Explicit `--refresh` and `--refresh-prs` requests also fall back, but their warning clearly says the requested refresh could not be completed and the old cache is not rewritten.
 
-With `--api-stats`, exhausted limits are shown as `exhausted (0 requests remaining)` or `exhausted (0 points remaining)`, alongside the captured reset time and `Data source: local cache (...)`. The debug summary does not make another GitHub request.
+With `--api-stats`, exhausted limits are shown as `exhausted (0 requests remaining)` or `exhausted (0 points remaining)`, and a secondary limit hit with budget left as `throttled (<N> requests remaining)`, alongside the captured reset time and `Data source: local cache (...)`. The debug summary does not make another GitHub request.
 
 `--mine-only` and `--needs-my-review` use the cached login during fallback. If no login has been cached for the current token yet, breakfast warns that the filter could not be applied and displays all locally cached PRs.
 

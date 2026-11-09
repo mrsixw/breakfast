@@ -4,7 +4,7 @@ import re
 import shutil
 import sys
 import time
-from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from enum import StrEnum, auto
 from urllib.parse import urlparse
@@ -335,7 +335,12 @@ def _print_debug_summary(
     ):
         remaining = api_stats.get(f"{resource}_rate_limit_remaining")
         exhausted = api_stats.get(f"{resource}_rate_limit_exhausted", False)
-        if exhausted:
+        if exhausted and remaining:
+            # A secondary limit stops the run with budget still left.
+            lines.append(
+                f"  {label} rate limit:   throttled ({remaining} {unit} remaining)"
+            )
+        elif exhausted:
             detail = (
                 f" ({remaining} {unit} remaining)"
                 if remaining is not None
@@ -639,10 +644,6 @@ def _approval_details_for(pr_details, workers):
             except GitHubRateLimitError:
                 executor.shutdown(wait=False, cancel_futures=True)
                 raise
-            except CancelledError:
-                # A worker api.py stopped because of that rate limit; the
-                # limit itself still arrives as its own result.
-                continue
             except (ValueError, requests.exceptions.RequestException) as exc:
                 logger.warning(
                     "approval_status_fetch_failed pr_id=%s error=%r", pr_id, str(exc)
@@ -1901,9 +1902,6 @@ def breakfast(
                                 # drop the queue and let the fallback handle it.
                                 executor.shutdown(wait=False, cancel_futures=True)
                                 raise
-                            except CancelledError:
-                                # A worker stopped by that same rate limit.
-                                continue
                             except requests.exceptions.RequestException as exc:
                                 logger.warning(
                                     "pr_detail_fetch_failed url=%s error=%r",
@@ -2039,6 +2037,8 @@ def breakfast(
                     cache_enabled=True,
                 )
                 if cache_result is not None:
+                    if (mine_only or needs_my_review) and current_user_login is None:
+                        current_user_login = read_cached_user_login(SECRET_GITHUB_TOKEN)
                     pr_details = cache_result["prs"]
                     cached_check_statuses = cache_result["check_statuses"]
                     cached_approval_statuses = cache_result["approval_statuses"]
@@ -2124,8 +2124,6 @@ def breakfast(
                             executor.shutdown(wait=False, cancel_futures=True)
                             click.echo("", err=True)
                             raise
-                        except CancelledError:
-                            continue
                         except (
                             KeyError,
                             ValueError,

@@ -1027,7 +1027,7 @@ workers = 16
 
 ## Caching options
 
-The disk cache is **off by default**. Enable it with `--cache` or `cache = true` in config. Once enabled, results are stored in `~/.cache/breakfast/` (or `$XDG_CACHE_HOME/breakfast/`) and reused until the TTL expires. Complete cache hits are resolved before GitHub identity or diagnostics requests, so `--mine-only` and `--needs-my-review` can also avoid the API after the token's login has been cached by a successful run.
+The disk cache is **off by default**. Enable it with `--cache` or `cache = true` in config. Once enabled, results are stored in `~/.cache/breakfast/` (or `$XDG_CACHE_HOME/breakfast/`) and reused until the TTL expires. With `--mine-only` or `--needs-my-review`, even a complete cache hit asks GitHub for the current token's login (one `GET /user` request), so the filter always matches the account you are using. The login is saved per token and used when GitHub can't be asked: with `--offline`, on a lost connection, or on a rate limit.
 
 ### `--cache` / `--no-cache`
 
@@ -1291,7 +1291,7 @@ When a limit causes cached fallback, the exhausted resource and cache source are
   Data source:      local cache (12 minutes ago)
 ```
 
-`not reported this run` means that resource returned no rate-limit headers; it does not mean the resource is exhausted.
+`not reported this run` means that resource returned no rate-limit headers; it does not mean the resource is exhausted. A secondary rate limit, which GitHub applies to bursts of requests while budget remains, is shown as `throttled (<N> requests remaining)` instead of `exhausted`.
 
 Can also be enabled persistently via config:
 

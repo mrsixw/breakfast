@@ -1,7 +1,8 @@
 import datetime
 import json
 import re
-from concurrent.futures import CancelledError
+import threading
+import time
 
 import pytest
 import requests
@@ -1765,12 +1766,23 @@ def test_a_rate_limit_stops_every_later_request_in_the_run(monkeypatch, requests
     )
     other = requests_mock.post(api.GITHUB_GRAPHQL_URL, json={"data": {}})
 
-    with pytest.raises(api.GitHubRateLimitError):
+    with pytest.raises(api.GitHubRateLimitError) as first:
         api.make_github_api_request("/user")
-    with pytest.raises(CancelledError):
+    # Later requests re-raise the same limit, so whichever worker reports
+    # first, the caller sees a rate limit and never a bare cancellation.
+    with pytest.raises(api.GitHubRateLimitError) as rest_later:
         api.make_github_api_request("/user")
-    with pytest.raises(CancelledError):
+    with pytest.raises(api.GitHubRateLimitError) as graphql_later:
         api.make_github_graphql_request("{ viewer { login } }")
+    # Each raise is a fresh copy, so no two threads share one exception's
+    # traceback, but it describes the same limit.
+    for later in (rest_later.value, graphql_later.value):
+        assert later is not first.value
+        assert type(later) is type(first.value)
+        assert (later.reset_time, later.resource) == (
+            first.value.reset_time,
+            first.value.resource,
+        )
 
     assert limited.call_count == 1
     assert other.call_count == 0
@@ -2100,10 +2112,11 @@ def test_a_terminal_secondary_limit_stops_the_other_workers(monkeypatch):
         monkeypatch, [limited] * (api.MAX_RETRIES + 1) + [ok]
     )
 
-    with pytest.raises(api.GitHubSecondaryRateLimitError):
+    with pytest.raises(api.GitHubSecondaryRateLimitError) as first:
         api.make_github_graphql_request("{ viewer { login } }")
-    with pytest.raises(CancelledError):
+    with pytest.raises(api.GitHubSecondaryRateLimitError) as later:
         api.make_github_graphql_request("{ viewer { login } }")
+    assert later.value is not first.value
 
     assert len(posts) == api.MAX_RETRIES + 1
 
@@ -2533,3 +2546,61 @@ def test_a_retried_graphql_request_marks_the_wait_for_the_user(monkeypatch, caps
     captured = capsys.readouterr()
     assert captured.err.count(api.RETRY_EMOJI) == 1
     assert captured.out == ""
+
+
+_LET_THE_CALLER_COLLECT_SECONDS = 0.3
+
+
+def test_a_stopped_discovery_slice_reports_the_rate_limit(monkeypatch):
+    """Sliced discovery surfaces the rate limit even if a stopped slice ends first.
+
+    Slice B is refused by the stop and finishes before slice A, which hit the
+    limit, has returned. The caller must still see a GitHubRateLimitError, the
+    one exception the CLI falls back to the cache on.
+    """
+    a_stopped = threading.Event()
+    b_finished = threading.Event()
+    calls = []
+    calls_lock = threading.Lock()
+
+    def fake_slice(_owner, _scope, _state, _archived, _created):
+        with calls_lock:
+            calls.append(_created)
+            first = len(calls) == 1
+        if first:
+            error = api._stop_for_rate_limit("graphql", {})
+            a_stopped.set()
+            b_finished.wait(timeout=5)
+            # Let the caller collect B's result before A's future completes.
+            time.sleep(_LET_THE_CALLER_COLLECT_SECONDS)
+            raise error
+        a_stopped.wait(timeout=5)
+        try:
+            api._raise_if_rate_limited()
+        finally:
+            b_finished.set()
+        return [], 0
+
+    monkeypatch.setattr(api, "_search_created_range", fake_slice)
+
+    with pytest.raises(api.GitHubRateLimitError):
+        api._search_in_created_slices(
+            "org", None, "open", False, 2 * api.SEARCH_SLICE_TARGET
+        )
+    assert len(calls) == 2
+
+
+def test_a_terminal_secondary_limit_starts_no_pause(monkeypatch):
+    """Giving up must not leave other workers sleeping through a fresh pause."""
+    short = _graphql_http_response(403, _SECONDARY_LIMIT_BODY, {"Retry-After": "1"})
+    long_wait = 600
+    final = _graphql_http_response(
+        403, _SECONDARY_LIMIT_BODY, {"Retry-After": str(long_wait)}
+    )
+    _script_graphql_posts(monkeypatch, [short] * api.MAX_RETRIES + [final])
+
+    with pytest.raises(api.GitHubSecondaryRateLimitError):
+        api.make_github_graphql_request("{ viewer { login } }")
+
+    # Only the earlier one-second pauses may have been started.
+    assert api._throttle_until <= time.monotonic() + 1

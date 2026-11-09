@@ -62,15 +62,15 @@ If you know you are offline or have weak connectivity, you can force breakfast t
 
 ### `--mine-only` and `--needs-my-review` in offline mode
 
-breakfast caches your GitHub login in `user.json` inside the cache directory after the first successful online run. In offline mode (either `--offline` or automatic fallback), it reads this cached login so `--mine-only` and `--needs-my-review` work correctly.
+breakfast caches your GitHub login after the first successful online lookup, in a file named after a hash of your token (`identity_<hash>.json` in the cache directory; the token itself is never stored). Each token gets its own file, so switching tokens never filters by the wrong account. In offline mode (either `--offline` or automatic fallback), it reads this cached login so `--mine-only` and `--needs-my-review` work correctly.
 
 If you see the warning:
 
 ```text
-⚠️  Offline mode: no cached login found — --mine-only / --needs-my-review skipped.
+⚠️  --mine-only could not be applied because the current user login is not cached; displaying all locally cached PRs.
 ```
 
-Run breakfast once without `--offline` while connected, then the cached login will be available for future offline runs.
+Run breakfast once without `--offline` while connected, using the same token, then the cached login will be available for future offline runs.
 
 If errors persist and no cached data exists:
 

@@ -120,6 +120,15 @@ seconds, so `cache.RepositoryNamesCache` keeps the list on disk:
   so `api.py` stays independent of `cache.py`.
 - Unfiltered runs search the whole owner and never list repos.
 
+## Rate limits and the login cache
+
+_(Added in [#392](https://github.com/mrsixw/breakfast/issues/392))_
+
+When GitHub rate-limits a run, breakfast serves the full cache at any age
+instead of failing, and a per-token `identity_<hash>.json` keeps
+`--mine-only` working without a `/user` request. See
+[Rate-Limit Cache Fallback](rate-limit-fallback.md).
+
 ## TTL and `--cache-ttl`
 
 Default: **300 seconds (5 minutes)**. Configurable via CLI flag or config file:

@@ -14,3 +14,4 @@ Each document captures the problem, proposed solution, and implementation approa
 | [Text User Interface](tui.md) | Proposed | [#46](https://github.com/mrsixw/breakfast/issues/46) |
 | [Pluggable Seasonal Calendars](pluggable-calendars.md) | Implemented | [#196](https://github.com/mrsixw/breakfast/issues/196) |
 | [Testing Strategy](testing.md) | Implemented | [#99](https://github.com/mrsixw/breakfast/issues/99) |
+| [Rate-Limit Cache Fallback](rate-limit-fallback.md) | Implemented | [#392](https://github.com/mrsixw/breakfast/issues/392) |

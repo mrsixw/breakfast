@@ -56,13 +56,15 @@ The run exits successfully when cached output is available. If no matching full 
 
 With `--api-stats`, exhausted limits are shown as `exhausted (0 requests remaining)` or `exhausted (0 points remaining)`, alongside the captured reset time and `Data source: local cache (...)`. The debug summary does not make another GitHub request.
 
-`--mine-only` and `--needs-my-review` use a token-specific cached login during fallback. If the active token has not completed an online identity lookup before, breakfast warns that the filter could not be applied and displays all locally cached PRs.
+`--mine-only` and `--needs-my-review` use the cached login during fallback. If no login has been cached yet, breakfast warns that the filter could not be applied and displays all locally cached PRs.
 
 If you know you are offline or have weak connectivity, you can force breakfast to use the local cache immediately without making any network requests by passing `--offline`.
 
 ### `--mine-only` and `--needs-my-review` in offline mode
 
-breakfast caches your GitHub login after the first successful online lookup, in a file named after a hash of your token (`identity_<hash>.json` in the cache directory; the token itself is never stored). Each token gets its own file, so switching tokens never filters by the wrong account. In offline mode (either `--offline` or automatic fallback), it reads this cached login so `--mine-only` and `--needs-my-review` work correctly.
+breakfast caches your GitHub login (`user.json` in the cache directory) after every successful online lookup. In offline mode (either `--offline` or automatic fallback), it reads this cached login so `--mine-only` and `--needs-my-review` work correctly.
+
+There is one cached login, not one per token. If you switch between tokens for different accounts, an offline run filters by the account of the last token that ran online. Run once online with the token you want, and the cache follows it.
 
 If you see the warning:
 
@@ -70,7 +72,7 @@ If you see the warning:
 ⚠️  --mine-only could not be applied because the current user login is not cached; displaying all locally cached PRs.
 ```
 
-Run breakfast once without `--offline` while connected, using the same token, then the cached login will be available for future offline runs.
+Run breakfast once without `--offline` while connected, then the cached login will be available for future offline runs.
 
 If errors persist and no cached data exists:
 

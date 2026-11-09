@@ -5,6 +5,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from http import HTTPStatus
 from unittest.mock import patch
 
 import pytest
@@ -2617,34 +2618,73 @@ def test_cache_hit_skips_get_github_prs(monkeypatch, tmp_path):
     assert "PR number 1" in result.stdout
 
 
-def test_cache_hit_with_cached_login_makes_no_api_calls(
-    monkeypatch, tmp_path, requests_mock
-):
-    """A complete cache hit applies --mine-only without resolving /user."""
-    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
-    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
-    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
-
+def _alice_and_bob_cached(*, age=None):
+    """Cache one PR by alice and one by bob, optionally aged by *age*."""
     alice_pr = _make_pr_detail(1)
     bob_pr = _make_pr_detail(2)
     bob_pr["user"]["login"] = "bob"
     bob_pr["title"] = "Bob PR"
     cache.write_pr_cache("org", "repo", [alice_pr, bob_pr])
-    cache.write_cached_user_login("token-123", "alice")
+    if age is not None:
+        path = cache.cache_path("org", "repo")
+        payload = json.loads(path.read_text())
+        payload["fetched_at"] = (datetime.now(timezone.utc) - age).isoformat()
+        path.write_text(json.dumps(payload))
+
+
+def test_live_mine_only_asks_github_not_the_cached_login(
+    monkeypatch, tmp_path, requests_mock
+):
+    """A live run filters by the token's own login, never a cached one.
+
+    user.json is shared by every token, so it may hold another account's
+    login. Live runs therefore always ask /user, and only offline and
+    rate-limited runs fall back to the cached login.
+    """
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "alice-token")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    _alice_and_bob_cached()
+    cache.write_cached_user_login("bob")  # left behind by bob's token
+    requests_mock.get(f"{api.GITHUB_API_URL}/user", json={"login": "alice"})
 
     result = CliRunner().invoke(
-        cli.breakfast,
-        ["-o", "org", "-r", "repo", "--cache", "--mine-only", "--api-stats"],
+        cli.breakfast, ["-o", "org", "-r", "repo", "--cache", "--mine-only"]
     )
 
     assert result.exit_code == 0
     assert "PR number 1" in result.stdout
     assert "Bob PR" not in result.stdout
-    assert "API calls:        0 (0 REST + 0 GraphQL)" in result.stderr
-    assert "REST rate limit:   not reported this run" in result.stderr
-    assert "GQL rate limit:   not reported this run" in result.stderr
-    assert "Data source:      local cache" in result.stderr
-    assert requests_mock.call_count == 0
+    assert requests_mock.call_count == 1
+    assert cache.read_cached_user_login() == "alice"
+
+
+def test_mine_only_rate_limit_uses_the_cached_login(
+    monkeypatch, tmp_path, requests_mock
+):
+    """A rate-limited /user falls back to the cache and still applies --mine-only."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "alice-token")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    _alice_and_bob_cached(age=timedelta(hours=2))
+    cache.write_cached_user_login("alice")
+    requests_mock.get(
+        f"{api.GITHUB_API_URL}/user",
+        status_code=HTTPStatus.FORBIDDEN,
+        headers={"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1783941577"},
+        json={"message": "API rate limit exceeded"},
+    )
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--cache", "--mine-only"]
+    )
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    assert "Bob PR" not in result.stdout
+    assert "displaying local cached data from 2 hours ago" in result.stderr
+    assert "could not be applied" not in result.stderr
+    assert requests_mock.call_count == 1
 
 
 def test_mine_only_rate_limit_falls_back_to_expired_cache(
@@ -2733,7 +2773,7 @@ def test_no_cache_override_does_not_use_existing_cache(
     monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     cache.write_pr_cache("org", "repo", [_make_pr_detail(1)])
-    cache.write_cached_user_login("token-123", "alice")
+    cache.write_cached_user_login("alice")
     requests_mock.get(
         f"{api.GITHUB_API_URL}/user",
         status_code=403,
@@ -5786,7 +5826,7 @@ def test_cli_mine_only_online_persists_login(monkeypatch, tmp_path):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--mine-only"])
 
     assert result.exit_code == 0
-    assert cache.read_cached_user_login("token-123") == "alice"
+    assert cache.read_cached_user_login() == "alice"
 
 
 def test_cli_offline_mine_only_with_cached_login_filters(monkeypatch, tmp_path):
@@ -5798,7 +5838,7 @@ def test_cli_offline_mine_only_with_cached_login_filters(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
     monkeypatch.setattr(cli, "read_cached_user_login", cache.read_cached_user_login)
 
-    cache.write_cached_user_login("token-123", "alice")
+    cache.write_cached_user_login("alice")
 
     alice_pr = _make_pr_detail(1)  # default author is alice
     bob_pr = {**_make_pr_detail(2), "user": {"login": "bob"}}

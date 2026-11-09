@@ -25,8 +25,8 @@ Three pieces make that work:
    cache. ([Run flow](#run-flow))
 2. **One stop signal.** The first request to hit the limit stops every other
    worker from sending another. ([Stopping the workers](#stopping-the-workers))
-3. **A login cache per token.** `--mine-only` and `--needs-my-review` keep
-   working without asking GitHub who you are. ([The login cache](#the-login-cache))
+3. **The cached login.** A rate-limited `--mine-only` or `--needs-my-review`
+   run still filters by your login. ([The login cache](#the-login-cache))
 
 ## Behaviour
 
@@ -198,46 +198,40 @@ ran out, `"rest"` or `"graphql"`; they are separate, so the banner names it.
 ## The login cache
 
 `--mine-only` and `--needs-my-review` compare each PR against your GitHub
-login, which comes from `GET /user`. Two problems with how that worked before:
-
-- **It was asked for on every run**, even when every PR came from the cache. A
-  run that should make no requests made one, and during a rate limit that one
-  request is enough to fail.
-- **It was cached in one shared `user.json`.** Switch to a different token, a
-  work account say, and an offline run would filter by the *other* account's
-  login, silently showing the wrong PRs.
-
-Now the login is cached per token, and read before asking GitHub:
+login, which comes from `GET /user`. Since
+[#334](https://github.com/mrsixw/breakfast/issues/334), every successful
+lookup is saved to `user.json` so an `--offline` run can use it. This change
+adds one thing: the rate-limit fallback reads it too. Before, a rate limit on
+`/user` ended the run.
 
 ```mermaid
 flowchart TD
     need{"--mine-only or<br/>--needs-my-review?"} -->|no| skip(["No lookup"])
-    need -->|yes| file{"identity_HASH.json<br/>for this token?"}
-    file -->|yes| use(["Use the cached login<br/>no request"])
-    file -->|no| isOffline{"--offline?"}
-    isOffline -->|yes| warn(["Warn; show all cached PRs<br/>unfiltered"])
+    need -->|yes| isOffline{"--offline?"}
+    isOffline -->|yes| read1["Read user.json"]
     isOffline -->|no| ask["GET /user"]
-    ask -->|ok| save["Write identity_HASH.json"] --> use2(["Use the login"])
-    ask -->|rate limit| fb[["The one fallback handler"]]
+    ask -->|ok| save["Write user.json"] --> use(["Use the login"])
+    ask -->|rate limit| fb[["The one fallback handler:<br/>read user.json"]]
     ask -->|network error| net{"Full cache already read?"}
-    net -->|yes| offlineBanner(["Offline banner;<br/>use the cache"])
+    net -->|yes| read2["Offline banner;<br/>read user.json"]
     net -->|no| carryOn(["Carry on; the live fetch<br/>decides what happens"])
+    read1 & fb & read2 --> found{"Login found?"}
+    found -->|yes| use
+    found -->|no| warn(["Warn; show all cached PRs<br/>unfiltered"])
 ```
 
-- **The file name is a hash of the token**: the first 16 hex characters of its
-  SHA-256 (`cache.identity_cache_path`). The token itself is never written to
-  disk, and two tokens can never share a file.
-- **It never expires.** A token belongs to one account for its whole life, so
-  there is nothing for it to fall out of date with.
-- **It is written whether or not `--cache` is on**, because a later `--offline`
-  run is the one that needs it
-  ([#334](https://github.com/mrsixw/breakfast/issues/334)). It holds one login,
-  not your PRs.
-- **It is read only when the cache is enabled**, like every other cache file.
-  `--offline` turns the cache on.
-
-The old `user.json` is no longer read. A run that needs the login simply looks
-it up once more and writes the new file.
+- **A live run always asks GitHub**, even when every PR comes from the cache.
+  That costs one request in a run that makes dozens or hundreds, and it means
+  a live run always filters by the account the current token belongs to.
+- **`user.json` is read only when GitHub can't be asked**: `--offline`, a lost
+  connection, or a rate limit.
+- **One file is shared by every token.** It holds the login from the last live
+  `--mine-only` or `--needs-my-review` run, whichever token that run used. Use
+  two tokens and then run offline, or hit a rate limit, with the other one,
+  and the filter applies the first account's login. This was already true of
+  `--offline` and is not changed here. Live runs are never affected.
+- **It is written whether or not `--cache` is on**, because a later
+  `--offline` run is the one that needs it. It holds one login, not your PRs.
 
 ## What `--api-stats` reports
 
@@ -262,8 +256,8 @@ which matter differently when diagnosing a slow or failed run:
 
 ## Cache files
 
-All in `$XDG_CACHE_HOME/breakfast/` (default `~/.cache/breakfast/`). The
-identity file is the only one this change adds.
+All in `$XDG_CACHE_HOME/breakfast/` (default `~/.cache/breakfast/`). This
+change adds no new files.
 
 | File | Holds | Expires | Used as rate-limit fallback |
 | --- | --- | --- | --- |
@@ -271,7 +265,7 @@ identity file is the only one this change adds.
 | `graphql_<key>.json` | discovered PR URLs | `--cache-ttl` | no |
 | `pr_repo_<key>.json` | PRs, checks, approvals for one repo | `--cache-ttl` | no |
 | `repos_<key>.json` | the owner's repository names | 24 hours | no |
-| `identity_<hash>.json` | the login for one token | never | supplies the login |
+| `user.json` | the login from the last live lookup | never | supplies the login |
 
 ## Testing
 
@@ -292,6 +286,5 @@ rate limit.
   - no cache, `--no-cache`, and `--refresh` banners;
   - the cache file not being overwritten by partial results;
   - `stdout` staying empty on failure;
-  - a complete cache hit with a cached login making zero requests.
-- **`tests/test_cache.py`**: the identity file, including that the token does
-  not appear in its name or contents, and that two tokens get two files.
+  - a rate-limited `--mine-only` run filtering by the cached login;
+  - a live run filtering by `/user`'s answer, not a different cached login.

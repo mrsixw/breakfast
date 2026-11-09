@@ -125,8 +125,8 @@ seconds, so `cache.RepositoryNamesCache` keeps the list on disk:
 _(Added in [#392](https://github.com/mrsixw/breakfast/issues/392))_
 
 When GitHub rate-limits a run, breakfast serves the full cache at any age
-instead of failing, and a per-token `identity_<hash>.json` keeps
-`--mine-only` working without a `/user` request. See
+instead of failing, and reads the login saved in `user.json` so `--mine-only`
+still applies. See
 [Rate-Limit Cache Fallback](rate-limit-fallback.md).
 
 ## TTL and `--cache-ttl`

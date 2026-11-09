@@ -1687,16 +1687,20 @@ def breakfast(
     try:
         current_user_login = None
         if mine_only or needs_my_review:
-            if cache_enabled:
-                current_user_login = read_cached_user_login(SECRET_GITHUB_TOKEN)
-            if current_user_login is None and not offline:
+            # A live run always asks GitHub. user.json is shared by every
+            # token, so it may hold another account's login; it is read only
+            # when GitHub cannot be asked: --offline, a lost connection, or a
+            # rate limit (in the fallback handler below).
+            if offline:
+                current_user_login = read_cached_user_login()
+            else:
                 try:
                     current_user_login = get_authenticated_user_login()
                     # Written whatever --cache says: #334's point is that a later
                     # offline run can read it, and that run is the one that turns
                     # the cache on. Gating this on cache_enabled would mean the
                     # login was never there to read.
-                    write_cached_user_login(SECRET_GITHUB_TOKEN, current_user_login)
+                    write_cached_user_login(current_user_login)
                 except GitHubAuthenticationError as exc:
                     _handle_auth_error(exc, colour=colour, json_output=json_output)
                 except (
@@ -1704,6 +1708,7 @@ def breakfast(
                     requests.exceptions.Timeout,
                 ):
                     if cache_result is not None:
+                        current_user_login = read_cached_user_login()
                         offline_mode = True
                         no_update_check = True
                         cache_age_seconds = _cache_age_seconds(cache_result)
@@ -2195,6 +2200,8 @@ def breakfast(
         )
         if cache_result is None:
             _handle_rate_limit(exc, json_output, cache_unavailable=True)
+        if (mine_only or needs_my_review) and current_user_login is None:
+            current_user_login = read_cached_user_login()
         pr_details = cache_result["prs"]
         check_statuses, approval_statuses, approval_details = _cached_status_maps(
             pr_details,

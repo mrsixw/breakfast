@@ -460,26 +460,86 @@ def test_read_pr_cache_expired_but_ignored(monkeypatch, tmp_path):
 
 def test_write_and_read_cached_user_login(monkeypatch, tmp_path):
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
-    cache.write_cached_user_login("alice")
-    assert cache.read_cached_user_login() == "alice"
+    cache.write_cached_user_login("token-one", "alice")
+    assert cache.read_cached_user_login("token-one") == "alice"
 
 
 def test_read_cached_user_login_returns_none_when_missing(monkeypatch, tmp_path):
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
-    assert cache.read_cached_user_login() is None
+    assert cache.read_cached_user_login("token-one") is None
 
 
 def test_read_cached_user_login_returns_none_on_corrupt_file(monkeypatch, tmp_path):
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     (tmp_path / "user.json").write_text("not json{{")
-    assert cache.read_cached_user_login() is None
+    assert cache.read_cached_user_login("token-one") is None
+
+
+@pytest.mark.parametrize("payload", ["[]", '"alice"', '{"logins": []}'])
+def test_read_cached_user_login_returns_none_on_wrong_shape(
+    monkeypatch, tmp_path, payload
+):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    (tmp_path / "user.json").write_text(payload)
+    assert cache.read_cached_user_login("token-one") is None
+
+
+def test_read_cached_user_login_returns_none_on_invalid_utf8(monkeypatch, tmp_path):
+    """A damaged file must not crash the offline or rate-limit fallback."""
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    (tmp_path / "user.json").write_bytes(b'{"logins": {"\xff\xfe": "alice"}}')
+    assert cache.read_cached_user_login("token-one") is None
+    cache.write_cached_user_login("token-one", "bob")
+    assert cache.read_cached_user_login("token-one") == "bob"
+
+
+@pytest.mark.parametrize("value", [1, None, ""])
+def test_read_cached_user_login_ignores_a_non_login_value(monkeypatch, tmp_path, value):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    key = cache._token_key("token-one")
+    (tmp_path / "user.json").write_text(json.dumps({"logins": {key: value}}))
+    assert cache.read_cached_user_login("token-one") is None
 
 
 def test_write_cached_user_login_overwrites(monkeypatch, tmp_path):
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
-    cache.write_cached_user_login("alice")
-    cache.write_cached_user_login("bob")
-    assert cache.read_cached_user_login() == "bob"
+    cache.write_cached_user_login("token-one", "alice")
+    cache.write_cached_user_login("token-one", "bob")
+    assert cache.read_cached_user_login("token-one") == "bob"
+
+
+def test_cached_user_login_is_kept_per_token(monkeypatch, tmp_path):
+    """Two tokens share user.json but never each other's login."""
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_cached_user_login("work-token", "alice")
+    cache.write_cached_user_login("home-token", "bob")
+
+    assert cache.read_cached_user_login("work-token") == "alice"
+    assert cache.read_cached_user_login("home-token") == "bob"
+    assert cache.read_cached_user_login("third-token") is None
+
+
+def test_cached_user_login_never_stores_the_token(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_cached_user_login("ghp_secret_token", "alice")
+    assert "ghp_secret_token" not in (tmp_path / "user.json").read_text()
+
+
+def test_pre_token_user_json_is_ignored_then_replaced(monkeypatch, tmp_path):
+    """The old {"login": ...} file cannot say whose login it is, so it is unused."""
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    (tmp_path / "user.json").write_text('{"login": "alice"}')
+
+    assert cache.read_cached_user_login("token-one") is None
+    cache.write_cached_user_login("token-one", "bob")
+    assert cache.read_cached_user_login("token-one") == "bob"
+
+
+def test_no_token_never_reads_or_writes_a_login(monkeypatch, tmp_path):
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_cached_user_login(None, "alice")
+    assert not (tmp_path / "user.json").exists()
+    assert cache.read_cached_user_login(None) is None
 
 
 # ---------------------------------------------------------------------------

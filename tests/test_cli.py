@@ -2637,15 +2637,14 @@ def test_live_mine_only_asks_github_not_the_cached_login(
 ):
     """A live run filters by the token's own login, never a cached one.
 
-    user.json is shared by every token, so it may hold another account's
-    login. Live runs therefore always ask /user, and only offline and
-    rate-limited runs fall back to the cached login.
+    Live runs always ask /user; only offline and rate-limited runs fall back
+    to the cached login, and then only to the current token's entry.
     """
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "alice-token")
     monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     _alice_and_bob_cached()
-    cache.write_cached_user_login("bob")  # left behind by bob's token
+    cache.write_cached_user_login("bob-token", "bob")
     requests_mock.get(f"{api.GITHUB_API_URL}/user", json={"login": "alice"})
 
     result = CliRunner().invoke(
@@ -2656,7 +2655,8 @@ def test_live_mine_only_asks_github_not_the_cached_login(
     assert "PR number 1" in result.stdout
     assert "Bob PR" not in result.stdout
     assert requests_mock.call_count == 1
-    assert cache.read_cached_user_login() == "alice"
+    assert cache.read_cached_user_login("alice-token") == "alice"
+    assert cache.read_cached_user_login("bob-token") == "bob"
 
 
 def test_mine_only_rate_limit_uses_the_cached_login(
@@ -2667,7 +2667,7 @@ def test_mine_only_rate_limit_uses_the_cached_login(
     monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     _alice_and_bob_cached(age=timedelta(hours=2))
-    cache.write_cached_user_login("alice")
+    cache.write_cached_user_login("alice-token", "alice")
     requests_mock.get(
         f"{api.GITHUB_API_URL}/user",
         status_code=HTTPStatus.FORBIDDEN,
@@ -2773,7 +2773,7 @@ def test_no_cache_override_does_not_use_existing_cache(
     monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     cache.write_pr_cache("org", "repo", [_make_pr_detail(1)])
-    cache.write_cached_user_login("alice")
+    cache.write_cached_user_login("token-123", "alice")
     requests_mock.get(
         f"{api.GITHUB_API_URL}/user",
         status_code=403,
@@ -5826,7 +5826,7 @@ def test_cli_mine_only_online_persists_login(monkeypatch, tmp_path):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--mine-only"])
 
     assert result.exit_code == 0
-    assert cache.read_cached_user_login() == "alice"
+    assert cache.read_cached_user_login("token-123") == "alice"
 
 
 def test_cli_offline_mine_only_with_cached_login_filters(monkeypatch, tmp_path):
@@ -5838,7 +5838,7 @@ def test_cli_offline_mine_only_with_cached_login_filters(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
     monkeypatch.setattr(cli, "read_cached_user_login", cache.read_cached_user_login)
 
-    cache.write_cached_user_login("alice")
+    cache.write_cached_user_login("token-123", "alice")
 
     alice_pr = _make_pr_detail(1)  # default author is alice
     bob_pr = {**_make_pr_detail(2), "user": {"login": "bob"}}
@@ -5854,6 +5854,30 @@ def test_cli_offline_mine_only_with_cached_login_filters(monkeypatch, tmp_path):
     assert "PR number 1" in result.stdout
     assert "PR number 2" not in result.stdout
     assert "could not be applied" not in result.stderr
+
+
+def test_cli_offline_mine_only_ignores_another_tokens_login(monkeypatch, tmp_path):
+    """After switching tokens, offline warns rather than filter as someone else."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "home-token")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "read_cached_user_login", cache.read_cached_user_login)
+
+    cache.write_cached_user_login("work-token", "alice")
+    alice_pr = _make_pr_detail(1)
+    bob_pr = {**_make_pr_detail(2), "user": {"login": "bob"}}
+    cache.write_pr_cache("org", "repo", [alice_pr, bob_pr])
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--offline", "--mine-only"]
+    )
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    assert "PR number 2" in result.stdout
+    assert "--mine-only could not be applied" in result.stderr
 
 
 def test_cli_offline_respects_no_age_flag(monkeypatch, tmp_path):

@@ -6,7 +6,12 @@ from pathlib import Path
 
 import click
 
-from .constants import REPOSITORY_NAMES_CACHE_TTL, TTL_SUFFIX_MAP
+from .constants import (
+    CACHE_KEY_HEX_CHARS,
+    REPOSITORY_NAMES_CACHE_TTL,
+    TTL_SUFFIX_MAP,
+    USER_LOGIN_CACHE_FILE,
+)
 from .logger import logger
 from .xdg import get_cache_dir
 
@@ -80,7 +85,7 @@ def parse_ttl(value: str | int) -> int:
 def make_cache_key(org: str, repo_filter: str) -> str:
     """Return a 16-hex-char key for (org, repo_filter), case-normalised."""
     raw = f"{org.lower()}:{repo_filter.lower()}"
-    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+    return hashlib.sha256(raw.encode()).hexdigest()[:CACHE_KEY_HEX_CHARS]
 
 
 def cache_path(org: str, repo_filter: str) -> Path:
@@ -310,7 +315,7 @@ def read_pr_cache(
 
 def repo_pr_cache_path(org: str, repo_name: str) -> Path:
     raw = f"{org.lower()}:{repo_name.lower()}"
-    key = hashlib.sha256(raw.encode()).hexdigest()[:16]
+    key = hashlib.sha256(raw.encode()).hexdigest()[:CACHE_KEY_HEX_CHARS]
     return _CACHE_DIR / f"pr_repo_{key}.json"
 
 
@@ -415,25 +420,54 @@ def write_repo_pr_cache(
         )
 
 
-def read_cached_user_login() -> str | None:
-    """Return the GitHub login persisted from a previous online run, or None."""
-    path = _CACHE_DIR / "user.json"
+def _token_key(token: str) -> str:
+    """Return the key a token's login is filed under; never the token itself."""
+    return hashlib.sha256(token.encode()).hexdigest()[:CACHE_KEY_HEX_CHARS]
+
+
+def _read_cached_logins() -> dict[str, str]:
+    """Return user.json's token-key to login table, or {} if absent or unusable.
+
+    A file from before logins were kept per token holds a bare ``login`` and
+    no ``logins`` table. It cannot say whose login it is, so it reads as empty
+    and the next live lookup replaces it.
+    """
+    path = _CACHE_DIR / USER_LOGIN_CACHE_FILE
     try:
         if not path.exists():
-            return None
+            return {}
         data = json.loads(path.read_text())
-        return data.get("login") or None
-    except (OSError, json.JSONDecodeError, KeyError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         logger.warning("cache_read_error layer=user_login error=%r", str(exc))
+        return {}
+    logins = data.get("logins") if isinstance(data, dict) else None
+    if not isinstance(logins, dict):
+        return {}
+    return {k: v for k, v in logins.items() if isinstance(v, str) and v}
+
+
+def read_cached_user_login(token: str | None) -> str | None:
+    """Return the login last looked up live with *token*, or None.
+
+    Only *token*'s own entry is ever returned, so switching tokens can make
+    an offline run skip ``--mine-only`` with a warning, but never filter by
+    another account's login.
+    """
+    if not token:
         return None
+    return _read_cached_logins().get(_token_key(token))
 
 
-def write_cached_user_login(login: str) -> None:
-    """Persist *login* to the cache directory for offline use."""
+def write_cached_user_login(token: str | None, login: str) -> None:
+    """Record *login* for *token* in user.json, keeping other tokens' entries."""
+    if not token:
+        return
+    logins = _read_cached_logins()
+    logins[_token_key(token)] = login
     try:
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        path = _CACHE_DIR / "user.json"
-        _atomic_write_text(path, json.dumps({"login": login}))
+        path = _CACHE_DIR / USER_LOGIN_CACHE_FILE
+        _atomic_write_text(path, json.dumps({"logins": logins}))
         logger.debug("cache_write layer=user_login login=%s", login)
     except OSError as exc:
         logger.warning("cache_write_error layer=user_login error=%r", str(exc))

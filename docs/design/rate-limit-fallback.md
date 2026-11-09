@@ -201,19 +201,20 @@ ran out, `"rest"` or `"graphql"`; they are separate, so the banner names it.
 login, which comes from `GET /user`. Since
 [#334](https://github.com/mrsixw/breakfast/issues/334), every successful
 lookup is saved to `user.json` so an `--offline` run can use it. This change
-adds one thing: the rate-limit fallback reads it too. Before, a rate limit on
-`/user` ended the run.
+adds two things: the rate-limit fallback reads it too (before, a rate limit on
+`/user` ended the run), and each login is filed under the token that looked
+it up.
 
 ```mermaid
 flowchart TD
     need{"--mine-only or<br/>--needs-my-review?"} -->|no| skip(["No lookup"])
     need -->|yes| isOffline{"--offline?"}
-    isOffline -->|yes| read1["Read user.json"]
+    isOffline -->|yes| read1["Read this token's<br/>entry in user.json"]
     isOffline -->|no| ask["GET /user"]
-    ask -->|ok| save["Write user.json"] --> use(["Use the login"])
-    ask -->|rate limit| fb[["The one fallback handler:<br/>read user.json"]]
+    ask -->|ok| save["Save under this token<br/>in user.json"] --> use(["Use the login"])
+    ask -->|rate limit| fb[["The one fallback handler:<br/>read this token's entry"]]
     ask -->|network error| net{"Full cache already read?"}
-    net -->|yes| read2["Offline banner;<br/>read user.json"]
+    net -->|yes| read2["Offline banner;<br/>read this token's entry"]
     net -->|no| carryOn(["Carry on; the live fetch<br/>decides what happens"])
     read1 & fb & read2 --> found{"Login found?"}
     found -->|yes| use
@@ -225,13 +226,28 @@ flowchart TD
   a live run always filters by the account the current token belongs to.
 - **`user.json` is read only when GitHub can't be asked**: `--offline`, a lost
   connection, or a rate limit.
-- **One file is shared by every token.** It holds the login from the last live
-  `--mine-only` or `--needs-my-review` run, whichever token that run used. Use
-  two tokens and then run offline, or hit a rate limit, with the other one,
-  and the filter applies the first account's login. This was already true of
-  `--offline` and is not changed here. Live runs are never affected.
+- **Logins are kept per token.** `user.json` maps a key for each token to
+  its login:
+
+  ```json
+  {"logins": {"3f9a1c0d7e2b4a65": "alice", "b72e04c19d8f3a20": "alice-at-work"}}
+  ```
+
+  The key is the first `CACHE_KEY_HEX_CHARS` hex characters of the token's
+  SHA-256, as for the other cache files, so the token is never written to
+  disk. A run only reads its own token's entry. After switching to a token
+  that has never run online, an offline or rate-limited run warns that
+  `--mine-only` could not be applied and shows every cached PR. It never
+  filters by another account's login.
+- **An older `user.json`**, holding a bare `{"login": ...}`, can't say whose
+  login it is, so it reads as empty. The next live lookup replaces it.
+- **There is no lock.** Two runs with different tokens finishing their
+  lookups at the same moment can each rewrite the file, and one token's entry
+  is lost. That token's next offline run warns instead of filtering, and its
+  next live run puts the entry back. A missing entry can only cause that
+  warning, never another account's login, so it isn't worth a lock.
 - **It is written whether or not `--cache` is on**, because a later
-  `--offline` run is the one that needs it. It holds one login, not your PRs.
+  `--offline` run is the one that needs it. It holds logins, not your PRs.
 
 ## What `--api-stats` reports
 
@@ -265,7 +281,7 @@ change adds no new files.
 | `graphql_<key>.json` | discovered PR URLs | `--cache-ttl` | no |
 | `pr_repo_<key>.json` | PRs, checks, approvals for one repo | `--cache-ttl` | no |
 | `repos_<key>.json` | the owner's repository names | 24 hours | no |
-| `user.json` | the login from the last live lookup | never | supplies the login |
+| `user.json` | each token's login, keyed by a hash of the token | never | supplies the login |
 
 ## Testing
 
@@ -287,4 +303,9 @@ rate limit.
   - the cache file not being overwritten by partial results;
   - `stdout` staying empty on failure;
   - a rate-limited `--mine-only` run filtering by the cached login;
-  - a live run filtering by `/user`'s answer, not a different cached login.
+  - a live run filtering by `/user`'s answer, not a different cached login;
+  - an offline run after a token switch warning rather than using the other
+    token's login.
+- **`tests/test_cache.py`**: logins kept per token, the token never written,
+  an old-format or malformed `user.json` reading as empty, and no token
+  reading or writing nothing.

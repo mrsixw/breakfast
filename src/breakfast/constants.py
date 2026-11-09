@@ -4,6 +4,7 @@ __all__ = [
     "BREAKFAST_ITEMS",
     "CACHE_DIR_ENV_VAR",
     "CACHE_DISABLED_ENV_VAR",
+    "CACHE_KEY_HEX_CHARS",
     "CAKE_RECIPES",
     "COLUMN_DISPLAY_NAMES",
     "DEFAULT_CACHE_TTL",
@@ -49,6 +50,7 @@ __all__ = [
     "SECONDARY_RATE_LIMIT_DEFAULT_WAIT",
     "SUKKOT_START",
     "TTL_SUFFIX_MAP",
+    "USER_LOGIN_CACHE_FILE",
 ]
 
 # ── GitHub API Configuration ───────────────────────────────────────────────
@@ -109,6 +111,10 @@ DEFAULT_CACHE_TTL = 300
 REPOSITORY_NAMES_CACHE_TTL = 24 * 60 * 60
 CACHE_DIR_ENV_VAR = "BREAKFAST_CACHE_DIR"
 CACHE_DISABLED_ENV_VAR = "BREAKFAST_NO_CACHE"
+# Cache keys and the token keys in user.json are this many hex characters of
+# a SHA-256, so the inputs (and the token) never appear in a file name or file.
+CACHE_KEY_HEX_CHARS = 16
+USER_LOGIN_CACHE_FILE = "user.json"
 TTL_SUFFIX_MAP = {"s": 1, "m": 60, "h": 3600}
 
 # ── Legendary PRs & Table Rendering ────────────────────────────────────────

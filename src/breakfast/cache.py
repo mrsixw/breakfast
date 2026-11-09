@@ -95,9 +95,13 @@ def graphql_cache_path(org: str, repo_filter: str) -> Path:
 
 
 def identity_cache_path(token: str) -> Path:
-    """Return the versioned identity cache path for a GitHub token."""
+    """Return the file holding the login of the account *token* belongs to.
+
+    One file per token, so switching tokens can never filter by someone else's
+    login. Named by a hash: the token itself is never written to disk.
+    """
     key = hashlib.sha256(token.encode()).hexdigest()[:16]
-    return _CACHE_DIR / f"identity_v1_{key}.json"
+    return _CACHE_DIR / f"identity_{key}.json"
 
 
 def read_cached_user_login(token: str | None) -> str | None:

@@ -141,9 +141,25 @@ def _cache_dir_empty(sandbox):
     """
     cache_dir = sandbox["cache"] / "breakfast"
     leftovers = (
-        sorted(p.name for p in cache_dir.glob("*.json")) if cache_dir.is_dir() else []
+        sorted(str(p.relative_to(cache_dir)) for p in cache_dir.rglob("*.json"))
+        if cache_dir.is_dir()
+        else []
     )
     assert not leftovers, f"cache was not cold, {cache_dir} already held: {leftovers}"
+
+
+@given(parsers.parse('the cache directory holds a pre-token "{name}" file'))
+def _legacy_cache_file(sandbox, name):
+    """Seed a file in the unscoped layout used before the cache was per token."""
+    cache_dir = sandbox["cache"] / "breakfast"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    (cache_dir / name).write_text("{}", encoding="utf-8")
+
+
+@then(parsers.parse('the cache directory no longer holds "{name}"'))
+def _cache_file_removed(sandbox, name):
+    path = sandbox["cache"] / "breakfast" / name
+    assert not path.exists(), f"{path} survived the migration"
 
 
 @then(parsers.parse('the cache directory holds a "{pattern}" file'))

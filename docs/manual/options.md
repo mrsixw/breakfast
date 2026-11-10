@@ -1029,6 +1029,8 @@ workers = 16
 
 The disk cache is **off by default**. Enable it with `--cache` or `cache = true` in config. Once enabled, results are stored in `~/.cache/breakfast/` (or `$XDG_CACHE_HOME/breakfast/`) and reused until the TTL expires. With `--mine-only` or `--needs-my-review`, even a complete cache hit asks GitHub for the current token's login (one `GET /user` request), so the filter always matches the account you are using. The login is saved per token and used when GitHub can't be asked: with `--offline`, on a lost connection, or on a rate limit.
 
+The cache is kept separately for each GitHub token. Different tokens can see different PRs (a fine-grained token, a work and a personal account), so a run only ever reads what its own token wrote, including with `--offline` and when falling back. Switching or rotating a token starts that token with an empty cache.
+
 ### `--cache` / `--no-cache`
 
 Enable or disable the disk cache. Off by default. Use `--cache` to turn it on for a single run, or set `cache = true` in config to make it permanent. `--no-cache` overrides `cache = true` in config for that run.

@@ -115,3 +115,12 @@ Feature: breakfast CLI contract
     And the generated config documents "label-match"
     And the generated config documents "exclude-label"
     And running it again reports that the config already exists
+
+  Scenario: The cache from before per-token scoping is cleared once, with a warning
+    Given the GitHub token is "e2e-unused-token"
+    And the cache directory holds a pre-token "prs_0123456789abcdef.json" file
+    When I run `breakfast -o mrsixw:breakfast-fixtures --offline --no-colour`
+    Then the exit code is 1
+    And stdout is empty
+    And stderr contains "Migrating the breakfast cache"
+    And the cache directory no longer holds "prs_0123456789abcdef.json"

@@ -5,6 +5,7 @@ __all__ = [
     "CACHE_DIR_ENV_VAR",
     "CACHE_DISABLED_ENV_VAR",
     "CACHE_KEY_HEX_CHARS",
+    "CACHE_SCHEMA_DIR",
     "CAKE_RECIPES",
     "COLUMN_DISPLAY_NAMES",
     "DEFAULT_CACHE_TTL",
@@ -20,6 +21,7 @@ __all__ = [
     "HEADER_STYLE_CHOICES",
     "HOLI_DATES",
     "HOLI_RAINBOW",
+    "LEGACY_CACHE_PREFIXES",
     "LEGENDARY_AGE_THRESHOLD_DAYS",
     "LEGENDARY_COMMENT_THRESHOLD",
     "LEGENDARY_EMOJI",
@@ -115,6 +117,11 @@ CACHE_DISABLED_ENV_VAR = "BREAKFAST_NO_CACHE"
 # a SHA-256, so the inputs (and the token) never appear in a file name or file.
 CACHE_KEY_HEX_CHARS = 16
 USER_LOGIN_CACHE_FILE = "user.json"
+# PR data lives in this subdirectory, keyed per token (#523). Bump it when the
+# layout changes again, and teach cache.migrate_legacy_cache the old one.
+CACHE_SCHEMA_DIR = "v2"
+# The prefixes of the unscoped PR-data files written before CACHE_SCHEMA_DIR.
+LEGACY_CACHE_PREFIXES = ("prs", "graphql", "pr_repo", "repos")
 TTL_SUFFIX_MAP = {"s": 1, "m": 60, "h": 3600}
 
 # ── Legendary PRs & Table Rendering ────────────────────────────────────────

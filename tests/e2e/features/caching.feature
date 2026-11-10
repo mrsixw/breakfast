@@ -7,10 +7,11 @@ Feature: Caching across separate processes
     Given the cache directory is empty
     When I run `breakfast -o mrsixw:breakfast-fixtures --include-archived --cache --format json --no-colour`
     Then the exit code is 0
-    And the cache directory holds a "prs_*.json" file
-    And the cache directory holds a "graphql_*.json" file
-    And the cache directory holds a "repos_*.json" file
+    And the cache directory holds a "v2/prs_*.json" file
+    And the cache directory holds a "v2/graphql_*.json" file
+    And the cache directory holds a "v2/repos_*.json" file
     And a second offline run prints byte-identical output
+    And an offline run with another GitHub token finds no cached data
 
   Scenario: Debug summary reports real API activity
     Given the cache directory is empty

@@ -8,6 +8,9 @@ import re
 
 from pytest_bdd import parsers, then
 
+# A token that has never written a cache. Only ever used offline.
+OTHER_TOKEN = "e2e-another-token"
+
 # The frozen fixture repo. Its pull requests never change, so scenarios can
 # assert exact counts. See docs/design/testing.md.
 FIXTURE_INVENTORY = {
@@ -64,6 +67,30 @@ def _offline_replay(result, run_breakfast):
     assert replay.returncode == 0, replay.stderr
     assert "Offline Mode" in replay.stderr, replay.stderr
     assert replay.stdout == result.stdout
+
+
+@then("an offline run with another GitHub token finds no cached data")
+def _offline_other_token(run_breakfast, cli_env):
+    """The warm cache belongs to the token that wrote it (#523).
+
+    --offline makes no request, so the stand-in token is never sent anywhere.
+    """
+    cli_env["GH_TOKEN"] = OTHER_TOKEN
+    other = run_breakfast(
+        [
+            "-o",
+            "mrsixw:breakfast-fixtures",
+            "--include-archived",
+            "--cache",
+            "--offline",
+            "--format",
+            "json",
+            "--no-colour",
+        ]
+    )
+    assert other.returncode != 0, other.stderr
+    assert other.stdout == ""
+    assert "no cached data was found" in other.stderr, other.stderr
 
 
 @then(parsers.parse("stderr reports at least {count:d} processed pull requests"))

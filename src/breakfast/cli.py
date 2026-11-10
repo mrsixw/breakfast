@@ -35,6 +35,7 @@ from .api import (
 )
 from .cache import (
     RepositoryNamesCache,
+    migrate_legacy_cache,
     parse_ttl,
     read_cached_user_login,
     read_graphql_cache,
@@ -174,6 +175,23 @@ def _emit_rate_limit_cache_banner(
     )
 
 
+def _announce_cache_migration(removed: int, *, colour: bool) -> None:
+    """Say, once, that the old shared cache was swept away (#523)."""
+    plural = "" if removed == 1 else "s"
+    message = (
+        "🧹🥞✨ Migrating the breakfast cache to a new schema! ✨🥞🧹\n"
+        "   🔐 Cached PRs are now kept separately for each GitHub token, so one "
+        "token can never be shown another's PRs.\n"
+        f"   🗑️  Cleared {removed} old cache file{plural}. Your next cached run "
+        "fetches fresh data, and this only happens once. 🍳🧇🎉"
+    )
+    click.echo(
+        click.style(message, fg="yellow", bold=True),
+        err=True,
+        color=colour,
+    )
+
+
 def _read_degraded_cache(
     org_cache_key: str,
     repo_cache_key: str,
@@ -188,6 +206,7 @@ def _read_degraded_cache(
         org_cache_key,
         repo_cache_key,
         cache_ttl_seconds,
+        token=SECRET_GITHUB_TOKEN,
         ignore_ttl=True,
     )
 
@@ -1612,6 +1631,11 @@ def breakfast(
         click.echo(click.style(message, fg="red", bold=True), err=True, color=colour)
         sys.exit(1)
 
+    # Before any cache read, so nothing unscoped can ever be served (#523).
+    removed_legacy_files = migrate_legacy_cache()
+    if removed_legacy_files:
+        _announce_cache_migration(removed_legacy_files, colour=colour)
+
     t_acquire = time.monotonic()
 
     # Cache key encodes each org with its effective scoped filter for determinism
@@ -1671,7 +1695,12 @@ def breakfast(
             sys.exit(1)
 
     if pr_details is None and cache_enabled and not refresh and not refresh_prs:
-        cache_result = read_pr_cache(org_cache_key, repo_cache_key, cache_ttl_seconds)
+        cache_result = read_pr_cache(
+            org_cache_key,
+            repo_cache_key,
+            cache_ttl_seconds,
+            token=SECRET_GITHUB_TOKEN,
+        )
         if cache_result is not None:
             pr_details = cache_result["prs"]
             cached_check_statuses = cache_result["check_statuses"]
@@ -1734,13 +1763,18 @@ def breakfast(
                 prs = None
                 if cache_enabled and not refresh:
                     prs = read_graphql_cache(
-                        org_cache_key, repo_cache_key, cache_ttl_seconds
+                        org_cache_key,
+                        repo_cache_key,
+                        cache_ttl_seconds,
+                        token=SECRET_GITHUB_TOKEN,
                     )
 
                 if prs is None:
                     prs = []
                     names_cache = (
-                        RepositoryNamesCache(refresh=refresh) if cache_enabled else None
+                        RepositoryNamesCache(token=SECRET_GITHUB_TOKEN, refresh=refresh)
+                        if cache_enabled
+                        else None
                     )
                     for org, scoped_filters in org_specs:
                         effective_filters = (
@@ -1783,7 +1817,12 @@ def breakfast(
                             unique_prs.append(url)
                     prs = unique_prs
                     if cache_enabled:
-                        write_graphql_cache(org_cache_key, repo_cache_key, prs)
+                        write_graphql_cache(
+                            org_cache_key,
+                            repo_cache_key,
+                            prs,
+                            token=SECRET_GITHUB_TOKEN,
+                        )
                 else:
                     org_display = ", ".join(organizations)
                     click.echo(f"Fetching {org_display} PRs...⚡...Done", err=True)
@@ -1815,7 +1854,12 @@ def breakfast(
 
                     uncached_urls: list[str] = []
                     for (org_name, rname), repo_urls in repos_to_urls.items():
-                        cached = read_repo_pr_cache(org_name, rname, cache_ttl_seconds)
+                        cached = read_repo_pr_cache(
+                            org_name,
+                            rname,
+                            cache_ttl_seconds,
+                            token=SECRET_GITHUB_TOKEN,
+                        )
                         if cached is None:
                             uncached_urls.extend(repo_urls)
                             continue
@@ -1951,6 +1995,7 @@ def breakfast(
                             check_statuses=rdata["checks"] or None,
                             approval_statuses=rdata["approvals"] or None,
                             approval_details=rdata["approval_details"] or None,
+                            token=SECRET_GITHUB_TOKEN,
                         )
 
                 # Merge per-repo cache hits into the main collections
@@ -2234,6 +2279,7 @@ def breakfast(
             check_statuses=check_statuses or None,
             approval_statuses=approval_statuses or None,
             approval_details=approval_details or None,
+            token=SECRET_GITHUB_TOKEN,
         )
         if refresh or refresh_prs:
             click.echo("🔄 Cache refreshed.", err=True)

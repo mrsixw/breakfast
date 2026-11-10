@@ -38,7 +38,7 @@ Three pieces make that work:
 | Rate limited part-way through fetching | Partial results discarded; the cache on disk is not touched | 0 |
 | A 403 that is not a rate limit (permissions) | Unchanged: an ordinary error | 1 |
 
-Only the **full** cache (Layer 1, `prs_<key>.json`) is used as a fallback. It
+Only the **full** cache (Layer 1, `v2/prs_<key>.json`) is used as a fallback. It
 is the only layer that holds a complete, consistent answer: PRs, checks and
 approvals written together by one run. Mixing a stale full cache with fresh
 per-repo entries could show a PR with someone else's check status.
@@ -290,15 +290,17 @@ which matter differently when diagnosing a slow or failed run:
 
 ## Cache files
 
-All in `$XDG_CACHE_HOME/breakfast/` (default `~/.cache/breakfast/`). This
-change adds no new files.
+All in `$XDG_CACHE_HOME/breakfast/` (default `~/.cache/breakfast/`). Every
+`<key>` includes the token, so a fallback only ever serves the current token's
+own cache ([#523](https://github.com/mrsixw/breakfast/issues/523); see
+[PR Disk Caching](pr-caching.md#scoped-per-token)).
 
 | File | Holds | Expires | Used as rate-limit fallback |
 | --- | --- | --- | --- |
-| `prs_<key>.json` | full answer: PRs, checks, approvals | `--cache-ttl` | **yes**, at any age |
-| `graphql_<key>.json` | discovered PR URLs | `--cache-ttl` | no |
-| `pr_repo_<key>.json` | PRs, checks, approvals for one repo | `--cache-ttl` | no |
-| `repos_<key>.json` | the owner's repository names | 24 hours | no |
+| `v2/prs_<key>.json` | full answer: PRs, checks, approvals | `--cache-ttl` | **yes**, at any age |
+| `v2/graphql_<key>.json` | discovered PR URLs | `--cache-ttl` | no |
+| `v2/pr_repo_<key>.json` | PRs, checks, approvals for one repo | `--cache-ttl` | no |
+| `v2/repos_<key>.json` | the owner's repository names | 24 hours | no |
 | `user.json` | each token's login, keyed by a hash of the token | never | supplies the login |
 
 ## Testing

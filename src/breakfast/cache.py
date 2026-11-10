@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -8,6 +9,8 @@ import click
 
 from .constants import (
     CACHE_KEY_HEX_CHARS,
+    CACHE_SCHEMA_DIR,
+    LEGACY_CACHE_PREFIXES,
     REPOSITORY_NAMES_CACHE_TTL,
     TTL_SUFFIX_MAP,
     USER_LOGIN_CACHE_FILE,
@@ -20,6 +23,7 @@ __all__ = [
     "cache_path",
     "graphql_cache_path",
     "make_cache_key",
+    "migrate_legacy_cache",
     "parse_ttl",
     "read_cached_user_login",
     "read_graphql_cache",
@@ -88,19 +92,32 @@ def make_cache_key(org: str, repo_filter: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:CACHE_KEY_HEX_CHARS]
 
 
-def cache_path(org: str, repo_filter: str) -> Path:
-    key = make_cache_key(org, repo_filter)
-    return _CACHE_DIR / f"prs_{key}.json"
+def _scoped_path(prefix: str, token: str, *parts: str) -> Path:
+    """Return the PR-data file for *parts*, as seen by *token* (#523).
+
+    What GitHub returns depends on the token: a fine-grained token, another
+    account or an org without SSO all see different PRs. Hashing the token's
+    key into every file name means a cache only ever answers for the token
+    that wrote it. Neither the token nor the parts appear in the name.
+    """
+    raw = ":".join([_token_key(token), *(part.lower() for part in parts)])
+    key = hashlib.sha256(raw.encode()).hexdigest()[:CACHE_KEY_HEX_CHARS]
+    return _CACHE_DIR / CACHE_SCHEMA_DIR / f"{prefix}_{key}.json"
 
 
-def graphql_cache_path(org: str, repo_filter: str) -> Path:
-    key = make_cache_key(org, repo_filter)
-    return _CACHE_DIR / f"graphql_{key}.json"
+def cache_path(org: str, repo_filter: str, *, token: str) -> Path:
+    return _scoped_path("prs", token, org, repo_filter)
 
 
-def read_graphql_cache(org: str, repo_filter: str, ttl: int) -> list | None:
-    """Return cached PR URL list if present and within TTL, else None."""
-    path = graphql_cache_path(org, repo_filter)
+def graphql_cache_path(org: str, repo_filter: str, *, token: str) -> Path:
+    return _scoped_path("graphql", token, org, repo_filter)
+
+
+def read_graphql_cache(
+    org: str, repo_filter: str, ttl: int, *, token: str
+) -> list | None:
+    """Return *token*'s cached PR URL list if present and within TTL, else None."""
+    path = graphql_cache_path(org, repo_filter, token=token)
     try:
         if not path.exists():
             logger.debug("cache_miss layer=graphql path=%s reason=file_not_found", path)
@@ -134,11 +151,11 @@ def read_graphql_cache(org: str, repo_filter: str, ttl: int) -> list | None:
         return None
 
 
-def write_graphql_cache(org: str, repo_filter: str, urls: list) -> None:
-    """Write PR URL list to disk cache. Silently ignores write failures."""
+def write_graphql_cache(org: str, repo_filter: str, urls: list, *, token: str) -> None:
+    """Write *token*'s PR URL list to disk cache. Silently ignores write failures."""
+    path = graphql_cache_path(org, repo_filter, token=token)
     try:
-        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        path = graphql_cache_path(org, repo_filter)
+        path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "organization": org,
@@ -150,9 +167,7 @@ def write_graphql_cache(org: str, repo_filter: str, urls: list) -> None:
         logger.debug("cache_write layer=graphql path=%s url_count=%d", path, len(urls))
     except OSError as exc:
         logger.warning(
-            "cache_write_error layer=graphql path=%s error=%r",
-            graphql_cache_path(org, repo_filter),
-            str(exc),
+            "cache_write_error layer=graphql path=%s error=%r", path, str(exc)
         )
         click.echo(
             click.style(f"Warning: failed to write GraphQL cache: {exc}", fg="yellow"),
@@ -166,22 +181,33 @@ class RepositoryNamesCache:
     Repositories come and go far less often than PRs, so names are kept for a
     day by default. PR discovery lists names to narrow its searches, and this
     saves listing thousands of repositories on every uncached run.
+
+    One instance answers for one token, the one discovery uses for its owner,
+    so a run whose owners use different tokens builds one cache per token.
     """
 
-    def __init__(self, ttl: int = REPOSITORY_NAMES_CACHE_TTL, refresh: bool = False):
+    def __init__(
+        self,
+        *,
+        token: str,
+        ttl: int = REPOSITORY_NAMES_CACHE_TTL,
+        refresh: bool = False,
+    ):
         """
         Args:
+            token: The token discovery lists repositories with; only its
+                lists are read or written (#523).
             ttl: Seconds a cached list stays fresh.
             refresh: Ignore cached lists (as ``--refresh`` does) while still
                 writing fresh ones.
         """
+        self.token = token
         self.ttl = ttl
         self.refresh = refresh
 
-    @staticmethod
-    def path(owner: str, include_archived: bool) -> Path:
+    def path(self, owner: str, include_archived: bool) -> Path:
         mode = "include-archived" if include_archived else ""
-        return _CACHE_DIR / f"repos_{make_cache_key(owner, mode)}.json"
+        return _scoped_path("repos", self.token, owner, mode)
 
     def read(self, owner: str, include_archived: bool) -> list | None:
         """Return cached repository names if present and fresh, else None."""
@@ -222,7 +248,7 @@ class RepositoryNamesCache:
         """Write repository names to disk. Silently ignores write failures."""
         path = self.path(owner, include_archived)
         try:
-            _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            path.parent.mkdir(parents=True, exist_ok=True)
             payload = {
                 "fetched_at": datetime.now(timezone.utc).isoformat(),
                 "organization": owner,
@@ -241,11 +267,12 @@ class RepositoryNamesCache:
 
 
 def read_pr_cache(
-    org: str, repo_filter: str, ttl: int, ignore_ttl: bool = False
+    org: str, repo_filter: str, ttl: int, *, token: str, ignore_ttl: bool = False
 ) -> dict | None:
-    """Return cached data if present and within TTL, else None.
+    """Return *token*'s cached data if present and within TTL, else None.
 
     If ignore_ttl is True, expired cache data will still be returned on a hit.
+    Another token's cache is never returned, however it is asked for.
 
     On a hit, returns a dict with keys:
       "prs"              – list of PR detail dicts
@@ -254,7 +281,7 @@ def read_pr_cache(
       "approval_statuses"– dict[int, str] or None (absent from older caches)
       "approval_details" – dict[int, dict] or None (absent from older caches)
     """
-    path = cache_path(org, repo_filter)
+    path = cache_path(org, repo_filter, token=token)
     try:
         if not path.exists():
             logger.debug(
@@ -313,15 +340,15 @@ def read_pr_cache(
         return None
 
 
-def repo_pr_cache_path(org: str, repo_name: str) -> Path:
-    raw = f"{org.lower()}:{repo_name.lower()}"
-    key = hashlib.sha256(raw.encode()).hexdigest()[:CACHE_KEY_HEX_CHARS]
-    return _CACHE_DIR / f"pr_repo_{key}.json"
+def repo_pr_cache_path(org: str, repo_name: str, *, token: str) -> Path:
+    return _scoped_path("pr_repo", token, org, repo_name)
 
 
-def read_repo_pr_cache(org: str, repo_name: str, ttl: int) -> dict | None:
-    """Return cached PR details for a single repo, or None on miss/expiry."""
-    path = repo_pr_cache_path(org, repo_name)
+def read_repo_pr_cache(
+    org: str, repo_name: str, ttl: int, *, token: str
+) -> dict | None:
+    """Return *token*'s cached PR details for one repo, or None on miss/expiry."""
+    path = repo_pr_cache_path(org, repo_name, token=token)
     try:
         if not path.exists():
             logger.debug("cache_miss layer=repo_pr path=%s reason=file_not_found", path)
@@ -382,11 +409,13 @@ def write_repo_pr_cache(
     check_statuses: dict | None = None,
     approval_statuses: dict | None = None,
     approval_details: dict | None = None,
+    *,
+    token: str,
 ) -> None:
-    """Write PR details for a single repo to disk cache."""
+    """Write *token*'s PR details for a single repo to disk cache."""
+    path = repo_pr_cache_path(org, repo_name, token=token)
     try:
-        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        path = repo_pr_cache_path(org, repo_name)
+        path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "organization": org,
@@ -410,9 +439,7 @@ def write_repo_pr_cache(
         )
     except OSError as exc:
         logger.warning(
-            "cache_write_error layer=repo_pr path=%s error=%r",
-            repo_pr_cache_path(org, repo_name),
-            str(exc),
+            "cache_write_error layer=repo_pr path=%s error=%r", path, str(exc)
         )
         click.echo(
             click.style(f"Warning: failed to write repo PR cache: {exc}", fg="yellow"),
@@ -480,11 +507,13 @@ def write_pr_cache(
     check_statuses: dict | None = None,
     approval_statuses: dict | None = None,
     approval_details: dict | None = None,
+    *,
+    token: str,
 ) -> None:
-    """Write pr_details (and optional statuses) to disk cache."""
+    """Write *token*'s pr_details (and optional statuses) to disk cache."""
+    path = cache_path(org, repo_filter, token=token)
     try:
-        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        path = cache_path(org, repo_filter)
+        path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "fetched_at": datetime.now(timezone.utc).isoformat(),
             "organization": org,
@@ -509,11 +538,49 @@ def write_pr_cache(
         )
     except OSError as exc:
         logger.warning(
-            "cache_write_error layer=pr_detail path=%s error=%r",
-            cache_path(org, repo_filter),
-            str(exc),
+            "cache_write_error layer=pr_detail path=%s error=%r", path, str(exc)
         )
         click.echo(
             click.style(f"Warning: failed to write PR cache: {exc}", fg="yellow"),
             err=True,
         )
+
+
+# Exactly the names the unscoped cache used: a prefix, a CACHE_KEY_HEX_CHARS
+# key and .json, or the .json.tmp an interrupted write left behind. Nothing
+# looser: this deletes files, and the directory also holds user.json and the
+# update check's cache, so a broad pattern is one rename away from data loss.
+_LEGACY_CACHE_FILE = re.compile(
+    rf"^(?:{'|'.join(map(re.escape, LEGACY_CACHE_PREFIXES))})"
+    rf"_[0-9a-f]{{{CACHE_KEY_HEX_CHARS}}}\.json(?:\.tmp)?$"
+)
+
+
+def migrate_legacy_cache() -> int:
+    """Delete the PR data written before it was scoped per token (#523).
+
+    Those files can hold another token's private PRs, and no current read
+    looks at them, so they are removed rather than left to rot. Once they are
+    gone there is nothing to match, so this is a one-time cleanup with no
+    marker file. ``user.json`` and the update-check cache are left alone.
+
+    Returns:
+        How many files were removed. A file that cannot be removed is logged
+        and skipped, and the next run tries again.
+    """
+    try:
+        entries = list(_CACHE_DIR.iterdir())
+    except OSError:
+        return 0
+    removed = 0
+    for path in entries:
+        if not _LEGACY_CACHE_FILE.match(path.name) or not path.is_file():
+            continue
+        try:
+            path.unlink()
+        except OSError as exc:
+            logger.warning("cache_migrate_error path=%s error=%r", path, str(exc))
+            continue
+        removed += 1
+    logger.debug("cache_migrate removed=%d", removed)
+    return removed

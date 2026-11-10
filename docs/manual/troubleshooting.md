@@ -80,6 +80,22 @@ If errors persist and no cached data exists:
 - Verify your token hasn't been revoked
 - Check your [API rate limit](https://docs.github.com/en/rest/rate-limit): `curl -H "Authorization: token $GH_TOKEN" https://api.github.com/rate_limit`
 
+### "No cached data was found" after switching tokens
+
+The cache is kept separately for each GitHub token, because different tokens can see different PRs. A token that has never run with `--cache` has no cache of its own, so `--offline` and the rate-limit fallback find nothing for it, even if another token cached the same owner a minute ago. Run once online with `--cache` using that token.
+
+### "Migrating the breakfast cache to a new schema!"
+
+You'll see this once, on the first run after upgrading:
+
+```text
+🧹🥞✨ Migrating the breakfast cache to a new schema! ✨🥞🧹
+   🔐 Cached PRs are now kept separately for each GitHub token, so one token can never be shown another's PRs.
+   🗑️  Cleared 12 old cache files. Your next cached run fetches fresh data, and this only happens once. 🍳🧇🎉
+```
+
+Older versions shared one cache between every token. breakfast deletes those files rather than risk showing one token's private PRs to another. Your saved logins and the update check's cache are kept. Nothing else is needed; the next run with `--cache` rebuilds the cache for your token.
+
 ## Rate limits and "GitHub refused the request (HTTP 403)"
 
 PR discovery runs a few GitHub searches in parallel. If GitHub's **secondary
@@ -231,7 +247,7 @@ Example output:
 
 ```text
 2026-03-23 08:00:01 INFO    startup org=acme repo_filter='' mine_only=False ...
-2026-03-23 08:00:01 DEBUG   cache_miss layer=graphql path=~/.cache/breakfast/graphql_abc123.json reason=file_not_found
+2026-03-23 08:00:01 DEBUG   cache_miss layer=graphql path=~/.cache/breakfast/v2/graphql_abc123.json reason=file_not_found
 2026-03-23 08:00:02 DEBUG   api_call type=graphql status=200 elapsed_ms=812
 2026-03-23 08:00:04 DEBUG   api_call type=rest url=https://api.github.com/repos/acme/foo/pulls/7 status=200 elapsed_ms=134
 2026-03-23 08:00:05 INFO    filter_result before=42 after=38

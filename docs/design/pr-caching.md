@@ -30,16 +30,60 @@ again.
 
 ## Cache Key
 
-SHA-256 of `"{org.lower()}:{filter.lower()}"`, truncated to the first 16 hex
-characters → filename `prs_{hash16}.json`.
+SHA-256 of `"{token_key}:{org.lower()}:{filter.lower()}"`, truncated to the
+first 16 hex characters → filename `v2/prs_{hash16}.json`. `token_key` is the
+same 16-hex-character SHA-256 of the GitHub token that `user.json` uses.
 
 ```text
-org=MyOrg, filter=Platform  →  prs_3f8a1d9c2b047e56.json
-org=myorg, filter=platform  →  prs_3f8a1d9c2b047e56.json  (same — normalised)
+token=A, org=MyOrg, filter=Platform  →  v2/prs_<hash X>.json
+token=A, org=myorg, filter=platform  →  v2/prs_<hash X>.json  (same — normalised)
+token=B, org=myorg, filter=platform  →  v2/prs_<hash Y>.json  (another token)
 ```
 
 Using a content-derived hash rather than a slugified name keeps filenames short
 and safe for any input, while still being one-file-per-query.
+
+### Scoped per token
+
+_(Added in [#523](https://github.com/mrsixw/breakfast/issues/523))_
+
+What GitHub returns depends on the token, not the person: a fine-grained token,
+another account or an org without SSO all see different PRs. So every PR-data
+layer (full result, GraphQL URL list, per-repo details, repository names) is
+keyed by the token as well, and a cache only ever answers for the token that
+wrote it. That covers a fresh hit, `--offline`, and both fallbacks.
+
+- Every PR-data function in `cache.py` takes a required keyword-only `token`,
+  so leaving it out is a `TypeError`, never a silently shared cache.
+  `RepositoryNamesCache` takes it when it is built, because discovery uses one
+  token per owner.
+- Neither the token nor any reversible form of it is written to disk.
+- Rotating a token starts it with an empty cache. That is deliberate: data
+  from another token is worse than no data.
+- The token reaches `cache.py` as an argument rather than a global, ready for
+  a later change that gives each owner its own token
+  ([#413](https://github.com/mrsixw/breakfast/issues/413)). The per-owner
+  layers (repository names, per-repo details) then just get that owner's
+  token. The combined layers (full result, GraphQL URL list) do **not**: they
+  hash one token with the combined owner key, so a run mixing tokens must fold
+  every owner's token key into that key (for example in
+  `_org_spec_cache_segment`), or changing one owner's token would leave the
+  combined cache under-scoped.
+
+### Migrating the unscoped cache
+
+Before #523, PR data sat at the top of the cache directory with no token in its
+key. On every run, before any cache read, `cache.migrate_legacy_cache()` deletes
+top-level files named exactly `prs_`, `graphql_`, `pr_repo_` or `repos_`
+followed by 16 hex characters and `.json` (or the `.json.tmp` a broken write
+left behind). When it removes anything, the CLI prints a one-time warning on
+`stderr`. Once the files are gone nothing matches, so no marker file is needed.
+The match is exact because this deletes files, and the same directory holds
+`user.json` and the update check's `latest_version.json`, which stay where they
+were.
+
+The next layout change bumps `CACHE_SCHEMA_DIR` and teaches the migration to
+remove the old directory.
 
 With `--include-archived` (or `include-archived = true`), the org segment gains
 an `|include-archived` suffix before hashing, so both the full cache and the
@@ -94,9 +138,13 @@ are converted back to `int` on read.
 Follows the XDG Base Directory spec — the same convention as `updater.py`:
 
 ```text
-~/.cache/breakfast/prs_{hash16}.json              (default)
-$XDG_CACHE_HOME/breakfast/prs_{hash16}.json       (if XDG_CACHE_HOME is set)
+~/.cache/breakfast/v2/prs_{hash16}.json              (default)
+$XDG_CACHE_HOME/breakfast/v2/prs_{hash16}.json       (if XDG_CACHE_HOME is set)
 ```
+
+`v2` is `CACHE_SCHEMA_DIR`. The other PR-data layers sit beside `prs_` in the
+same directory; `user.json` and the update check's `latest_version.json` sit one
+level up.
 
 ## Repository names layer
 
@@ -108,8 +156,9 @@ searches only the matching repos with `repo:` terms. That keeps busy owners
 clear of GitHub's search rate limits. Listing thousands of repos takes tens of
 seconds, so `cache.RepositoryNamesCache` keeps the list on disk:
 
-- File: `repos_{make_cache_key(owner, mode)}.json`, where `mode` is
-  `"include-archived"` or `""`, so the two archived modes never share a list.
+- File: `v2/repos_{hash16}.json`, hashed from the token, the owner and `mode`,
+  where `mode` is `"include-archived"` or `""`, so the two archived modes never
+  share a list.
 - Payload: `fetched_at`, `organization`, `include_archived`, `repo_count`,
   `names`.
 - TTL: `REPOSITORY_NAMES_CACHE_TTL` (24 hours), independent of `--cache-ttl`.
@@ -119,6 +168,15 @@ seconds, so `cache.RepositoryNamesCache` keeps the list on disk:
   `read(owner, include_archived)` and `write(owner, include_archived, names)`,
   so `api.py` stays independent of `cache.py`.
 - Unfiltered runs search the whole owner and never list repos.
+
+## Rate limits and the login cache
+
+_(Added in [#392](https://github.com/mrsixw/breakfast/issues/392))_
+
+When GitHub rate-limits a run, breakfast serves the full cache at any age
+instead of failing, and reads the current token's login from `user.json` so
+`--mine-only` still applies. See
+[Rate-Limit Cache Fallback](rate-limit-fallback.md).
 
 ## TTL and `--cache-ttl`
 

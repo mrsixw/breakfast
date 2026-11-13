@@ -38,33 +38,63 @@ curl -H "Authorization: Bearer ${GH_TOKEN:-$GITHUB_TOKEN}" https://api.github.co
 - If using `--ignore-author`, check you haven't accidentally filtered out the authors you want
 - If using `--filter-author`, check the logins are spelled as they appear on GitHub (matching is case-insensitive but not fuzzy), and that they aren't also listed in `ignore-author` in your config — exclusion wins
 
-## API errors (502, 503, 504), timeouts, and network loss
+## API errors, rate limits, timeouts, and network loss
 
 breakfast automatically retries REST and GraphQL API requests on transient server errors and network timeouts with exponential backoff (up to 3 retries).
 
 To prevent the CLI from hanging indefinitely on stalled or flaky connections (e.g. captive portals or misconfigured VPNs), an explicit timeout is set on all API requests: a connection timeout of 5 seconds and a read timeout of 30 seconds.
 
-If you lose internet connectivity, a request times out, or GitHub is experiencing outages, breakfast will automatically fall back to the most recent cached results on disk, even if expired, and print an offline mode banner.
+If you lose internet connectivity, a request times out, GitHub is experiencing outages, or a REST/GraphQL rate limit is exhausted, a cache-enabled run automatically falls back to the most recent full cached results on disk, even if expired. Partial live results are discarded and never overwrite that coherent snapshot.
+
+Rate-limit fallback prints a `stderr` message such as:
+
+```text
+🥞 GitHub REST API rate limit exceeded; displaying local cached data from 12 minutes ago. Live GitHub data should be available after 2026-07-13 11:19:37 UTC.
+```
+
+The run exits successfully when cached output is available. If no matching full cache exists, it exits non-zero with empty `stdout` and states that no local cached data is available. Explicit `--refresh` and `--refresh-prs` requests also fall back, but their warning clearly says the requested refresh could not be completed and the old cache is not rewritten.
+
+With `--api-stats`, exhausted limits are shown as `exhausted (0 requests remaining)` or `exhausted (0 points remaining)`, and a secondary limit hit with budget left as `throttled (<N> requests remaining)`, alongside the captured reset time and `Data source: local cache (...)`. The debug summary does not make another GitHub request.
+
+`--mine-only` and `--needs-my-review` use the cached login during fallback. If no login has been cached for the current token yet, breakfast warns that the filter could not be applied and displays all locally cached PRs.
 
 If you know you are offline or have weak connectivity, you can force breakfast to use the local cache immediately without making any network requests by passing `--offline`.
 
 ### `--mine-only` and `--needs-my-review` in offline mode
 
-breakfast caches your GitHub login in `user.json` inside the cache directory after the first successful online run. In offline mode (either `--offline` or automatic fallback), it reads this cached login so `--mine-only` and `--needs-my-review` work correctly.
+breakfast caches your GitHub login (`user.json` in the cache directory) after every successful online lookup. In offline mode (either `--offline` or automatic fallback), it reads this cached login so `--mine-only` and `--needs-my-review` work correctly.
+
+Each token's login is cached separately, under a hash of the token; the token itself is never stored. If you switch between tokens for different accounts, each one uses its own login, and a token that has never run online gets the warning below rather than another account's login.
 
 If you see the warning:
 
 ```text
-⚠️  Offline mode: no cached login found — --mine-only / --needs-my-review skipped.
+⚠️  --mine-only could not be applied because the current user login is not cached; displaying all locally cached PRs.
 ```
 
-Run breakfast once without `--offline` while connected, then the cached login will be available for future offline runs.
+Run breakfast once without `--offline` while connected, using the same token, then the cached login will be available for future offline runs.
 
 If errors persist and no cached data exists:
 
 - Check [GitHub Status](https://www.githubstatus.com/) for ongoing incidents
 - Verify your token hasn't been revoked
 - Check your [API rate limit](https://docs.github.com/en/rest/rate-limit): `curl -H "Authorization: token $GH_TOKEN" https://api.github.com/rate_limit`
+
+### "No cached data was found" after switching tokens
+
+The cache is kept separately for each GitHub token, because different tokens can see different PRs. A token that has never run with `--cache` has no cache of its own, so `--offline` and the rate-limit fallback find nothing for it, even if another token cached the same owner a minute ago. Run once online with `--cache` using that token.
+
+### "Migrating the breakfast cache to a new schema!"
+
+You'll see this once, on the first run after upgrading:
+
+```text
+🧹🥞✨ Migrating the breakfast cache to a new schema! ✨🥞🧹
+   🔐 Cached PRs are now kept separately for each GitHub token, so one token can never be shown another's PRs.
+   🗑️  Cleared 12 old cache files. Your next cached run fetches fresh data, and this only happens once. 🍳🧇🎉
+```
+
+Older versions shared one cache between every token. breakfast deletes those files rather than risk showing one token's private PRs to another. Your saved logins and the update check's cache are kept. Nothing else is needed; the next run with `--cache` rebuilds the cache for your token.
 
 ## Rate limits and "GitHub refused the request (HTTP 403)"
 
@@ -217,7 +247,7 @@ Example output:
 
 ```text
 2026-03-23 08:00:01 INFO    startup org=acme repo_filter='' mine_only=False ...
-2026-03-23 08:00:01 DEBUG   cache_miss layer=graphql path=~/.cache/breakfast/graphql_abc123.json reason=file_not_found
+2026-03-23 08:00:01 DEBUG   cache_miss layer=graphql path=~/.cache/breakfast/v2/graphql_abc123.json reason=file_not_found
 2026-03-23 08:00:02 DEBUG   api_call type=graphql status=200 elapsed_ms=812
 2026-03-23 08:00:04 DEBUG   api_call type=rest url=https://api.github.com/repos/acme/foo/pulls/7 status=200 elapsed_ms=134
 2026-03-23 08:00:05 INFO    filter_result before=42 after=38

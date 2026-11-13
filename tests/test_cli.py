@@ -5,6 +5,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from http import HTTPStatus
 from unittest.mock import patch
 
 import pytest
@@ -17,14 +18,21 @@ from breakfast import api, cache, cli, config, renderers, ui
 
 @pytest.fixture(autouse=True)
 def stub_review_decision(monkeypatch):
-    monkeypatch.setattr(
-        api,
-        "make_github_graphql_request",
-        lambda query, variables: {
+    real_graphql_request = api.make_github_graphql_request
+
+    def graphql_request(query, variables=None):
+        if "reviewDecision" not in query:
+            return real_graphql_request(query, variables)
+        return {
             "data": {
                 "repository": {"pullRequest": {"reviewDecision": "REVIEW_REQUIRED"}}
             }
-        },
+        }
+
+    monkeypatch.setattr(
+        api,
+        "make_github_graphql_request",
+        graphql_request,
     )
 
 
@@ -1178,16 +1186,18 @@ def test_cli_show_config_includes_filter_author(monkeypatch, tmp_path):
     assert "filter-author: ['alice']" in result.stdout
 
 
-def test_cli_mine_only_exits_cleanly_on_rate_limit(monkeypatch):
-    from breakfast.api import GitHubRateLimitError
-
+def test_cli_mine_only_exits_cleanly_on_rate_limit(monkeypatch, requests_mock):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
     monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
-    monkeypatch.setattr(
-        cli,
-        "get_authenticated_user_login",
-        lambda: (_ for _ in ()).throw(GitHubRateLimitError("2026-04-10 16:04:48")),
+    requests_mock.get(
+        f"{api.GITHUB_API_URL}/user",
+        status_code=403,
+        headers={
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": "1783941577",
+        },
+        json={"message": "API rate limit exceeded"},
     )
 
     runner = CliRunner()
@@ -1195,7 +1205,7 @@ def test_cli_mine_only_exits_cleanly_on_rate_limit(monkeypatch):
 
     assert result.exit_code == 1
     assert "rate limit" in result.stderr.lower()
-    assert "2026-04-10 16:04:48" in result.stderr
+    assert "2026-07-13 11:19:37" in result.stderr
 
 
 def test_cli_mine_only_exits_cleanly_on_auth_error(monkeypatch):
@@ -2561,6 +2571,31 @@ def _make_pr_detail(number=1, repo="repo"):
     }
 
 
+def _graphql_pr_urls_response(*urls):
+    """Return a GraphQL response containing *urls*, for either discovery query.
+
+    Discovery issues two different queries: the repository-name listing, and
+    the PR search. Each reads only its own top-level field, so one body
+    carrying all of them answers whichever query arrives.
+    """
+    return {
+        "data": {
+            "owner": {"login": "org"},
+            "repositoryOwner": {
+                "repositories": {
+                    "nodes": [{"name": "repo"}],
+                    "pageInfo": {"endCursor": None, "hasNextPage": False},
+                }
+            },
+            "search": {
+                "issueCount": len(urls),
+                "nodes": [{"url": url, "repository": {"name": "repo"}} for url in urls],
+                "pageInfo": {"endCursor": None, "hasNextPage": False},
+            },
+        }
+    }
+
+
 def test_cache_hit_skips_get_github_prs(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
@@ -2570,7 +2605,7 @@ def test_cache_hit_skips_get_github_prs(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
 
     # Pre-populate cache
-    cache.write_pr_cache("org", "repo", [_make_pr_detail(1)])
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(1)], token="token-123")
 
     api_called = []
     monkeypatch.setattr(cli, "get_github_prs", lambda *a: api_called.append(1) or [])
@@ -2583,6 +2618,331 @@ def test_cache_hit_skips_get_github_prs(monkeypatch, tmp_path):
     assert "PR number 1" in result.stdout
 
 
+def _alice_and_bob_cached(*, age=None):
+    """Cache one PR by alice and one by bob, optionally aged by *age*."""
+    alice_pr = _make_pr_detail(1)
+    bob_pr = _make_pr_detail(2)
+    bob_pr["user"]["login"] = "bob"
+    bob_pr["title"] = "Bob PR"
+    cache.write_pr_cache(
+        "org", "repo", [alice_pr, bob_pr], token=cli.SECRET_GITHUB_TOKEN
+    )
+    if age is not None:
+        path = cache.cache_path("org", "repo", token=cli.SECRET_GITHUB_TOKEN)
+        payload = json.loads(path.read_text())
+        payload["fetched_at"] = (datetime.now(timezone.utc) - age).isoformat()
+        path.write_text(json.dumps(payload))
+
+
+def test_live_mine_only_asks_github_not_the_cached_login(
+    monkeypatch, tmp_path, requests_mock
+):
+    """A live run filters by the token's own login, never a cached one.
+
+    Live runs always ask /user; only offline and rate-limited runs fall back
+    to the cached login, and then only to the current token's entry.
+    """
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "alice-token")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    _alice_and_bob_cached()
+    cache.write_cached_user_login("bob-token", "bob")
+    requests_mock.get(f"{api.GITHUB_API_URL}/user", json={"login": "alice"})
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--cache", "--mine-only"]
+    )
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    assert "Bob PR" not in result.stdout
+    assert requests_mock.call_count == 1
+    assert cache.read_cached_user_login("alice-token") == "alice"
+    assert cache.read_cached_user_login("bob-token") == "bob"
+
+
+def test_mine_only_rate_limit_uses_the_cached_login(
+    monkeypatch, tmp_path, requests_mock
+):
+    """A rate-limited /user falls back to the cache and still applies --mine-only."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "alice-token")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    _alice_and_bob_cached(age=timedelta(hours=2))
+    cache.write_cached_user_login("alice-token", "alice")
+    requests_mock.get(
+        f"{api.GITHUB_API_URL}/user",
+        status_code=HTTPStatus.FORBIDDEN,
+        headers={"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1783941577"},
+        json={"message": "API rate limit exceeded"},
+    )
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--cache", "--mine-only"]
+    )
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    assert "Bob PR" not in result.stdout
+    assert "displaying local cached data from 2 hours ago" in result.stderr
+    assert "could not be applied" not in result.stderr
+    assert requests_mock.call_count == 1
+
+
+def test_mine_only_rate_limit_falls_back_to_expired_cache(
+    monkeypatch, tmp_path, requests_mock
+):
+    """Rate limiting during identity lookup serves the latest full cache."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(1)], token="token-123")
+    path = cache.cache_path("org", "repo", token="token-123")
+    payload = json.loads(path.read_text())
+    payload["fetched_at"] = (
+        datetime.now(timezone.utc) - timedelta(hours=2)
+    ).isoformat()
+    path.write_text(json.dumps(payload))
+    requests_mock.get(
+        f"{api.GITHUB_API_URL}/user",
+        status_code=403,
+        headers={
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": "1783941577",
+        },
+        json={"message": "API rate limit exceeded"},
+    )
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        [
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--cache",
+            "--mine-only",
+            "--json",
+            "--api-stats",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)[0]["pr_number"] == 1
+    assert "GitHub REST API rate limit exceeded" in result.stderr
+    assert "displaying local cached data from 2 hours ago" in result.stderr
+    assert "2026-07-13 11:19:37 UTC" in result.stderr
+    assert "--mine-only could not be applied" in result.stderr
+    assert "REST rate limit:   exhausted (0 requests remaining)" in result.stderr
+    assert "REST rate resets:  11:19:37 UTC" in result.stderr
+    assert "Data source:      local cache (2 hours ago)" in result.stderr
+    assert requests_mock.call_count == 1
+
+
+def test_mine_only_rate_limit_without_cache_exits_cleanly(
+    monkeypatch, tmp_path, requests_mock
+):
+    """Rate limiting with no full cache leaves stdout empty and exits non-zero."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    requests_mock.get(
+        f"{api.GITHUB_API_URL}/user",
+        status_code=403,
+        headers={
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": "1783941577",
+        },
+        json={"message": "API rate limit exceeded"},
+    )
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--cache", "--mine-only", "--json"],
+    )
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "no local cached data is available" in result.stderr
+    assert "2026-07-13 11:19:37 UTC" in result.stderr
+
+
+def test_no_cache_override_does_not_use_existing_cache(
+    monkeypatch, tmp_path, requests_mock
+):
+    """Explicit --no-cache keeps rate-limit failure from reading stale data."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(1)], token="token-123")
+    cache.write_cached_user_login("token-123", "alice")
+    requests_mock.get(
+        f"{api.GITHUB_API_URL}/user",
+        status_code=403,
+        headers={
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": "1783941577",
+        },
+        json={"message": "API rate limit exceeded"},
+    )
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--no-cache", "--mine-only", "--json"],
+    )
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "no local cached data is available" in result.stderr
+    assert requests_mock.call_count == 1
+
+
+@pytest.mark.parametrize("refresh_flag", ["--refresh", "--refresh-prs"])
+def test_rate_limit_refresh_falls_back_with_distinct_banner(
+    monkeypatch, tmp_path, requests_mock, refresh_flag
+):
+    """Refresh flags degrade to expired cache while clearly reporting failure."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(1)], token="token-123")
+    requests_mock.post(
+        api.GITHUB_GRAPHQL_URL,
+        status_code=200,
+        headers={
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": "1783941577",
+        },
+        json={
+            "data": None,
+            "errors": [{"type": "RATE_LIMITED", "message": "rate limit"}],
+        },
+    )
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--cache", refresh_flag, "--api-stats"],
+    )
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    assert "GitHub GraphQL API rate limit exceeded" in result.stderr
+    assert "Refresh could not be completed" in result.stderr
+    assert "Cache refreshed" not in result.stderr
+    assert "GQL rate limit:   exhausted (0 points remaining)" in result.stderr
+    assert requests_mock.call_count == 1
+
+
+def test_rate_limit_does_not_overwrite_cache_with_partial_results(
+    monkeypatch, tmp_path, requests_mock
+):
+    """A worker rate limit discards live partial results and preserves the snapshot."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(1)], token="token-123")
+    original_payload = cache.cache_path("org", "repo", token="token-123").read_text()
+    requests_mock.post(
+        api.GITHUB_GRAPHQL_URL,
+        json=_graphql_pr_urls_response(
+            "https://github.com/org/repo/pull/10",
+            "https://github.com/org/repo/pull/11",
+        ),
+    )
+    requests_mock.get(
+        f"{api.GITHUB_API_URL}/repos/org/repo/pulls/10",
+        json=_make_pr_detail(10),
+    )
+    requests_mock.get(
+        f"{api.GITHUB_API_URL}/repos/org/repo/pulls/11",
+        status_code=403,
+        headers={
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": "1783941577",
+        },
+        json={"message": "API rate limit exceeded"},
+    )
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        [
+            "-o",
+            "org",
+            "-r",
+            "repo",
+            "--cache",
+            "--refresh",
+            "--workers",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    assert "PR number 10" not in result.stdout
+    assert (
+        cache.cache_path("org", "repo", token="token-123").read_text()
+        == original_payload
+    )
+
+
+def test_check_enrichment_rate_limit_restores_cached_statuses(
+    monkeypatch, tmp_path, requests_mock
+):
+    """Rate limiting during cache enrichment returns coherent cached defaults."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(1)], token="token-123")
+    requests_mock.get(
+        f"{api.GITHUB_API_URL}/repos/org/repo/commits/abc123/check-runs",
+        status_code=403,
+        headers={
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": "1783941577",
+        },
+        json={"message": "API rate limit exceeded"},
+    )
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--cache", "--checks"],
+    )
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    assert "GitHub REST API rate limit exceeded" in result.stderr
+
+
+def test_approval_enrichment_rate_limit_restores_cached_statuses(
+    monkeypatch, tmp_path, requests_mock
+):
+    """Approval enrichment exhaustion restores coherent cached defaults."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(1)], token="token-123")
+    requests_mock.get(
+        f"{api.GITHUB_API_URL}/repos/org/repo/pulls/1/reviews",
+        status_code=403,
+        headers={
+            "X-RateLimit-Remaining": "0",
+            "X-RateLimit-Reset": "1783941577",
+        },
+        json={"message": "API rate limit exceeded"},
+    )
+
+    result = CliRunner().invoke(
+        cli.breakfast,
+        ["-o", "org", "-r", "repo", "--cache", "--approvals"],
+    )
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    assert "GitHub REST API rate limit exceeded" in result.stderr
+
+
 def test_no_cache_flag_always_fetches(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
@@ -2592,7 +2952,7 @@ def test_no_cache_flag_always_fetches(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
 
     # Pre-populate cache
-    cache.write_pr_cache("org", "repo", [_make_pr_detail(99)])
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(99)], token="token-123")
 
     api_called = []
 
@@ -2655,7 +3015,7 @@ def test_config_cache_ttl_respected(monkeypatch, tmp_path):
         cli, "load_config", lambda _: {"cache": True, "cache-ttl": "5m"}
     )
 
-    cache.write_pr_cache("org", "repo", [_make_pr_detail(7)])
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(7)], token="token-123")
 
     api_called = []
     monkeypatch.setattr(cli, "get_github_prs", lambda *a: api_called.append(1) or [])
@@ -2676,8 +3036,8 @@ def test_corrupt_cache_falls_back_to_live_fetch(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
 
     # Write corrupt cache file
-    tmp_path.mkdir(parents=True, exist_ok=True)
-    path = cache.cache_path("org", "repo")
+    path = cache.cache_path("org", "repo", token="token-123")
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("}{bad json")
 
     api_called = []
@@ -2717,7 +3077,7 @@ def test_pr_results_grouped_by_repo(monkeypatch, tmp_path):
         make_pr(1, "alpha-service"),
         make_pr(2, "alpha-service"),
     ]
-    cache.write_pr_cache("org", "svc", prs)
+    cache.write_pr_cache("org", "svc", prs, token="token-123")
 
     runner = CliRunner()
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "svc", "--cache"])
@@ -2760,7 +3120,7 @@ def test_refresh_ignores_cache_and_writes_fresh(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
 
     # Pre-populate cache with stale data
-    cache.write_pr_cache("org", "repo", [_make_pr_detail(99)])
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(99)], token="token-123")
 
     api_called = []
 
@@ -2780,7 +3140,7 @@ def test_refresh_ignores_cache_and_writes_fresh(monkeypatch, tmp_path):
     assert len(api_called) == 1, "--refresh should always fetch fresh"
     assert "PR number 1" in result.stdout
     # Cache should now contain fresh data
-    cached = cache.read_pr_cache("org", "repo", 300)
+    cached = cache.read_pr_cache("org", "repo", 300, token="token-123")
     assert cached is not None
     assert cached["prs"][0]["number"] == 1
 
@@ -2794,7 +3154,7 @@ def test_refresh_does_not_use_cached_data(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
 
-    cache.write_pr_cache("org", "repo", [_make_pr_detail(99)])
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(99)], token="token-123")
 
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *a: ["https://github.com/org/repo/pull/1"]
@@ -2823,9 +3183,12 @@ def test_refresh_prs_uses_graphql_cache_skips_pr_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "write_graphql_cache", cache.write_graphql_cache)
 
     # Warm PR detail cache (stale) and GraphQL cache
-    cache.write_pr_cache("org", "repo", [_make_pr_detail(99)])
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(99)], token="token-123")
     cache.write_graphql_cache(
-        "org", "repo", ["https://api.github.com/repos/org/repo/pulls/1"]
+        "org",
+        "repo",
+        ["https://api.github.com/repos/org/repo/pulls/1"],
+        token="token-123",
     )
 
     graphql_called = []
@@ -2857,7 +3220,10 @@ def test_refresh_prs_writes_fresh_pr_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "write_graphql_cache", cache.write_graphql_cache)
 
     cache.write_graphql_cache(
-        "org", "repo", ["https://api.github.com/repos/org/repo/pulls/1"]
+        "org",
+        "repo",
+        ["https://api.github.com/repos/org/repo/pulls/1"],
+        token="token-123",
     )
     monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
     monkeypatch.setattr(api, "make_github_api_request", lambda _: _make_pr_detail(1))
@@ -2867,7 +3233,7 @@ def test_refresh_prs_writes_fresh_pr_cache(monkeypatch, tmp_path):
         cli.breakfast, ["-o", "org", "-r", "repo", "--cache", "--refresh-prs"]
     )
 
-    cached = cache.read_pr_cache("org", "repo", 300)
+    cached = cache.read_pr_cache("org", "repo", 300, token="token-123")
     assert cached is not None, "--refresh-prs should write fresh data to PR cache"
 
 
@@ -2890,8 +3256,12 @@ def test_per_repo_cache_hit_skips_fetch(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "write_graphql_cache", cache.write_graphql_cache)
 
     # Pre-populate the GraphQL URL cache and per-repo PR cache
-    cache.write_graphql_cache("org", "repo", ["https://github.com/org/repo/pull/42"])
-    cache.write_repo_pr_cache("org", "repo", [_make_pr_detail(42, repo="repo")])
+    cache.write_graphql_cache(
+        "org", "repo", ["https://github.com/org/repo/pull/42"], token="token-123"
+    )
+    cache.write_repo_pr_cache(
+        "org", "repo", [_make_pr_detail(42, repo="repo")], token="token-123"
+    )
 
     fetch_called = []
     monkeypatch.setattr(cli, "get_github_prs", lambda *a: fetch_called.append(1) or [])
@@ -2930,8 +3300,11 @@ def test_per_repo_cache_partial_hit(monkeypatch, tmp_path):
             "https://github.com/org/repo-a/pull/1",
             "https://github.com/org/repo-b/pull/2",
         ],
+        token="token-123",
     )
-    cache.write_repo_pr_cache("org", "repo-a", [_make_pr_detail(1, repo="repo-a")])
+    cache.write_repo_pr_cache(
+        "org", "repo-a", [_make_pr_detail(1, repo="repo-a")], token="token-123"
+    )
 
     fetched_urls = []
 
@@ -2983,7 +3356,7 @@ def test_per_repo_cache_writes_after_fetch(monkeypatch, tmp_path):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "myrepo", "--cache"])
 
     assert result.exit_code == 0, result.output
-    cached = cache.read_repo_pr_cache("org", "myrepo", 300)
+    cached = cache.read_repo_pr_cache("org", "myrepo", 300, token="token-123")
     assert cached is not None, "per-repo cache should be written after fetch"
     assert len(cached["prs"]) == 1
     assert cached["prs"][0]["number"] == 7
@@ -3006,9 +3379,13 @@ def test_per_repo_cache_expired_triggers_refetch(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "write_graphql_cache", cache.write_graphql_cache)
 
     # Write per-repo cache, then backdate it to expire
-    cache.write_graphql_cache("org", "repo", ["https://github.com/org/repo/pull/5"])
-    cache.write_repo_pr_cache("org", "repo", [_make_pr_detail(99, repo="repo")])
-    path = cache.repo_pr_cache_path("org", "repo")
+    cache.write_graphql_cache(
+        "org", "repo", ["https://github.com/org/repo/pull/5"], token="token-123"
+    )
+    cache.write_repo_pr_cache(
+        "org", "repo", [_make_pr_detail(99, repo="repo")], token="token-123"
+    )
+    path = cache.repo_pr_cache_path("org", "repo", token="token-123")
     data = _json.loads(path.read_text())
     from datetime import datetime, timezone
 
@@ -3054,7 +3431,9 @@ def test_refresh_bypasses_per_repo_cache(monkeypatch, tmp_path):
     _wire_cache(monkeypatch, tmp_path)
 
     # Per-repo cache holds a stale copy of PR 42.
-    cache.write_repo_pr_cache("org", "repo", [_make_pr_detail(42, repo="repo")])
+    cache.write_repo_pr_cache(
+        "org", "repo", [_make_pr_detail(42, repo="repo")], token=cli.SECRET_GITHUB_TOKEN
+    )
 
     monkeypatch.setattr(
         cli, "get_github_prs", lambda *a: ["https://github.com/org/repo/pull/42"]
@@ -3085,11 +3464,17 @@ def test_per_repo_cache_drops_prs_absent_from_url_list(monkeypatch, tmp_path):
     _wire_cache(monkeypatch, tmp_path)
 
     # The URL list knows only about 42; the repo cache still holds closed PR 99.
-    cache.write_graphql_cache("org", "repo", ["https://github.com/org/repo/pull/42"])
+    cache.write_graphql_cache(
+        "org",
+        "repo",
+        ["https://github.com/org/repo/pull/42"],
+        token=cli.SECRET_GITHUB_TOKEN,
+    )
     cache.write_repo_pr_cache(
         "org",
         "repo",
         [_make_pr_detail(42, repo="repo"), _make_pr_detail(99, repo="repo")],
+        token=cli.SECRET_GITHUB_TOKEN,
     )
 
     monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
@@ -3119,8 +3504,11 @@ def test_per_repo_cache_fetches_urls_missing_from_cache(monkeypatch, tmp_path):
             "https://github.com/org/repo/pull/42",
             "https://github.com/org/repo/pull/43",
         ],
+        token=cli.SECRET_GITHUB_TOKEN,
     )
-    cache.write_repo_pr_cache("org", "repo", [_make_pr_detail(42, repo="repo")])
+    cache.write_repo_pr_cache(
+        "org", "repo", [_make_pr_detail(42, repo="repo")], token=cli.SECRET_GITHUB_TOKEN
+    )
 
     monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
     fetched = []
@@ -3468,14 +3856,10 @@ def test_debug_flag_prints_summary_to_stderr(monkeypatch):
             "graphql_calls": 2,
             "rest_rate_limit_remaining": 4990,
             "rest_rate_limit_reset": 1700000000,
-        },
-    )
-    monkeypatch.setattr(
-        cli,
-        "get_graphql_rate_limit",
-        lambda: {
-            "remaining": 4998,
-            "resetAt": "2026-04-11T10:30:00Z",
+            "rest_rate_limit_exhausted": False,
+            "graphql_rate_limit_remaining": 4998,
+            "graphql_rate_limit_reset": 1700000000,
+            "graphql_rate_limit_exhausted": False,
         },
     )
 
@@ -3513,6 +3897,7 @@ def test_debug_flag_prints_summary_to_stderr(monkeypatch):
     assert "12 (10 REST + 2 GraphQL)" in result.stderr
     assert "4990 requests remaining" in result.stderr
     assert "4998 points remaining" in result.stderr
+    assert "Data source:      live GitHub API" in result.stderr
     # Normal table output is still present on stdout
     assert "PR-1" in result.stdout
 
@@ -5288,10 +5673,10 @@ def test_cli_offline_flag_loads_from_cache(monkeypatch, tmp_path):
 
     # Pre-populate expired cache
     pr_details = [_make_pr_detail(1)]
-    cache.write_pr_cache("org", "repo", pr_details)
+    cache.write_pr_cache("org", "repo", pr_details, token="token-123")
 
     # Manually backdate cache fetched_at to 3 hours ago
-    path = cache.cache_path("org", "repo")
+    path = cache.cache_path("org", "repo", token="token-123")
     data = json.loads(path.read_text())
     old_time = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()
     data["fetched_at"] = old_time
@@ -5333,10 +5718,10 @@ def test_cli_network_failure_falls_back_to_cache(monkeypatch, tmp_path):
 
     # Pre-populate expired cache
     pr_details = [_make_pr_detail(1)]
-    cache.write_pr_cache("org", "repo", pr_details)
+    cache.write_pr_cache("org", "repo", pr_details, token="token-123")
 
     # Manually backdate cache fetched_at to 2 hours ago
-    path = cache.cache_path("org", "repo")
+    path = cache.cache_path("org", "repo", token="token-123")
     data = json.loads(path.read_text())
     old_time = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
     data["fetched_at"] = old_time
@@ -5356,6 +5741,49 @@ def test_cli_network_failure_falls_back_to_cache(monkeypatch, tmp_path):
     assert "🔌 Offline Mode: Displaying cached data from 2 hours ago." in result.stderr
 
 
+def test_lost_connection_with_expired_cache_uses_the_cached_login(
+    monkeypatch, tmp_path
+):
+    """The connection-error fallback applies --mine-only like the others do."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "alice-token")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    _alice_and_bob_cached(age=timedelta(hours=2))
+    cache.write_cached_user_login("alice-token", "alice")
+
+    def unreachable(*_args, **_kwargs):
+        raise requests.exceptions.ConnectionError("Could not resolve host")
+
+    monkeypatch.setattr(cli, "get_authenticated_user_login", unreachable)
+    monkeypatch.setattr(cli, "get_github_prs", unreachable)
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--cache", "--mine-only"]
+    )
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    assert "Bob PR" not in result.stdout
+    assert "could not be applied" not in result.stderr
+
+
+def test_debug_summary_does_not_call_a_secondary_limit_exhausted(capsys):
+    """A secondary limit with budget left says so, not "exhausted (N remaining)"."""
+    remaining = 4913
+    stats = {
+        **api._API_STATS_DEFAULTS,
+        "rest_rate_limit_remaining": remaining,
+        "rest_rate_limit_exhausted": True,
+    }
+
+    cli._print_debug_summary(time.monotonic(), 0, stats)
+
+    err = capsys.readouterr().err
+    assert "exhausted" not in err
+    assert f"REST rate limit:   throttled ({remaining} requests remaining)" in err
+
+
 def test_cli_offline_mode_does_not_write_cache(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
     monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
@@ -5366,8 +5794,8 @@ def test_cli_offline_mode_does_not_write_cache(monkeypatch, tmp_path):
 
     # Pre-populate cache
     pr_details = [_make_pr_detail(1)]
-    cache.write_pr_cache("org", "repo", pr_details)
-    path = cache.cache_path("org", "repo")
+    cache.write_pr_cache("org", "repo", pr_details, token="token-123")
+    path = cache.cache_path("org", "repo", token="token-123")
 
     # Change file contents and get timestamp
     data = json.loads(path.read_text())
@@ -5409,8 +5837,8 @@ def test_cli_offline_mode_mine_only_no_cached_login_warns(monkeypatch, tmp_path)
 
     # Pre-populate expired cache (no user.json — simulates first-time offline run)
     pr_details = [_make_pr_detail(1)]
-    cache.write_pr_cache("org", "repo", pr_details)
-    path = cache.cache_path("org", "repo")
+    cache.write_pr_cache("org", "repo", pr_details, token="token-123")
+    path = cache.cache_path("org", "repo", token="token-123")
     data = json.loads(path.read_text())
     old_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
     data["fetched_at"] = old_time
@@ -5424,8 +5852,11 @@ def test_cli_offline_mode_mine_only_no_cached_login_warns(monkeypatch, tmp_path)
 
     assert result.exit_code == 0
     assert "PR number 1" in result.stdout
-    assert "no cached login found" in result.stderr
-    assert "--mine-only / --needs-my-review skipped" in result.stderr
+    expected_msg = (
+        "--mine-only could not be applied because the current user login is not "
+        "cached; displaying all locally cached PRs."
+    )
+    assert expected_msg in result.stderr
 
 
 def test_cli_mine_only_online_persists_login(monkeypatch, tmp_path):
@@ -5471,7 +5902,7 @@ def test_cli_mine_only_online_persists_login(monkeypatch, tmp_path):
     result = runner.invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--mine-only"])
 
     assert result.exit_code == 0
-    assert cache.read_cached_user_login() == "alice"
+    assert cache.read_cached_user_login("token-123") == "alice"
 
 
 def test_cli_offline_mine_only_with_cached_login_filters(monkeypatch, tmp_path):
@@ -5483,11 +5914,11 @@ def test_cli_offline_mine_only_with_cached_login_filters(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
     monkeypatch.setattr(cli, "read_cached_user_login", cache.read_cached_user_login)
 
-    cache.write_cached_user_login("alice")
+    cache.write_cached_user_login("token-123", "alice")
 
     alice_pr = _make_pr_detail(1)  # default author is alice
     bob_pr = {**_make_pr_detail(2), "user": {"login": "bob"}}
-    cache.write_pr_cache("org", "repo", [alice_pr, bob_pr])
+    cache.write_pr_cache("org", "repo", [alice_pr, bob_pr], token="token-123")
 
     runner = CliRunner()
     result = runner.invoke(
@@ -5498,7 +5929,31 @@ def test_cli_offline_mine_only_with_cached_login_filters(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert "PR number 1" in result.stdout
     assert "PR number 2" not in result.stdout
-    assert "no cached login found" not in result.stderr
+    assert "could not be applied" not in result.stderr
+
+
+def test_cli_offline_mine_only_ignores_another_tokens_login(monkeypatch, tmp_path):
+    """After switching tokens, offline warns rather than filter as someone else."""
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "home-token")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
+    monkeypatch.setattr(cli, "read_cached_user_login", cache.read_cached_user_login)
+
+    cache.write_cached_user_login("work-token", "alice")
+    alice_pr = _make_pr_detail(1)
+    bob_pr = {**_make_pr_detail(2), "user": {"login": "bob"}}
+    cache.write_pr_cache("org", "repo", [alice_pr, bob_pr], token="home-token")
+
+    result = CliRunner().invoke(
+        cli.breakfast, ["-o", "org", "-r", "repo", "--offline", "--mine-only"]
+    )
+
+    assert result.exit_code == 0
+    assert "PR number 1" in result.stdout
+    assert "PR number 2" in result.stdout
+    assert "--mine-only could not be applied" in result.stderr
 
 
 def test_cli_offline_respects_no_age_flag(monkeypatch, tmp_path):
@@ -5510,9 +5965,9 @@ def test_cli_offline_respects_no_age_flag(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
 
     pr_details = [_make_pr_detail(1)]
-    cache.write_pr_cache("org", "repo", pr_details)
+    cache.write_pr_cache("org", "repo", pr_details, token="token-123")
 
-    path = cache.cache_path("org", "repo")
+    path = cache.cache_path("org", "repo", token="token-123")
     data = json.loads(path.read_text())
     old_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
     data["fetched_at"] = old_time
@@ -5538,9 +5993,9 @@ def test_cli_offline_respects_age_flag(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
 
     pr_details = [_make_pr_detail(1)]
-    cache.write_pr_cache("org", "repo", pr_details)
+    cache.write_pr_cache("org", "repo", pr_details, token="token-123")
 
-    path = cache.cache_path("org", "repo")
+    path = cache.cache_path("org", "repo", token="token-123")
     data = json.loads(path.read_text())
     old_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
     data["fetched_at"] = old_time
@@ -6598,7 +7053,9 @@ def test_include_archived_does_not_share_the_url_list_cache(monkeypatch, tmp_pat
     monkeypatch.setattr(cli, "read_graphql_cache", cache.read_graphql_cache)
     monkeypatch.setattr(cli, "write_graphql_cache", cache.write_graphql_cache)
     default_urls = ["https://github.com/org/repo/pull/99"]
-    cache.write_graphql_cache("org", "repo", default_urls)
+    cache.write_graphql_cache(
+        "org", "repo", default_urls, token=cli.SECRET_GITHUB_TOKEN
+    )
 
     result = CliRunner().invoke(
         cli.breakfast,
@@ -6607,7 +7064,10 @@ def test_include_archived_does_not_share_the_url_list_cache(monkeypatch, tmp_pat
 
     assert result.exit_code == 0
     assert seen == [True], "the default-mode URL list must not be reused"
-    assert cache.read_graphql_cache("org", "repo", 300) == default_urls
+    assert (
+        cache.read_graphql_cache("org", "repo", 300, token=cli.SECRET_GITHUB_TOKEN)
+        == default_urls
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -6823,7 +7283,12 @@ def test_cached_prs_missing_approvals_are_batched_too(monkeypatch, tmp_path):
     monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
-    cache.write_pr_cache("org", "repo", [_approval_pr(n) for n in (1, 2, 3)])
+    cache.write_pr_cache(
+        "org",
+        "repo",
+        [_approval_pr(n) for n in (1, 2, 3)],
+        token=cli.SECRET_GITHUB_TOKEN,
+    )
 
     result = CliRunner().invoke(
         cli.breakfast, ["-o", "org", "-r", "repo", "--approvals", "--cache"]
@@ -6929,7 +7394,12 @@ def test_the_check_lookups_announce_themselves_and_drip_progress(monkeypatch, tm
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
     monkeypatch.setattr(cli, "get_check_status", lambda *_args: "pass")
-    cache.write_pr_cache("org", "repo", [_approval_pr(n) for n in (1, 2, 3)])
+    cache.write_pr_cache(
+        "org",
+        "repo",
+        [_approval_pr(n) for n in (1, 2, 3)],
+        token=cli.SECRET_GITHUB_TOKEN,
+    )
 
     result = CliRunner().invoke(
         cli.breakfast, ["-o", "org", "-r", "repo", "--checks", "--cache"]
@@ -7009,7 +7479,12 @@ def test_the_check_phase_is_timed_in_the_log(monkeypatch, tmp_path, caplog):
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
     monkeypatch.setattr(cli, "get_check_status", lambda *_args: "pass")
-    cache.write_pr_cache("org", "repo", [_approval_pr(n) for n in (1, 2, 3)])
+    cache.write_pr_cache(
+        "org",
+        "repo",
+        [_approval_pr(n) for n in (1, 2, 3)],
+        token=cli.SECRET_GITHUB_TOKEN,
+    )
 
     with caplog.at_level("INFO", logger="breakfast"):
         result = CliRunner().invoke(
@@ -7092,7 +7567,12 @@ def test_every_cache_hit_phase_closes_its_progress_line(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "read_pr_cache", cache.read_pr_cache)
     monkeypatch.setattr(cli, "write_pr_cache", cache.write_pr_cache)
     monkeypatch.setattr(cli, "get_check_status", lambda *_args: "pass")
-    cache.write_pr_cache("org", "repo", [_approval_pr(n) for n in (1, 2, 3)])
+    cache.write_pr_cache(
+        "org",
+        "repo",
+        [_approval_pr(n) for n in (1, 2, 3)],
+        token=cli.SECRET_GITHUB_TOKEN,
+    )
 
     result = CliRunner().invoke(
         cli.breakfast,
@@ -7101,3 +7581,97 @@ def test_every_cache_hit_phase_closes_its_progress_line(monkeypatch, tmp_path):
 
     assert result.exit_code == 0, result.output
     assert _unclosed_progress_phases(result.stderr) == []
+
+
+# ---------------------------------------------------------------------------
+# The cache answers only for the token that wrote it (#523)
+# ---------------------------------------------------------------------------
+
+
+def _work_token_cached_a_pr(monkeypatch, tmp_path):
+    """Cache PR 1 under the work token, then switch the run to the home token."""
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    cache.write_pr_cache("org", "repo", [_make_pr_detail(1)], token="work-token")
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "home-token")
+
+
+def test_another_tokens_cache_is_never_served(monkeypatch, tmp_path):
+    _work_token_cached_a_pr(monkeypatch, tmp_path)
+    fetched = []
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: fetched.append(1) or [])
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--cache"])
+
+    assert result.exit_code == 0, result.output
+    assert fetched == [1], "the home token must fetch live, not reuse work's cache"
+    assert "PR number 1" not in result.stdout
+
+
+def test_offline_never_serves_another_tokens_cache(monkeypatch, tmp_path):
+    _work_token_cached_a_pr(monkeypatch, tmp_path)
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--offline"])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "no cached data was found" in result.stderr
+
+
+def test_rate_limit_never_falls_back_to_another_tokens_cache(monkeypatch, tmp_path):
+    _work_token_cached_a_pr(monkeypatch, tmp_path)
+
+    def rate_limited(*_args):
+        raise api.GitHubRateLimitError("2026-09-24 10:00:00")
+
+    monkeypatch.setattr(cli, "get_github_prs", rate_limited)
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo", "--cache"])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "no local cached data is available" in result.stderr
+
+
+def test_lost_connection_never_falls_back_to_another_tokens_cache(
+    monkeypatch, tmp_path
+):
+    _work_token_cached_a_pr(monkeypatch, tmp_path)
+
+    def lost_connection(*_args):
+        raise requests.exceptions.ConnectionError("Could not resolve host")
+
+    monkeypatch.setattr(cli, "get_github_prs", lost_connection)
+
+    result = CliRunner().invoke(cli.breakfast, ["-o", "org", "-r", "repo"])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "Couldn't reach GitHub" in result.stderr
+    assert "Offline Mode" not in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# One-time removal of the unscoped cache (#523)
+# ---------------------------------------------------------------------------
+
+
+def test_unscoped_cache_is_removed_once_with_a_warning(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SECRET_GITHUB_TOKEN", "token-123")
+    monkeypatch.setattr(cli, "BREAKFAST_ITEMS", ["*"])
+    monkeypatch.setattr(cli, "check_for_update", lambda **_kw: None)
+    monkeypatch.setattr(cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "get_github_prs", lambda *a: [])
+    legacy = tmp_path / "prs_0123456789abcdef.json"
+    legacy.write_text("{}")
+
+    first = CliRunner().invoke(cli.breakfast, ["-o", "org", "--no-cache", "--json"])
+    second = CliRunner().invoke(cli.breakfast, ["-o", "org", "--no-cache", "--json"])
+
+    assert first.exit_code == 0, first.output
+    assert not legacy.exists()
+    assert "Migrating the breakfast cache" in first.stderr
+    assert "Migrating" not in first.stdout
+    assert json.loads(first.stdout) == []
+    assert "Migrating" not in second.stderr

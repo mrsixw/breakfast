@@ -19,6 +19,7 @@ from .api import (
     GitHubGraphQLError,
     GitHubGraphQLResourceLimitError,
     GitHubRateLimitError,
+    GitHubSecondaryRateLimitError,
     OwnerNotFoundError,
     fetch_pr_detail,
     get_api_stats,
@@ -26,14 +27,15 @@ from .api import (
     get_authenticated_user_login,
     get_check_status,
     get_github_prs,
-    get_graphql_rate_limit,
     get_pr_age_days,
     get_review_data_batch,
     match_exclude_repos,
     pr_author,
+    reset_api_stats,
 )
 from .cache import (
     RepositoryNamesCache,
+    migrate_legacy_cache,
     parse_ttl,
     read_cached_user_login,
     read_graphql_cache,
@@ -139,6 +141,103 @@ def format_cache_age(age_seconds: float) -> str:
         return f"{int(age_seconds // 86400)} days ago"
 
 
+def _cache_age_seconds(cache_result: dict) -> float:
+    """Return the non-negative age of a full-cache result in seconds."""
+    fetched_at = datetime.fromisoformat(cache_result["fetched_at"])
+    return max(0, (datetime.now(timezone.utc) - fetched_at).total_seconds())
+
+
+def _rate_limit_api_name(exc: GitHubRateLimitError) -> str:
+    """Return a user-facing API name for a typed rate-limit error."""
+    return "GitHub GraphQL API" if exc.resource == "graphql" else "GitHub REST API"
+
+
+def _emit_rate_limit_cache_banner(
+    exc: GitHubRateLimitError,
+    cache_age_seconds: float,
+    *,
+    refresh_requested: bool,
+    colour: bool,
+) -> None:
+    """Explain that rate limiting forced a local-cache fallback."""
+    refresh_text = "Refresh could not be completed; " if refresh_requested else ""
+    message = (
+        f"🥞 {_rate_limit_api_name(exc)} rate limit exceeded; "
+        f"{refresh_text}displaying local cached data from "
+        f"{format_cache_age(cache_age_seconds)}."
+    )
+    if exc.reset_time:
+        message += f" Live GitHub data should be available after {exc.reset_time} UTC."
+    click.echo(
+        click.style(message, fg="yellow", bold=True),
+        err=True,
+        color=colour,
+    )
+
+
+def _announce_cache_migration(removed: int, *, colour: bool) -> None:
+    """Say, once, that the old shared cache was swept away (#523)."""
+    plural = "" if removed == 1 else "s"
+    message = (
+        "🧹🥞✨ Migrating the breakfast cache to a new schema! ✨🥞🧹\n"
+        "   🔐 Cached PRs are now kept separately for each GitHub token, so one "
+        "token can never be shown another's PRs.\n"
+        f"   🗑️  Cleared {removed} old cache file{plural}. Your next cached run "
+        "fetches fresh data, and this only happens once. 🍳🧇🎉"
+    )
+    click.echo(
+        click.style(message, fg="yellow", bold=True),
+        err=True,
+        color=colour,
+    )
+
+
+def _read_degraded_cache(
+    org_cache_key: str,
+    repo_cache_key: str,
+    cache_ttl_seconds: int,
+    *,
+    cache_enabled: bool,
+) -> dict | None:
+    """Return the latest full cache for degraded mode, including expired data."""
+    if not cache_enabled:
+        return None
+    return read_pr_cache(
+        org_cache_key,
+        repo_cache_key,
+        cache_ttl_seconds,
+        token=SECRET_GITHUB_TOKEN,
+        ignore_ttl=True,
+    )
+
+
+def _cached_status_maps(
+    pr_details: list,
+    cached_check_statuses: dict | None,
+    cached_approval_statuses: dict | None,
+    cached_approval_details: dict | None,
+    *,
+    checks: bool,
+    approvals: bool,
+) -> tuple[dict, dict, dict]:
+    """Build complete status maps from a coherent full-cache snapshot."""
+    check_statuses = dict(cached_check_statuses or {})
+    approval_statuses = dict(cached_approval_statuses or {})
+    approval_details = dict(cached_approval_details or {})
+
+    for pr_detail in pr_details:
+        pr_id = pr_detail["id"]
+        if checks:
+            check_statuses.setdefault(pr_id, "none")
+        if approvals:
+            approval_statuses.setdefault(pr_id, "pending")
+            approval_details.setdefault(
+                pr_id,
+                {"status": "pending", "current": 0, "required": None},
+            )
+    return check_statuses, approval_statuses, approval_details
+
+
 def _stdout_is_tty():
     return sys.stdout.isatty()
 
@@ -198,10 +297,24 @@ def _require_positive_int(value, key, colour):
     return parsed
 
 
-def _handle_rate_limit(exc, json_output=False):
+def _handle_rate_limit(exc, json_output=False, *, cache_unavailable=False):
     """Print a friendly rate-limit message and exit non-zero."""
+    if cache_unavailable:
+        message = (
+            f"🥞 {_rate_limit_api_name(exc)} rate limit exceeded and no local "
+            "cached data is available."
+        )
+        if exc.reset_time:
+            message += f" Try again after {exc.reset_time} UTC."
+        elif isinstance(exc, GitHubSecondaryRateLimitError):
+            # A secondary limit reports no reset time, so the generic note
+            # above would be the only thing the user saw. Pass on the advice
+            # the error itself carries instead.
+            message += f" {exc}"
+    else:
+        message = f"🥞 {exc}"
     click.echo(
-        click.style(f"🥞 {exc}", fg="red", bold=True),
+        click.style(message, fg="red", bold=True),
         err=True,
     )
     sys.exit(1)
@@ -217,9 +330,14 @@ def _handle_auth_error(exc, colour=None, json_output=False):
     sys.exit(1)
 
 
-def _print_debug_summary(t0, pr_count, api_stats, graphql_rate_limit):
-    from datetime import datetime, timezone
-
+def _print_debug_summary(
+    t0,
+    pr_count,
+    api_stats,
+    *,
+    cache_age_seconds=None,
+):
+    """Print request counts, captured rate limits, and the rendered data source."""
     elapsed = time.monotonic() - t0
     total_calls = api_stats["rest_calls"] + api_stats["graphql_calls"]
     lines = [
@@ -229,20 +347,41 @@ def _print_debug_summary(t0, pr_count, api_stats, graphql_rate_limit):
         f"  API calls:        {total_calls}"
         f" ({api_stats['rest_calls']} REST + {api_stats['graphql_calls']} GraphQL)",
     ]
-    remaining = api_stats.get("rest_rate_limit_remaining")
-    reset_ts = api_stats.get("rest_rate_limit_reset")
-    if remaining is not None:
-        lines.append(f"  REST rate limit:  {remaining} requests remaining")
-    if reset_ts is not None:
-        reset_dt = datetime.fromtimestamp(reset_ts, tz=timezone.utc)
-        lines.append(f"  REST rate resets: {reset_dt.strftime('%H:%M:%S UTC')}")
-    if graphql_rate_limit:
-        gql_remaining = graphql_rate_limit.get("remaining")
-        gql_reset = graphql_rate_limit.get("resetAt")
-        if gql_remaining is not None:
-            lines.append(f"  GQL rate limit:   {gql_remaining} points remaining")
-        if gql_reset:
-            lines.append(f"  GQL rate resets:  {gql_reset}")
+
+    for resource, label, unit in (
+        ("rest", "REST", "requests"),
+        ("graphql", "GQL", "points"),
+    ):
+        remaining = api_stats.get(f"{resource}_rate_limit_remaining")
+        exhausted = api_stats.get(f"{resource}_rate_limit_exhausted", False)
+        if exhausted and remaining:
+            # A secondary limit stops the run with budget still left.
+            lines.append(
+                f"  {label} rate limit:   throttled ({remaining} {unit} remaining)"
+            )
+        elif exhausted:
+            detail = (
+                f" ({remaining} {unit} remaining)"
+                if remaining is not None
+                else " (remaining unavailable)"
+            )
+            lines.append(f"  {label} rate limit:   exhausted{detail}")
+        elif remaining is not None:
+            lines.append(f"  {label} rate limit:   {remaining} {unit} remaining")
+        else:
+            lines.append(f"  {label} rate limit:   not reported this run")
+
+        reset_ts = api_stats.get(f"{resource}_rate_limit_reset")
+        if reset_ts is not None:
+            reset_dt = datetime.fromtimestamp(reset_ts, tz=timezone.utc)
+            lines.append(f"  {label} rate resets:  {reset_dt.strftime('%H:%M:%S UTC')}")
+
+    # Every path that serves the cache records its age; nothing else does.
+    if cache_age_seconds is None:
+        source_text = "live GitHub API"
+    else:
+        source_text = f"local cache ({format_cache_age(cache_age_seconds)})"
+    lines.append(f"  Data source:      {source_text}")
     click.echo("\n".join(lines), err=True)
 
 
@@ -254,6 +393,9 @@ def finish_run(
     show_update_summary,
     api_stats,
     colour,
+    # None means the data came live from GitHub; a number is the age of the
+    # cache that was served instead.
+    cache_age_seconds=None,
     pizza=False,
     cake=False,
 ):
@@ -298,7 +440,10 @@ def finish_run(
         )
     if api_stats:
         _print_debug_summary(
-            t0_total, pr_count, get_api_stats(), get_graphql_rate_limit()
+            t0_total,
+            pr_count,
+            get_api_stats(),
+            cache_age_seconds=cache_age_seconds,
         )
 
 
@@ -515,6 +660,9 @@ def _approval_details_for(pr_details, workers):
             pr_id = futures[future]
             try:
                 details[pr_id] = future.result()
+            except GitHubRateLimitError:
+                executor.shutdown(wait=False, cancel_futures=True)
+                raise
             except (ValueError, requests.exceptions.RequestException) as exc:
                 logger.warning(
                     "approval_status_fetch_failed pr_id=%s error=%r", pr_id, str(exc)
@@ -1071,6 +1219,7 @@ def breakfast(
     cake,
 ):
     t0_total = time.monotonic()
+    reset_api_stats()
     configure_logging()
 
     # This callback body *is* the program — without this guard, `breakfast
@@ -1481,20 +1630,12 @@ def breakfast(
         message = "GH_TOKEN or GITHUB_TOKEN not set in environment - exiting..."
         click.echo(click.style(message, fg="red", bold=True), err=True, color=colour)
         sys.exit(1)
-    current_user_login = None
-    if mine_only or needs_my_review:
-        if not offline:
-            try:
-                current_user_login = get_authenticated_user_login()
-                write_cached_user_login(current_user_login)
-            except GitHubAuthenticationError as exc:
-                _handle_auth_error(exc, colour=colour, json_output=json_output)
-            except GitHubRateLimitError as exc:
-                _handle_rate_limit(exc, json_output)
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-                pass
-        else:
-            current_user_login = read_cached_user_login()
+
+    # Before any cache read, so nothing unscoped can ever be served (#523).
+    removed_legacy_files = migrate_legacy_cache()
+    if removed_legacy_files:
+        _announce_cache_migration(removed_legacy_files, colour=colour)
+
     t_acquire = time.monotonic()
 
     # Cache key encodes each org with its effective scoped filter for determinism
@@ -1513,10 +1654,15 @@ def breakfast(
     cached_approval_details = None
     needs_cache_write = False
     offline_mode = False
+    cache_age_seconds = None
+    cache_result = None
 
     if offline:
-        cache_result = read_pr_cache(
-            org_cache_key, repo_cache_key, cache_ttl_seconds, ignore_ttl=True
+        cache_result = _read_degraded_cache(
+            org_cache_key,
+            repo_cache_key,
+            cache_ttl_seconds,
+            cache_enabled=True,
         )
         if cache_result is not None:
             pr_details = cache_result["prs"]
@@ -1525,10 +1671,7 @@ def breakfast(
             cached_approval_details = cache_result.get("approval_details")
             offline_mode = True
             no_update_check = True
-            fetched_at = datetime.fromisoformat(cache_result["fetched_at"])
-            cache_age_seconds = (
-                datetime.now(timezone.utc) - fetched_at
-            ).total_seconds()
+            cache_age_seconds = _cache_age_seconds(cache_result)
             formatted_age = format_cache_age(cache_age_seconds)
             click.echo(
                 click.style(
@@ -1552,12 +1695,18 @@ def breakfast(
             sys.exit(1)
 
     if pr_details is None and cache_enabled and not refresh and not refresh_prs:
-        cache_result = read_pr_cache(org_cache_key, repo_cache_key, cache_ttl_seconds)
+        cache_result = read_pr_cache(
+            org_cache_key,
+            repo_cache_key,
+            cache_ttl_seconds,
+            token=SECRET_GITHUB_TOKEN,
+        )
         if cache_result is not None:
             pr_details = cache_result["prs"]
             cached_check_statuses = cache_result["check_statuses"]
             cached_approval_statuses = cache_result["approval_statuses"]
             cached_approval_details = cache_result.get("approval_details")
+            cache_age_seconds = _cache_age_seconds(cache_result)
 
     # Resolve implied flags before fetch so bundle knows what to fetch per PR.
     if filter_check:
@@ -1565,365 +1714,444 @@ def breakfast(
     if filter_approval:
         approvals = True
 
-    check_statuses = {}
-    approval_statuses = {}
-    approval_details = {}
-    statuses_from_bundle = False
-
-    if pr_details is None:
-        try:
-            # --- Layer 2: GraphQL URL list cache (skip only on --refresh) ---
-            prs = None
-            if cache_enabled and not refresh:
-                prs = read_graphql_cache(
-                    org_cache_key, repo_cache_key, cache_ttl_seconds
-                )
-
-            if prs is None:
-                prs = []
-                names_cache = (
-                    RepositoryNamesCache(refresh=refresh) if cache_enabled else None
-                )
-                for org, scoped_filters in org_specs:
-                    effective_filters = (
-                        repo_filters if scoped_filters is None else scoped_filters
-                    )
-                    try:
-                        prs.extend(
-                            get_github_prs(
-                                org,
-                                effective_filters,
-                                fetch_state,
-                                include_archived,
-                                names_cache,
-                            )
-                        )
-                    except OwnerNotFoundError as exc:
-                        logger.warning(
-                            "graphql_owner_not_found owner=%s error=%r",
-                            org,
-                            str(exc),
-                        )
+    try:
+        current_user_login = None
+        if mine_only or needs_my_review:
+            # A live run always asks GitHub. The cached login, kept per token,
+            # is read only when GitHub cannot be asked: --offline, a lost
+            # connection, or a rate limit (in the fallback handler below).
+            if offline:
+                current_user_login = read_cached_user_login(SECRET_GITHUB_TOKEN)
+            else:
+                try:
+                    current_user_login = get_authenticated_user_login()
+                    # Written whatever --cache says: #334's point is that a later
+                    # offline run can read it, and that run is the one that turns
+                    # the cache on. Gating this on cache_enabled would mean the
+                    # login was never there to read.
+                    write_cached_user_login(SECRET_GITHUB_TOKEN, current_user_login)
+                except GitHubAuthenticationError as exc:
+                    _handle_auth_error(exc, colour=colour, json_output=json_output)
+                except (
+                    requests.exceptions.ConnectionError,
+                    requests.exceptions.Timeout,
+                ):
+                    if cache_result is not None:
+                        current_user_login = read_cached_user_login(SECRET_GITHUB_TOKEN)
+                        offline_mode = True
+                        no_update_check = True
+                        cache_age_seconds = _cache_age_seconds(cache_result)
                         click.echo(
                             click.style(
-                                f"🍳 Owner not found: '{org}' could not be "
-                                "resolved as a GitHub organization or user account."
-                                " Check the name and your token's access.",
-                                fg="red",
+                                "🔌 Offline Mode: Displaying cached data from "
+                                f"{format_cache_age(cache_age_seconds)}.",
+                                fg="yellow",
                                 bold=True,
                             ),
                             err=True,
                             color=colour,
                         )
-                        sys.exit(1)
-                # Deduplicate by URL
-                seen: set[str] = set()
-                unique_prs = []
-                for url in prs:
-                    if url not in seen:
-                        seen.add(url)
-                        unique_prs.append(url)
-                prs = unique_prs
-                if cache_enabled:
-                    write_graphql_cache(org_cache_key, repo_cache_key, prs)
-            else:
-                org_display = ", ".join(organizations)
-                click.echo(f"Fetching {org_display} PRs...⚡...Done", err=True)
 
-            if exclude_repos and prs:
-                prs = [
-                    url
-                    for url in prs
-                    if not match_exclude_repos(_extract_repo_name(url), exclude_repos)
-                ]
+        check_statuses = {}
+        approval_statuses = {}
+        approval_details = {}
+        statuses_from_bundle = False
 
-            # --- Layer 2.5: per-repo PR cache ---
-            urls_to_fetch = list(prs) if prs else []
-            repo_hit_prs: list = []
-            repo_hit_checks: dict = {}
-            repo_hit_approvals: dict = {}
-            repo_hit_approval_details: dict = {}
-
-            if cache_enabled and not refresh and not refresh_prs and prs:
-                repos_to_urls: dict[tuple[str, str], list[str]] = {}
-                for url in prs:
-                    parts = urlparse(url).path.strip("/").split("/")
-                    if len(parts) >= 4:
-                        repos_to_urls.setdefault((parts[0], parts[1]), []).append(url)
-
-                uncached_urls: list[str] = []
-                for (org_name, rname), repo_urls in repos_to_urls.items():
-                    cached = read_repo_pr_cache(org_name, rname, cache_ttl_seconds)
-                    if cached is None:
-                        uncached_urls.extend(repo_urls)
-                        continue
-
-                    # Reconcile the cached payload against the authoritative URL
-                    # list: serve only PRs still listed, and fetch any the cache
-                    # does not cover. Without this a PR closed since the cache
-                    # was written keeps appearing, and one opened since stays
-                    # invisible until the entry expires.
-                    wanted = set(repo_urls)
-                    kept = [pr for pr in cached["prs"] if pr.get("html_url") in wanted]
-                    covered = {pr.get("html_url") for pr in kept}
-                    uncached_urls.extend(u for u in repo_urls if u not in covered)
-
-                    repo_hit_prs.extend(kept)
-                    kept_ids = {pr["id"] for pr in kept if "id" in pr}
-                    for src, dest in (
-                        (cached["check_statuses"], repo_hit_checks),
-                        (cached["approval_statuses"], repo_hit_approvals),
-                        (cached["approval_details"], repo_hit_approval_details),
-                    ):
-                        if src:
-                            dest.update({k: v for k, v in src.items() if k in kept_ids})
-                urls_to_fetch = uncached_urls
-
-            pr_details = []
-            failed_urls = []
-            newly_fetched_by_repo: dict[str, dict] = {}
-            repo_display = ", ".join(repo_filters) if repo_filters else "all repos"
-            click.echo(f"Processing {repo_display} PRs...", nl=False, err=True)
-
-            if not urls_to_fetch and repo_hit_prs:
-                click.echo("⚡", nl=False, err=True)
-
-            if urls_to_fetch:
-                max_workers = min(workers, len(urls_to_fetch))
-                # One emoji per PR is good granularity until a single request
-                # stalls: by the end of a run only a few are still in flight.
-                # An error raised below is printed while the beat is still
-                # running, so it gets its own line first — a stray emoji
-                # beside a message is better than an unbounded silence.
-                with (
-                    progress_heartbeat(_show_progress, PROGRESS_HEARTBEAT_SECONDS),
-                    ThreadPoolExecutor(max_workers=max_workers) as executor,
-                ):
-                    future_to_url = {
-                        executor.submit(_fetch_pr_bundle, url, checks): url
-                        for url in urls_to_fetch
-                    }
-                    for future in as_completed(future_to_url):
-                        url = future_to_url[future]
-                        try:
-                            pr_detail, check_status = future.result()
-                            pr_details.append(pr_detail)
-                            rname = pr_detail["base"]["repo"]["name"]
-                            url_parts = urlparse(url).path.strip("/").split("/")
-                            org_name = url_parts[0] if len(url_parts) >= 2 else ""
-                            rd = newly_fetched_by_repo.setdefault(
-                                (org_name, rname),
-                                {
-                                    "prs": [],
-                                    "checks": {},
-                                    "approvals": {},
-                                    "approval_details": {},
-                                },
-                            )
-                            rd["prs"].append(pr_detail)
-                            if check_status is not None:
-                                check_statuses[pr_detail["id"]] = check_status
-                                rd["checks"][pr_detail["id"]] = check_status
-                            _show_progress()
-                        except GitHubAuthenticationError as exc:
-                            executor.shutdown(wait=False, cancel_futures=True)
-                            click.echo("", err=True)
-                            _handle_auth_error(
-                                exc, colour=colour, json_output=json_output
-                            )
-                        except GitHubRateLimitError as exc:
-                            click.echo("", err=True)
-                            _handle_rate_limit(exc, json_output)
-                        except requests.exceptions.RequestException as exc:
-                            logger.warning(
-                                "pr_detail_fetch_failed url=%s error=%r", url, str(exc)
-                            )
-                            failed_urls.append(url)
-
-            # Approvals for everything fetched above, in a few batched requests.
-            if approvals and pr_details:
-                # Every emoji up to here meant a PR detail. Approvals are a
-                # different kind of work and used to run with no label at all,
-                # while the cache-hit path below announced itself.
-                #
-                # Close the detail line before opening this one. #494 started
-                # it with a "\n", which ended the detail line with a bare
-                # newline and left the "...Done" after the cache writes to
-                # close *this* line instead — one terminator for two lines
-                # that each need one, so the detail phase looked unfinished.
-                # See issue #496.
-                click.echo("...Done", err=True)
-                click.echo("Fetching approvals...", nl=False, err=True)
-                t_approvals = time.monotonic()
-                with progress_heartbeat(_show_progress, PROGRESS_HEARTBEAT_SECONDS):
-                    fetched_approvals = _approval_details_for(pr_details, workers)
-                logger.info(
-                    "approvals_acquired pr_count=%d elapsed_ms=%d",
-                    len(pr_details),
-                    int((time.monotonic() - t_approvals) * 1000),
-                )
-                approval_details.update(fetched_approvals)
-                for pr_id, detail in fetched_approvals.items():
-                    approval_statuses[pr_id] = detail["status"]
-                for rdata in newly_fetched_by_repo.values():
-                    for pr in rdata["prs"]:
-                        detail = fetched_approvals[pr["id"]]
-                        rdata["approvals"][pr["id"]] = detail["status"]
-                        rdata["approval_details"][pr["id"]] = detail
-
-            # Write per-repo cache for repos fetched in this run
-            if cache_enabled and newly_fetched_by_repo:
-                for (org_name, rname), rdata in newly_fetched_by_repo.items():
-                    write_repo_pr_cache(
-                        org_name,
-                        rname,
-                        rdata["prs"],
-                        check_statuses=rdata["checks"] or None,
-                        approval_statuses=rdata["approvals"] or None,
-                        approval_details=rdata["approval_details"] or None,
+        if pr_details is None:
+            try:
+                # --- Layer 2: GraphQL URL list cache (skip only on --refresh) ---
+                prs = None
+                if cache_enabled and not refresh:
+                    prs = read_graphql_cache(
+                        org_cache_key,
+                        repo_cache_key,
+                        cache_ttl_seconds,
+                        token=SECRET_GITHUB_TOKEN,
                     )
 
-            # Merge per-repo cache hits into the main collections
-            pr_details.extend(repo_hit_prs)
-            check_statuses.update(repo_hit_checks)
-            approval_statuses.update(repo_hit_approvals)
-            approval_details.update(repo_hit_approval_details)
+                if prs is None:
+                    prs = []
+                    names_cache = (
+                        RepositoryNamesCache(token=SECRET_GITHUB_TOKEN, refresh=refresh)
+                        if cache_enabled
+                        else None
+                    )
+                    for org, scoped_filters in org_specs:
+                        effective_filters = (
+                            repo_filters if scoped_filters is None else scoped_filters
+                        )
+                        try:
+                            prs.extend(
+                                get_github_prs(
+                                    org,
+                                    effective_filters,
+                                    fetch_state,
+                                    include_archived,
+                                    names_cache,
+                                )
+                            )
+                        except OwnerNotFoundError as exc:
+                            logger.warning(
+                                "graphql_owner_not_found owner=%s error=%r",
+                                org,
+                                str(exc),
+                            )
+                            click.echo(
+                                click.style(
+                                    f"🍳 Owner not found: '{org}' could not be "
+                                    "resolved as a GitHub organization or user account."
+                                    " Check the name and your token's access.",
+                                    fg="red",
+                                    bold=True,
+                                ),
+                                err=True,
+                                color=colour,
+                            )
+                            sys.exit(1)
+                    # Deduplicate by URL
+                    seen: set[str] = set()
+                    unique_prs = []
+                    for url in prs:
+                        if url not in seen:
+                            seen.add(url)
+                            unique_prs.append(url)
+                    prs = unique_prs
+                    if cache_enabled:
+                        write_graphql_cache(
+                            org_cache_key,
+                            repo_cache_key,
+                            prs,
+                            token=SECRET_GITHUB_TOKEN,
+                        )
+                else:
+                    org_display = ", ".join(organizations)
+                    click.echo(f"Fetching {org_display} PRs...⚡...Done", err=True)
 
-            # When all PRs came from per-repo cache, use cached statuses path
-            statuses_from_bundle = bool(urls_to_fetch)
-            if not statuses_from_bundle and repo_hit_prs:
-                cached_check_statuses = repo_hit_checks or None
-                cached_approval_statuses = repo_hit_approvals or None
-                cached_approval_details = repo_hit_approval_details or None
+                if exclude_repos and prs:
+                    prs = [
+                        url
+                        for url in prs
+                        if not match_exclude_repos(
+                            _extract_repo_name(url), exclude_repos
+                        )
+                    ]
 
-            # Closes whichever line is still open: the approvals line when
-            # that phase ran, the PR detail line when it did not.
-            click.echo("...Done", err=True)
-            if failed_urls:
-                examples = ", ".join(failed_urls[:3])
-                suffix = " ..." if len(failed_urls) > 3 else ""
-                msg = (
-                    f"Warning: {len(failed_urls)} PR(s) could not be fetched"
-                    f" after retries: {examples}{suffix}"
-                )
-                click.echo(click.style(msg, fg="yellow"), err=True, color=colour)
-            if cache_enabled:
-                needs_cache_write = True
+                # --- Layer 2.5: per-repo PR cache ---
+                urls_to_fetch = list(prs) if prs else []
+                repo_hit_prs: list = []
+                repo_hit_checks: dict = {}
+                repo_hit_approvals: dict = {}
+                repo_hit_approval_details: dict = {}
 
-        except GitHubAuthenticationError as exc:
-            click.echo("", err=True)
-            _handle_auth_error(exc, colour=colour, json_output=json_output)
-        except GitHubRateLimitError as exc:
-            click.echo("", err=True)
-            _handle_rate_limit(exc, json_output)
-        except GitHubForbiddenError as exc:
-            click.echo("", err=True)
-            click.echo(
-                click.style(f"🥞 {exc}", fg="red", bold=True), err=True, color=colour
-            )
-            sys.exit(1)
-        except GitHubGraphQLResourceLimitError as exc:
-            logger.warning(
-                "graphql_resource_limit_unrecoverable error_count=%d errors=%s",
-                exc.error_count,
-                exc.summary,
-            )
-            # End the active fetch progress line before showing the error.
-            click.echo("", err=True)
-            msg = (
-                "🥞 GitHub couldn't return the PR list because the GraphQL query "
-                "exceeded resource limits. Try again or narrow the requested "
-                "repositories."
-            )
-            click.echo(click.style(msg, fg="red", bold=True), err=True, color=colour)
-            sys.exit(1)
-        except GitHubGraphQLError as exc:
-            logger.warning(
-                "graphql_request_failed error_count=%d errors=%s",
-                exc.error_count,
-                exc.summary,
-            )
-            click.echo("", err=True)
-            msg = f"🥞 GitHub couldn't complete the GraphQL request: {exc.summary}"
-            click.echo(click.style(msg, fg="red", bold=True), err=True, color=colour)
-            sys.exit(1)
-        except (
-            requests.exceptions.ConnectionError,
-            requests.exceptions.Timeout,
-        ) as exc:
-            # Fall back to expired cache
-            cache_result = read_pr_cache(
-                org_cache_key,
-                repo_cache_key,
-                cache_ttl_seconds,
-                ignore_ttl=True,
-            )
-            if cache_result is not None:
-                pr_details = cache_result["prs"]
-                cached_check_statuses = cache_result["check_statuses"]
-                cached_approval_statuses = cache_result["approval_statuses"]
-                cached_approval_details = cache_result.get("approval_details")
-                offline_mode = True
-                no_update_check = True
-                fetched_at = datetime.fromisoformat(cache_result["fetched_at"])
-                cache_age_seconds = (
-                    datetime.now(timezone.utc) - fetched_at
-                ).total_seconds()
-                formatted_age = format_cache_age(cache_age_seconds)
-                # Ensure we end the progress line if we started it
+                if cache_enabled and not refresh and not refresh_prs and prs:
+                    repos_to_urls: dict[tuple[str, str], list[str]] = {}
+                    for url in prs:
+                        parts = urlparse(url).path.strip("/").split("/")
+                        if len(parts) >= 4:
+                            repos_to_urls.setdefault((parts[0], parts[1]), []).append(
+                                url
+                            )
+
+                    uncached_urls: list[str] = []
+                    for (org_name, rname), repo_urls in repos_to_urls.items():
+                        cached = read_repo_pr_cache(
+                            org_name,
+                            rname,
+                            cache_ttl_seconds,
+                            token=SECRET_GITHUB_TOKEN,
+                        )
+                        if cached is None:
+                            uncached_urls.extend(repo_urls)
+                            continue
+
+                        # Reconcile the cached payload against the authoritative URL
+                        # list: serve only PRs still listed, and fetch any the cache
+                        # does not cover. Without this a PR closed since the cache
+                        # was written keeps appearing, and one opened since stays
+                        # invisible until the entry expires.
+                        wanted = set(repo_urls)
+                        kept = [
+                            pr for pr in cached["prs"] if pr.get("html_url") in wanted
+                        ]
+                        covered = {pr.get("html_url") for pr in kept}
+                        uncached_urls.extend(u for u in repo_urls if u not in covered)
+
+                        repo_hit_prs.extend(kept)
+                        kept_ids = {pr["id"] for pr in kept if "id" in pr}
+                        for src, dest in (
+                            (cached["check_statuses"], repo_hit_checks),
+                            (cached["approval_statuses"], repo_hit_approvals),
+                            (cached["approval_details"], repo_hit_approval_details),
+                        ):
+                            if src:
+                                dest.update(
+                                    {k: v for k, v in src.items() if k in kept_ids}
+                                )
+                    urls_to_fetch = uncached_urls
+
+                pr_details = []
+                failed_urls = []
+                newly_fetched_by_repo: dict[str, dict] = {}
+                repo_display = ", ".join(repo_filters) if repo_filters else "all repos"
+                click.echo(f"Processing {repo_display} PRs...", nl=False, err=True)
+
+                if not urls_to_fetch and repo_hit_prs:
+                    click.echo("⚡", nl=False, err=True)
+
+                if urls_to_fetch:
+                    max_workers = min(workers, len(urls_to_fetch))
+                    # One emoji per PR is good granularity until a single request
+                    # stalls: by the end of a run only a few are still in flight.
+                    # An error raised below is printed while the beat is still
+                    # running, so it gets its own line first — a stray emoji
+                    # beside a message is better than an unbounded silence.
+                    with (
+                        progress_heartbeat(_show_progress, PROGRESS_HEARTBEAT_SECONDS),
+                        ThreadPoolExecutor(max_workers=max_workers) as executor,
+                    ):
+                        future_to_url = {
+                            executor.submit(_fetch_pr_bundle, url, checks): url
+                            for url in urls_to_fetch
+                        }
+                        for future in as_completed(future_to_url):
+                            url = future_to_url[future]
+                            try:
+                                pr_detail, check_status = future.result()
+                                pr_details.append(pr_detail)
+                                rname = pr_detail["base"]["repo"]["name"]
+                                url_parts = urlparse(url).path.strip("/").split("/")
+                                org_name = url_parts[0] if len(url_parts) >= 2 else ""
+                                rd = newly_fetched_by_repo.setdefault(
+                                    (org_name, rname),
+                                    {
+                                        "prs": [],
+                                        "checks": {},
+                                        "approvals": {},
+                                        "approval_details": {},
+                                    },
+                                )
+                                rd["prs"].append(pr_detail)
+                                if check_status is not None:
+                                    check_statuses[pr_detail["id"]] = check_status
+                                    rd["checks"][pr_detail["id"]] = check_status
+                                _show_progress()
+                            except GitHubAuthenticationError as exc:
+                                executor.shutdown(wait=False, cancel_futures=True)
+                                click.echo("", err=True)
+                                _handle_auth_error(
+                                    exc, colour=colour, json_output=json_output
+                                )
+                            except GitHubRateLimitError:
+                                # api.py has already stopped every other request;
+                                # drop the queue and let the fallback handle it.
+                                executor.shutdown(wait=False, cancel_futures=True)
+                                raise
+                            except requests.exceptions.RequestException as exc:
+                                logger.warning(
+                                    "pr_detail_fetch_failed url=%s error=%r",
+                                    url,
+                                    str(exc),
+                                )
+                                failed_urls.append(url)
+
+                # Approvals for everything fetched above, in a few batched requests.
+                if approvals and pr_details:
+                    # Every emoji up to here meant a PR detail. Approvals are a
+                    # different kind of work and used to run with no label at all,
+                    # while the cache-hit path below announced itself.
+                    #
+                    # Close the detail line before opening this one. #494 started
+                    # it with a "\n", which ended the detail line with a bare
+                    # newline and left the "...Done" after the cache writes to
+                    # close *this* line instead — one terminator for two lines
+                    # that each need one, so the detail phase looked unfinished.
+                    # See issue #496.
+                    click.echo("...Done", err=True)
+                    click.echo("Fetching approvals...", nl=False, err=True)
+                    t_approvals = time.monotonic()
+                    with progress_heartbeat(_show_progress, PROGRESS_HEARTBEAT_SECONDS):
+                        fetched_approvals = _approval_details_for(pr_details, workers)
+                    logger.info(
+                        "approvals_acquired pr_count=%d elapsed_ms=%d",
+                        len(pr_details),
+                        int((time.monotonic() - t_approvals) * 1000),
+                    )
+                    approval_details.update(fetched_approvals)
+                    for pr_id, detail in fetched_approvals.items():
+                        approval_statuses[pr_id] = detail["status"]
+                    for rdata in newly_fetched_by_repo.values():
+                        for pr in rdata["prs"]:
+                            detail = fetched_approvals[pr["id"]]
+                            rdata["approvals"][pr["id"]] = detail["status"]
+                            rdata["approval_details"][pr["id"]] = detail
+
+                # Write per-repo cache for repos fetched in this run
+                if cache_enabled and newly_fetched_by_repo:
+                    for (org_name, rname), rdata in newly_fetched_by_repo.items():
+                        write_repo_pr_cache(
+                            org_name,
+                            rname,
+                            rdata["prs"],
+                            check_statuses=rdata["checks"] or None,
+                            approval_statuses=rdata["approvals"] or None,
+                            approval_details=rdata["approval_details"] or None,
+                            token=SECRET_GITHUB_TOKEN,
+                        )
+
+                # Merge per-repo cache hits into the main collections
+                pr_details.extend(repo_hit_prs)
+                check_statuses.update(repo_hit_checks)
+                approval_statuses.update(repo_hit_approvals)
+                approval_details.update(repo_hit_approval_details)
+
+                # When all PRs came from per-repo cache, use cached statuses path
+                statuses_from_bundle = bool(urls_to_fetch)
+                if not statuses_from_bundle and repo_hit_prs:
+                    cached_check_statuses = repo_hit_checks or None
+                    cached_approval_statuses = repo_hit_approvals or None
+                    cached_approval_details = repo_hit_approval_details or None
+
+                # Closes whichever line is still open: the approvals line when
+                # that phase ran, the PR detail line when it did not.
+                click.echo("...Done", err=True)
+                if failed_urls:
+                    examples = ", ".join(failed_urls[:3])
+                    suffix = " ..." if len(failed_urls) > 3 else ""
+                    msg = (
+                        f"Warning: {len(failed_urls)} PR(s) could not be fetched"
+                        f" after retries: {examples}{suffix}"
+                    )
+                    click.echo(click.style(msg, fg="yellow"), err=True, color=colour)
+                if cache_enabled:
+                    needs_cache_write = True
+
+            except GitHubAuthenticationError as exc:
+                click.echo("", err=True)
+                _handle_auth_error(exc, colour=colour, json_output=json_output)
+            except GitHubForbiddenError as exc:
                 click.echo("", err=True)
                 click.echo(
-                    click.style(
-                        "🔌 Offline Mode: Displaying cached data from "
-                        f"{formatted_age}.",
-                        fg="yellow",
-                        bold=True,
-                    ),
+                    click.style(f"🥞 {exc}", fg="red", bold=True),
                     err=True,
                     color=colour,
                 )
-            else:
-                logger.exception(
-                    "graphql_fetch_failed org_cache_key=%s error=%r",
-                    org_cache_key,
-                    str(exc),
+                sys.exit(1)
+            except GitHubGraphQLResourceLimitError as exc:
+                logger.warning(
+                    "graphql_resource_limit_unrecoverable error_count=%d errors=%s",
+                    exc.error_count,
+                    exc.summary,
                 )
+                # End the active fetch progress line before showing the error.
+                click.echo("", err=True)
                 msg = (
-                    "🥞 Couldn't reach GitHub — "
-                    "check your network connection and try again.\n"
-                    f"  ({type(exc).__name__}: {exc})"
+                    "🥞 GitHub couldn't return the PR list because the GraphQL query "
+                    "exceeded resource limits. Try again or narrow the requested "
+                    "repositories."
                 )
                 click.echo(
                     click.style(msg, fg="red", bold=True), err=True, color=colour
                 )
                 sys.exit(1)
-    else:
-        if not offline_mode:
-            repo_display = ", ".join(repo_filters) if repo_filters else "all repos"
-            click.echo(f"Processing {repo_display} PRs...⚡...Done", err=True)
-
-    # Fetch check statuses for cache-hit paths where statuses are absent.
-    # In the live-fetch path statuses are already populated by _fetch_pr_bundle.
-    if checks and pr_details and not statuses_from_bundle:
-        if cached_check_statuses is not None:
-            check_statuses = cached_check_statuses
-            # Ensure all PRs are in check_statuses
-            for pr_detail in pr_details:
-                if pr_detail["id"] not in check_statuses:
-                    check_statuses[pr_detail["id"]] = "none"
-        elif offline_mode:
-            # Skip fetching if offline
-            for pr_detail in pr_details:
-                check_statuses[pr_detail["id"]] = "none"
+            except GitHubGraphQLError as exc:
+                logger.warning(
+                    "graphql_request_failed error_count=%d errors=%s",
+                    exc.error_count,
+                    exc.summary,
+                )
+                click.echo("", err=True)
+                msg = f"🥞 GitHub couldn't complete the GraphQL request: {exc.summary}"
+                click.echo(
+                    click.style(msg, fg="red", bold=True), err=True, color=colour
+                )
+                sys.exit(1)
+            except GitHubRateLimitError:
+                # Handled by the single fallback below (#392); just end the open
+                # progress line first so its banner starts on a line of its own.
+                click.echo("", err=True)
+                raise
+            except (
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+            ) as exc:
+                # Fall back to expired cache
+                cache_result = _read_degraded_cache(
+                    org_cache_key,
+                    repo_cache_key,
+                    cache_ttl_seconds,
+                    cache_enabled=True,
+                )
+                if cache_result is not None:
+                    if (mine_only or needs_my_review) and current_user_login is None:
+                        current_user_login = read_cached_user_login(SECRET_GITHUB_TOKEN)
+                    pr_details = cache_result["prs"]
+                    cached_check_statuses = cache_result["check_statuses"]
+                    cached_approval_statuses = cache_result["approval_statuses"]
+                    cached_approval_details = cache_result.get("approval_details")
+                    check_statuses = {}
+                    approval_statuses = {}
+                    approval_details = {}
+                    statuses_from_bundle = False
+                    offline_mode = True
+                    no_update_check = True
+                    needs_cache_write = False
+                    cache_age_seconds = _cache_age_seconds(cache_result)
+                    formatted_age = format_cache_age(cache_age_seconds)
+                    # Ensure we end the progress line if we started it
+                    click.echo("", err=True)
+                    click.echo(
+                        click.style(
+                            "🔌 Offline Mode: Displaying cached data from "
+                            f"{formatted_age}.",
+                            fg="yellow",
+                            bold=True,
+                        ),
+                        err=True,
+                        color=colour,
+                    )
+                else:
+                    logger.exception(
+                        "graphql_fetch_failed org_cache_key=%s error=%r",
+                        org_cache_key,
+                        str(exc),
+                    )
+                    msg = (
+                        "🥞 Couldn't reach GitHub — "
+                        "check your network connection and try again.\n"
+                        f"  ({type(exc).__name__}: {exc})"
+                    )
+                    click.echo(
+                        click.style(msg, fg="red", bold=True), err=True, color=colour
+                    )
+                    sys.exit(1)
         else:
-            click.echo("Fetching checks...", nl=False, err=True)
-            t_checks = time.monotonic()
-            max_workers = min(workers, len(pr_details))
-            # As with approvals, results are collected inside the pool so each
-            # PR can be reported as it lands rather than after every request
-            # has already finished. See issue #493.
-            with progress_heartbeat(_show_progress, PROGRESS_HEARTBEAT_SECONDS):
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            if not offline_mode:
+                repo_display = ", ".join(repo_filters) if repo_filters else "all repos"
+                click.echo(f"Processing {repo_display} PRs...⚡...Done", err=True)
+
+        # Fetch check statuses for cache-hit paths where statuses are absent.
+        # In the live-fetch path they are already populated by _fetch_pr_bundle.
+        if checks and pr_details and not statuses_from_bundle:
+            if cached_check_statuses is not None or offline_mode:
+                check_statuses, _, _ = _cached_status_maps(
+                    pr_details,
+                    cached_check_statuses,
+                    None,
+                    None,
+                    checks=True,
+                    approvals=False,
+                )
+            else:
+                click.echo("Fetching checks...", nl=False, err=True)
+                t_checks = time.monotonic()
+                max_workers = min(workers, len(pr_details))
+                # As with approvals, results are collected inside the pool so
+                # each PR can be reported as it lands rather than after every
+                # request has already finished. See issue #493.
+                with (
+                    progress_heartbeat(_show_progress, PROGRESS_HEARTBEAT_SECONDS),
+                    ThreadPoolExecutor(max_workers=max_workers) as executor,
+                ):
                     check_futures = {}
                     for pr_detail in pr_details:
                         owner = pr_detail["base"]["repo"]["owner"]["login"]
@@ -1937,6 +2165,10 @@ def breakfast(
                         pr_id = check_futures[future]
                         try:
                             check_statuses[pr_id] = future.result()
+                        except GitHubRateLimitError:
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            click.echo("", err=True)
+                            raise
                         except (
                             KeyError,
                             ValueError,
@@ -1950,61 +2182,88 @@ def breakfast(
                             )
                             check_statuses[pr_id] = "none"
                         _show_progress()
-            click.echo("...Done", err=True)
-            logger.info(
-                "checks_acquired pr_count=%d elapsed_ms=%d",
-                len(pr_details),
-                int((time.monotonic() - t_checks) * 1000),
-            )
-            needs_cache_write = True
+                click.echo("...Done", err=True)
+                logger.info(
+                    "checks_acquired pr_count=%d elapsed_ms=%d",
+                    len(pr_details),
+                    int((time.monotonic() - t_checks) * 1000),
+                )
+                needs_cache_write = True
 
-    # Fetch approval statuses for cache-hit paths where statuses are absent.
-    # In the live-fetch path they were batched right after the fetch.
-    if approvals and pr_details and not statuses_from_bundle:
-        if cached_approval_statuses is not None and cached_approval_details is not None:
-            approval_statuses = cached_approval_statuses
-            approval_details = cached_approval_details
-            # Ensure all PRs are in approval_statuses and approval_details
-            for pr_detail in pr_details:
-                if pr_detail["id"] not in approval_statuses:
-                    approval_statuses[pr_detail["id"]] = "pending"
-                if pr_detail["id"] not in approval_details:
-                    approval_details[pr_detail["id"]] = {
-                        "status": "pending",
-                        "current": 0,
-                        "required": None,
-                    }
-        elif offline_mode:
-            # Skip fetching if offline
-            for pr_detail in pr_details:
-                approval_statuses[pr_detail["id"]] = "pending"
-                approval_details[pr_detail["id"]] = {
-                    "status": "pending",
-                    "current": 0,
-                    "required": None,
-                }
-        else:
-            click.echo("Fetching approvals...", nl=False, err=True)
-            t_approvals = time.monotonic()
-            try:
-                with progress_heartbeat(_show_progress, PROGRESS_HEARTBEAT_SECONDS):
-                    approval_details = _approval_details_for(pr_details, workers)
+        # Fetch approval statuses for cache-hit paths where statuses are absent.
+        if approvals and pr_details and not statuses_from_bundle:
+            if (
+                cached_approval_statuses is not None
+                and cached_approval_details is not None
+            ) or offline_mode:
+                _, approval_statuses, approval_details = _cached_status_maps(
+                    pr_details,
+                    None,
+                    cached_approval_statuses,
+                    cached_approval_details,
+                    checks=False,
+                    approvals=True,
+                )
+            else:
+                # Batched GraphQL, the same path the live fetch above uses.
+                click.echo("Fetching approvals...", nl=False, err=True)
+                t_approvals = time.monotonic()
+                try:
+                    with progress_heartbeat(_show_progress, PROGRESS_HEARTBEAT_SECONDS):
+                        approval_details = _approval_details_for(pr_details, workers)
+                except GitHubAuthenticationError as exc:
+                    click.echo("", err=True)
+                    _handle_auth_error(exc, colour=colour, json_output=json_output)
+                except GitHubRateLimitError:
+                    click.echo("", err=True)
+                    raise
                 click.echo("...Done", err=True)
                 logger.info(
                     "approvals_acquired pr_count=%d elapsed_ms=%d",
                     len(pr_details),
                     int((time.monotonic() - t_approvals) * 1000),
                 )
-            except GitHubAuthenticationError as exc:
-                click.echo("", err=True)
-                _handle_auth_error(exc, colour=colour, json_output=json_output)
-            except GitHubRateLimitError as exc:
-                click.echo("", err=True)
-                _handle_rate_limit(exc, json_output)
-            approval_statuses = {
-                pr_id: detail["status"] for pr_id, detail in approval_details.items()
-            }
-            needs_cache_write = True
+                approval_statuses = {
+                    pr_id: detail["status"]
+                    for pr_id, detail in approval_details.items()
+                }
+                needs_cache_write = True
+    except GitHubRateLimitError as exc:
+        # The one place a rate limit is handled (#392). Wherever it struck —
+        # the login lookup, PR discovery, PR details, checks or approvals —
+        # api.py has already stopped every other request, and the run now
+        # serves the last full cache instead, however old. Without a cache
+        # there is nothing to show, so it exits as it always did.
+        cache_result = _read_degraded_cache(
+            org_cache_key,
+            repo_cache_key,
+            cache_ttl_seconds,
+            cache_enabled=cache_enabled,
+        )
+        if cache_result is None:
+            _handle_rate_limit(exc, json_output, cache_unavailable=True)
+        if (mine_only or needs_my_review) and current_user_login is None:
+            current_user_login = read_cached_user_login(SECRET_GITHUB_TOKEN)
+        pr_details = cache_result["prs"]
+        check_statuses, approval_statuses, approval_details = _cached_status_maps(
+            pr_details,
+            cache_result["check_statuses"],
+            cache_result["approval_statuses"],
+            cache_result.get("approval_details"),
+            checks=checks,
+            approvals=approvals,
+        )
+        # Partial live results are discarded, never written over the cache.
+        needs_cache_write = False
+        offline_mode = True
+        no_update_check = True
+        cache_age_seconds = _cache_age_seconds(cache_result)
+        _emit_rate_limit_cache_banner(
+            exc,
+            cache_age_seconds,
+            refresh_requested=refresh or refresh_prs,
+            colour=colour,
+        )
 
     logger.info(
         "data_acquired pr_count=%d elapsed_ms=%d",
@@ -2020,16 +2279,24 @@ def breakfast(
             check_statuses=check_statuses or None,
             approval_statuses=approval_statuses or None,
             approval_details=approval_details or None,
+            token=SECRET_GITHUB_TOKEN,
         )
         if refresh or refresh_prs:
             click.echo("🔄 Cache refreshed.", err=True)
 
     if (mine_only or needs_my_review) and offline_mode and current_user_login is None:
+        identity_filters = " and ".join(
+            flag
+            for enabled, flag in (
+                (mine_only, "--mine-only"),
+                (needs_my_review, "--needs-my-review"),
+            )
+            if enabled
+        )
         click.echo(
             click.style(
-                "⚠️  Offline mode: no cached login found — "
-                "--mine-only / --needs-my-review skipped. "
-                "Run online once to cache your login.",
+                f"⚠️  {identity_filters} could not be applied because the current "
+                "user login is not cached; displaying all locally cached PRs.",
                 fg="yellow",
             ),
             err=True,
@@ -2118,6 +2385,7 @@ def breakfast(
             show_update_summary=show_update_summary,
             api_stats=api_stats,
             colour=colour,
+            cache_age_seconds=cache_age_seconds,
             pizza=pizza,
             cake=cake,
         )
@@ -2199,6 +2467,7 @@ def breakfast(
         show_update_summary=show_update_summary,
         api_stats=api_stats,
         colour=colour,
+        cache_age_seconds=cache_age_seconds,
         pizza=pizza,
         cake=cake,
     )

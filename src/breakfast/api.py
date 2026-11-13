@@ -5,8 +5,13 @@ import os
 import random
 import threading
 import time
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from concurrent.futures import (
+    FIRST_COMPLETED,
+    ThreadPoolExecutor,
+    wait,
+)
 from functools import lru_cache
+from http import HTTPStatus
 from urllib.parse import quote, urlparse
 
 import click
@@ -63,6 +68,7 @@ __all__ = [
     "make_paginated_github_api_request",
     "match_exclude_repos",
     "pr_author",
+    "reset_api_stats",
 ]
 
 
@@ -142,14 +148,17 @@ class GitHubGraphQLResourceLimitError(GitHubGraphQLError):
 
 
 class GitHubRateLimitError(Exception):
-    """Raised when the GitHub REST API rate limit is exhausted.
+    """Raised when a GitHub API rate limit is exhausted.
 
     Attributes:
-        reset_time: UTC datetime when the rate limit resets, or None if unknown.
+        reset_time: UTC time the limit resets, as text, or None if unknown.
+        resource: Which limit ran out, ``"rest"`` or ``"graphql"``. They are
+            separate budgets, so the user is told which one to wait for.
     """
 
-    def __init__(self, reset_time=None):
+    def __init__(self, reset_time=None, *, resource="rest"):
         self.reset_time = reset_time
+        self.resource = resource
         if reset_time:
             super().__init__(
                 f"GitHub API rate limit exceeded. Try again after {reset_time} UTC."
@@ -157,17 +166,31 @@ class GitHubRateLimitError(Exception):
         else:
             super().__init__("GitHub API rate limit exceeded.")
 
+    def copy(self):
+        """Return a new error for the same limit, to raise in another thread.
+
+        Raising one exception object from several threads at once would have
+        them all rewrite its ``__traceback__`` and ``__context__``.
+        """
+        return GitHubRateLimitError(self.reset_time, resource=self.resource)
+
 
 class GitHubSecondaryRateLimitError(GitHubRateLimitError):
     """Raised when GitHub's secondary rate limit outlasts every retry."""
 
     def __init__(self):
+        # Not super().__init__(): the parent builds its message out of a reset
+        # time this limit does not report.
         Exception.__init__(
             self,
             "GitHub's secondary rate limit is still in effect after retrying."
             " Wait a few minutes and try again.",
         )
         self.reset_time = None
+        self.resource = "graphql"
+
+    def copy(self):
+        return GitHubSecondaryRateLimitError()
 
 
 class GitHubForbiddenError(requests.exceptions.HTTPError):
@@ -219,18 +242,167 @@ class GitHubAuthenticationError(requests.exceptions.HTTPError):
 
 
 _api_stats_lock = threading.Lock()
-_api_stats = {
+_API_STATS_DEFAULTS = {
     "rest_calls": 0,
     "graphql_calls": 0,
     "rest_rate_limit_remaining": None,
     "rest_rate_limit_reset": None,
+    "rest_rate_limit_exhausted": False,
+    "graphql_rate_limit_remaining": None,
+    "graphql_rate_limit_reset": None,
+    "graphql_rate_limit_exhausted": False,
 }
+_api_stats = dict(_API_STATS_DEFAULTS)
+
+# The first rate limit this run hit, or None. Set by the first request to hit
+# one; every request checks it before sending and re-raises it instead. A rate
+# limit always ends the run's use of GitHub (the CLI falls back to the cache or
+# exits), so once it is set nothing else should go out: the requests would
+# fail, and their results would be discarded anyway. Raising a copy of the
+# limit itself, not a cancellation, means every worker reports a rate limit,
+# so no thread pool needs to tell "stopped" apart from "rate-limited". It is a
+# single reference that only ever goes from None to a rate limit, so it needs
+# no lock: two workers hitting a limit together may both write it, and either
+# limit is a true one to report.
+# reset_api_stats() clears it for the next run.
+_rate_limit_stop = None
 
 
 def get_api_stats():
-    """Return a snapshot of the current API call statistics."""
+    """Return a snapshot of API call counts and the last seen rate-limit info."""
     with _api_stats_lock:
         return dict(_api_stats)
+
+
+def reset_api_stats():
+    """Start a new run: zero the counters and clear the rate-limit stop."""
+    global _rate_limit_stop
+    with _api_stats_lock:
+        _api_stats.clear()
+        _api_stats.update(_API_STATS_DEFAULTS)
+    _rate_limit_stop = None
+
+
+def _raise_if_rate_limited():
+    """Refuse to send a request once any request in this run hit a limit."""
+    if _rate_limit_stop is not None:
+        raise _rate_limit_stop.copy()
+
+
+def _record_api_attempt(resource):
+    """Count one attempted HTTP request for API diagnostics."""
+    with _api_stats_lock:
+        _api_stats[f"{resource}_calls"] += 1
+
+
+def _parse_int_header(headers, name):
+    """Return integer header *name*, or ``None`` when absent or invalid."""
+    try:
+        return int(headers[name])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _record_rate_limit_headers(resource, headers, *, exhausted=False):
+    """Record rate-limit response headers for REST or GraphQL diagnostics."""
+    remaining = _parse_int_header(headers, "X-RateLimit-Remaining")
+    reset_timestamp = _parse_int_header(headers, "X-RateLimit-Reset")
+    with _api_stats_lock:
+        if remaining is not None:
+            _api_stats[f"{resource}_rate_limit_remaining"] = remaining
+        if reset_timestamp is not None:
+            _api_stats[f"{resource}_rate_limit_reset"] = reset_timestamp
+        if exhausted or remaining == 0:
+            _api_stats[f"{resource}_rate_limit_exhausted"] = True
+
+
+_RATE_LIMIT_MESSAGES = (
+    "rate limit exceeded",
+    "exceeded a secondary rate limit",
+)
+
+
+def _payload_is_rate_limited(payload):
+    """Return whether a REST or GraphQL error body says the caller is throttled."""
+    if not isinstance(payload, dict):
+        return False
+    messages = [str(payload.get("message", ""))]
+    errors = payload.get("errors")
+    for error in errors if isinstance(errors, list) else []:
+        if isinstance(error, dict):
+            if str(error.get("type", "")).upper() == "RATE_LIMITED":
+                return True
+            messages.append(str(error.get("message", "")))
+        else:
+            messages.append(str(error))
+    text = " ".join(messages).lower()
+    return any(phrase in text for phrase in _RATE_LIMIT_MESSAGES)
+
+
+def _response_json_or_none(response):
+    """Return a response's JSON body, or None when it is not JSON."""
+    try:
+        return response.json()
+    except (AttributeError, ValueError, requests.exceptions.JSONDecodeError):
+        return None
+
+
+def _rate_limit_reset_time(headers):
+    """Return when the limit resets, as UTC text, or None if GitHub did not say.
+
+    Prefers the absolute ``X-RateLimit-Reset``; falls back to ``Retry-After``
+    seconds from now.
+    """
+    reset_timestamp = _parse_int_header(headers, "X-RateLimit-Reset")
+    if reset_timestamp is not None:
+        reset = datetime.datetime.fromtimestamp(
+            reset_timestamp, tz=datetime.timezone.utc
+        )
+    else:
+        retry_after = _parse_int_header(headers, "Retry-After")
+        if retry_after is None:
+            return None
+        reset = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
+            seconds=retry_after
+        )
+    return reset.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _rest_is_rate_limited(response):
+    """Whether a REST response is a rate limit, primary or secondary.
+
+    A 429 always is. A 403 is when the budget is spent, GitHub asked for a
+    pause, or the body says so; any other 403 is a permissions problem.
+    """
+    if response.status_code == HTTPStatus.TOO_MANY_REQUESTS:
+        return True
+    if response.status_code != HTTPStatus.FORBIDDEN:
+        return False
+    headers = response.headers
+    return (
+        _parse_int_header(headers, "X-RateLimit-Remaining") == 0
+        or "Retry-After" in headers
+        or _payload_is_rate_limited(_response_json_or_none(response))
+    )
+
+
+def _stop_for_rate_limit(resource, headers, error=None):
+    """Record a rate limit, stop every other request, and return the error.
+
+    The single place a rate limit is turned into an exception, so the stats,
+    the stop signal and the log line can never disagree. The caller raises the
+    return value.
+    """
+    global _rate_limit_stop
+    if error is None:
+        error = GitHubRateLimitError(_rate_limit_reset_time(headers), resource=resource)
+    _record_rate_limit_headers(resource, headers, exhausted=True)
+    if _rate_limit_stop is None:
+        _rate_limit_stop = error
+    logger.warning(
+        "api_call type=%s rate_limit_exceeded reset=%s", resource, error.reset_time
+    )
+    return error
 
 
 def get_graphql_rate_limit():
@@ -262,9 +434,13 @@ def make_github_api_request(query_string):
         if attempt:
             time.sleep(2 ** (attempt - 1) + random.uniform(0, 0.5))
         try:
+            _raise_if_rate_limited()
             t0 = time.monotonic()
+            _record_api_attempt("rest")
             req = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
             elapsed_ms = int((time.monotonic() - t0) * 1000)
+            response_headers = getattr(req, "headers", {})
+            _record_rate_limit_headers("rest", response_headers)
             if req.status_code in RETRY_STATUSES and attempt < MAX_RETRIES:
                 logger.debug(
                     "api_call type=rest url=%s status=%d"
@@ -285,22 +461,8 @@ def make_github_api_request(query_string):
                     token_var,
                 )
                 raise GitHubAuthenticationError(token_var=token_var, response=req)
-            if (
-                req.status_code == 403
-                and req.headers.get("X-RateLimit-Remaining") == "0"
-            ):
-                reset_ts = req.headers.get("X-RateLimit-Reset")
-                reset_time = None
-                if reset_ts:
-                    reset_time = datetime.datetime.fromtimestamp(
-                        int(reset_ts), tz=datetime.timezone.utc
-                    ).strftime("%Y-%m-%d %H:%M:%S")
-                logger.warning(
-                    "api_call type=rest url=%s rate_limit_exceeded reset=%s",
-                    url,
-                    reset_time,
-                )
-                raise GitHubRateLimitError(reset_time)
+            if _rest_is_rate_limited(req):
+                raise _stop_for_rate_limit("rest", response_headers)
             req.raise_for_status()
             logger.debug(
                 "api_call type=rest url=%s status=%d elapsed_ms=%d",
@@ -309,15 +471,6 @@ def make_github_api_request(query_string):
                 elapsed_ms,
             )
             result = req.json()
-            with _api_stats_lock:
-                _api_stats["rest_calls"] += 1
-                resp_headers = getattr(req, "headers", {})
-                remaining = resp_headers.get("X-RateLimit-Remaining")
-                reset_ts = resp_headers.get("X-RateLimit-Reset")
-                if remaining is not None:
-                    _api_stats["rest_rate_limit_remaining"] = int(remaining)
-                if reset_ts is not None:
-                    _api_stats["rest_rate_limit_reset"] = int(reset_ts)
             return result
         except (
             requests.exceptions.ChunkedEncodingError,
@@ -377,19 +530,6 @@ def _github_error_message(response):
     if isinstance(body, dict) and body.get("message"):
         return body["message"]
     return response.text.strip()
-
-
-def _primary_rate_limit_error(response):
-    """Return a rate-limit error if the response exhausted the primary limit."""
-    if response.headers.get("X-RateLimit-Remaining") != "0":
-        return None
-    reset_ts = response.headers.get("X-RateLimit-Reset")
-    reset_time = None
-    if reset_ts:
-        reset_time = datetime.datetime.fromtimestamp(
-            int(reset_ts), tz=datetime.timezone.utc
-        ).strftime("%Y-%m-%d %H:%M:%S")
-    return GitHubRateLimitError(reset_time)
 
 
 def _secondary_rate_limit_wait(response):
@@ -461,7 +601,9 @@ def make_github_graphql_request(query, variables=None):
         back_off = True
         _wait_for_slow_down()
         try:
+            _raise_if_rate_limited()
             t0 = time.monotonic()
+            _record_api_attempt("graphql")
             response = requests.post(
                 GITHUB_GRAPHQL_URL,
                 json=payload,
@@ -469,6 +611,8 @@ def make_github_graphql_request(query, variables=None):
                 timeout=REQUEST_TIMEOUT,
             )
             elapsed_ms = int((time.monotonic() - t0) * 1000)
+            response_headers = getattr(response, "headers", {})
+            _record_rate_limit_headers("graphql", response_headers)
             if response.status_code in RETRY_STATUSES and attempt < MAX_RETRIES:
                 logger.debug(
                     "api_call type=graphql status=%d elapsed_ms=%d attempt=%d retrying",
@@ -486,14 +630,13 @@ def make_github_graphql_request(query, variables=None):
                     token_var,
                 )
                 raise GitHubAuthenticationError(token_var=token_var, response=response)
-            if response.status_code in (403, 429):
-                primary = _primary_rate_limit_error(response)
-                if primary is not None:
-                    logger.warning(
-                        "api_call type=graphql rate_limit_exceeded reset=%s",
-                        primary.reset_time,
-                    )
-                    raise primary
+            if response.status_code in (
+                HTTPStatus.FORBIDDEN,
+                HTTPStatus.TOO_MANY_REQUESTS,
+            ):
+                # The primary budget is spent: no retry can help before reset.
+                if _parse_int_header(response_headers, "X-RateLimit-Remaining") == 0:
+                    raise _stop_for_rate_limit("graphql", response_headers)
                 wait = _secondary_rate_limit_wait(response)
                 if wait is None:
                     message = _github_error_message(response)
@@ -512,9 +655,15 @@ def make_github_graphql_request(query, variables=None):
                     wait,
                     attempt + 1,
                 )
-                started_pause = _slow_down_for(wait)
                 if attempt == MAX_RETRIES:
-                    raise GitHubSecondaryRateLimitError()
+                    # Out of retries is exhaustion too, so stop the other
+                    # workers exactly as the primary path does. It comes
+                    # before the pause: a pause started now would only keep
+                    # other workers asleep while the caller falls back.
+                    raise _stop_for_rate_limit(
+                        "graphql", response_headers, GitHubSecondaryRateLimitError()
+                    )
+                started_pause = _slow_down_for(wait)
                 if started_pause:
                     click.echo(
                         f"\n🐢 GitHub asked breakfast to slow down; waiting {wait}s...",
@@ -525,6 +674,9 @@ def make_github_graphql_request(query, variables=None):
                 continue
             response.raise_for_status()
             resp_json = response.json()
+            # GraphQL can report a spent budget in a 200 body.
+            if _payload_is_rate_limited(resp_json):
+                raise _stop_for_rate_limit("graphql", response_headers)
             if "errors" in resp_json:
                 errors = resp_json["errors"]
                 summary = _summarize_graphql_errors(errors)
@@ -549,8 +701,6 @@ def make_github_graphql_request(query, variables=None):
                 response.status_code,
                 elapsed_ms,
             )
-            with _api_stats_lock:
-                _api_stats["graphql_calls"] += 1
             return resp_json
         except (
             requests.exceptions.ChunkedEncodingError,

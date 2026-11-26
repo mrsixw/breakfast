@@ -1,4 +1,5 @@
 import re
+import tomllib
 
 from breakfast import config
 
@@ -1184,3 +1185,103 @@ def test_load_config_all_known_keys_no_warnings(monkeypatch, tmp_path):
     config.load_config()
     # Check that no unknown key warnings were emitted
     assert not any("Unknown config key" in w for w in warnings)
+
+
+# ---------------------------------------------------------------------------
+# Options and tables
+# ---------------------------------------------------------------------------
+
+#: An array of tables, which breakfast's columns setting accepts.
+COLUMNS_TABLES = (
+    '# my columns\n[[columns]]\nname = "repo"\n\n[[columns]]\nname = "title"\n'
+)
+
+
+def _update(tmp_path, monkeypatch, content):
+    """Run --update-config's update on *content*; return the file it leaves."""
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(content)
+    monkeypatch.setattr(config, "get_config_paths", lambda: [config_file])
+    assert config.update_config() is True
+    return config_file.read_text()
+
+
+def test_update_config_adds_options_above_the_first_table(tmp_path, monkeypatch):
+    """An option added below [[columns]] would belong to the last column."""
+    updated = _update(tmp_path, monkeypatch, f'owner = "my-org"\n\n{COLUMNS_TABLES}')
+    # The tables, with the comment above them, are still last and unchanged.
+    assert updated.endswith(COLUMNS_TABLES)
+    assert updated.index("# --- Added by --update-config") < updated.index("# my")
+    # Uncommented where it was put, an option is top level.
+    enabled = tomllib.loads(updated.replace("# workers = 64", "workers = 8"))
+    assert enabled["workers"] == 8
+    assert enabled["columns"] == [{"name": "repo"}, {"name": "title"}]
+    assert config.misplaced_settings(enabled) == []
+
+
+def test_new_options_go_above_a_heading_that_introduces_the_tables(
+    tmp_path, monkeypatch
+):
+    heading = "# -----------------\n# Columns\n# -----------------\n\n"
+    content = f'owner = "my-org"\n\n{heading}{COLUMNS_TABLES}'
+    updated = _update(tmp_path, monkeypatch, content)
+    assert updated.endswith(heading + COLUMNS_TABLES)
+
+
+def test_misplaced_settings_names_options_inside_any_table():
+    cfg = {
+        "owner": "my-org",
+        "columns": [
+            {"name": "repo"},
+            {"name": "title", "workers": 8, "label": ["bug"], "exclude-repos": []},
+        ],
+        "extra": {"checks": True},
+    }
+    assert config.misplaced_settings(cfg) == [
+        ("columns", "workers"),
+        ("columns", "label"),
+        ("columns", "exclude-repos"),
+        ("extra", "checks"),
+    ]
+
+
+def test_load_config_warns_about_an_option_inside_a_table(
+    monkeypatch, tmp_path, capsys
+):
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('[[columns]]\nname = "repo"\nworkers = 8\n')
+    monkeypatch.setattr(config, "get_config_paths", lambda: [cfg_file])
+    config.load_config()
+    out, err = capsys.readouterr()
+    assert "'workers' is inside [columns] in config.toml, so it has no effect" in err
+    assert "workers" not in out
+
+
+def test_a_boxed_heading_with_its_own_options_keeps_them_above_the_new_ones(
+    tmp_path, monkeypatch
+):
+    section = "# -----\n# Workers\n# -----\n\n# workers = 64\n\n"
+    updated = _update(tmp_path, monkeypatch, section + COLUMNS_TABLES)
+    assert updated.startswith(section + "# --- Added by --update-config")
+
+
+def test_a_taller_boxed_heading_moves_whole(tmp_path, monkeypatch):
+    heading = "# =====\n# Columns\n# set per column\n# =====\n\n"
+    content = f'owner = "my-org"\n\n{heading}{COLUMNS_TABLES}'
+    updated = _update(tmp_path, monkeypatch, content)
+    assert updated.endswith(heading + COLUMNS_TABLES)
+
+
+def test_a_second_update_adds_below_the_first_one(tmp_path, monkeypatch):
+    first = "# --- Added by --update-config (breakfast v1.0.0) on 2026-11-26 ---\n"
+    content = f'owner = "my-org"\n\n{first}\n# workers = 64\n\n{COLUMNS_TABLES}'
+    updated = _update(tmp_path, monkeypatch, content)
+    assert updated.index(first) < updated.index("# workers = 64")
+    assert updated.index("# workers = 64") < updated.rindex("# --- Added by")
+    assert updated.endswith(COLUMNS_TABLES)
+
+
+def test_a_nested_array_row_is_not_mistaken_for_a_table(tmp_path, monkeypatch):
+    content = 'owner = "my-org"\nmatrix = [\n  ["a", "b"],\n]\n'
+    updated = _update(tmp_path, monkeypatch, content)
+    assert updated.startswith(content)

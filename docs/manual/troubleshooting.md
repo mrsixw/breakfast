@@ -313,7 +313,7 @@ This indicates that your `breakfast.toml` (or `config.toml`) contains a key that
 
 - Double-check the option name against the default config template (which you can generate using `breakfast --init-config`).
 - If you made a typo, correct the key name in your configuration file.
-- If you have an outdated config file, you can run `breakfast --update-config` to append any missing options from the newest default template.
+- If you have an outdated config file, you can run `breakfast --update-config` to add any missing options from the newest default template. If your file has tables, such as `[[columns]]` entries, they go in above the first one: TOML reads every key after a table header as part of that table, so an option added below one would have no effect. breakfast warns about any option it finds inside a table.
 
 ## `Another breakfast shadows this install`
 
